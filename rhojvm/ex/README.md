@@ -1,0 +1,1 @@
+For testing, the rt.jar (located around wherever you jvm is located) is extracted so that the classes files can be loaded from. This is not committed.
