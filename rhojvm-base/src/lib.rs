@@ -775,7 +775,6 @@ impl ProgramInfo {
         &mut self,
         method_id: MethodId,
     ) -> Result<QueueAct, StepError> {
-        println!("Load method descriptor types");
         // Pre-ordering: Method
         if !self.methods.contains_key(&method_id) {
             self.queue
@@ -1055,7 +1054,6 @@ impl ProgramInfo {
         &mut self,
         method_id: MethodId,
     ) -> Result<QueueAct, VerifyMethodError> {
-        println!("verify method access flags");
         // Pre-ordering: Method
         if !self.methods.contains_key(&method_id) {
             self.queue
@@ -1220,17 +1218,15 @@ impl ProgramInfo {
                 // If there isn't, then it represents any exception and automatically passes
                 // these checks
                 if !exc.catch_type.is_zero() {
-                    let catch_type_id = {
-                        let catch_type = class_file
-                            .get_t(exc.catch_type)
-                            .ok_or(VerifyCodeExceptionError::InvalidCatchTypeIndex)?;
-                        let catch_type_name = class_file
-                            .get_text_t(catch_type.name_index)
-                            .ok_or(VerifyCodeExceptionError::InvalidCatchTypeNameIndex)?;
-                        self.class_names.gcid_from_str(catch_type_name)
-                    };
+                    let catch_type = class_file
+                        .get_t(exc.catch_type)
+                        .ok_or(VerifyCodeExceptionError::InvalidCatchTypeIndex)?;
+                    let catch_type_name = class_file
+                        .get_text_t(catch_type.name_index)
+                        .ok_or(VerifyCodeExceptionError::InvalidCatchTypeNameIndex)?;
+                    let catch_type_id = self.class_names.gcid_from_str(catch_type_name);
 
-                    if !self.helper_does_extend_class(catch_type_id, throwable_id)? {
+                    if !self.does_extend_class(catch_type_id, throwable_id)? {
                         return Err(VerifyCodeExceptionError::NonThrowableCatchType.into());
                     }
                 }
@@ -1254,11 +1250,16 @@ impl ProgramInfo {
 // === Helper ===
 impl ProgramInfo {
     /// Does not use the queue
-    fn helper_does_extend_class(
+    /// Note: includes itself
+    pub fn does_extend_class(
         &mut self,
         class_id: ClassId,
         desired_super_class_id: ClassId,
     ) -> Result<bool, StepError> {
+        if class_id == desired_super_class_id {
+            return Ok(true);
+        }
+
         let super_class_id = if let Some(class) = self.classes.get(&class_id) {
             class.super_id()
         } else if let Some(class_file) = self.class_files.get(&class_id) {
@@ -1290,7 +1291,7 @@ impl ProgramInfo {
             } else {
                 // Crawl further up the tree to see if it extends it
                 // Trees should be relatively small so doing recursion probably doesn't matter
-                self.helper_does_extend_class(super_class_id, desired_super_class_id)
+                self.does_extend_class(super_class_id, desired_super_class_id)
             }
         } else {
             // There was no super class id so we're done here
