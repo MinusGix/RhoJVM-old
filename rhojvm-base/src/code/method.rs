@@ -264,11 +264,31 @@ pub struct MethodDescriptor {
 }
 impl MethodDescriptor {
     #[must_use]
+    /// Construct a method descriptor that takes in the given parameters and potentially returns
+    /// some type
     pub fn new(parameters: Vec<DescriptorType>, return_type: Option<DescriptorType>) -> Self {
         Self {
             parameters,
             return_type,
         }
+    }
+
+    #[must_use]
+    /// Construct a [`MethodDescriptor`] that returns void
+    pub fn new_void(parameters: Vec<DescriptorType>) -> Self {
+        Self::new(parameters, None)
+    }
+
+    #[must_use]
+    /// Construct a [`MethodDescriptor`] that takes no parameters and returns void
+    pub fn new_empty() -> Self {
+        Self::new(Vec::new(), None)
+    }
+
+    #[must_use]
+    /// Construct a [`MethodDescriptor`] that takes no parameters and returns some type
+    pub fn new_ret(return_type: DescriptorType) -> Self {
+        Self::new(Vec::new(), Some(return_type))
     }
 
     #[must_use]
