@@ -757,7 +757,7 @@ define_instructions! {[
             index: ConstantPoolIndexRaw<FieldRefConstant>,
         ],
         pop: [],
-        push: [],
+        push: [/* TODO: */],
         exceptions: [
             /// If field lookup fails
             NoSuchFieldError,

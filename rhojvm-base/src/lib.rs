@@ -37,23 +37,15 @@ use code::{
     method::{self, DescriptorType, DescriptorTypeBasic, Method, MethodDescriptor},
     op_ex::InstructionParseError,
 };
-use command::{
-    ClassCommand, ClassFileCommand, Command, ForAllMethodsCb, LoadClassCb, LoadClassMultCb,
-    LoadMethodCodeCb, LoadMethodFromDescCb, LoadMethodFromIndexCb, MethodCodeCommand,
-    MethodCommand, ProgCb,
-};
 use id::{ClassFileId, ClassId, GeneralClassId, MethodId, PackageId};
 use package::Packages;
-use queue::Queue;
 
 use crate::code::{method::MethodOverride, CodeInfo};
 
 pub mod class;
 pub mod code;
-mod command;
 pub mod id;
 pub mod package;
-pub mod queue;
 pub mod util;
 
 // Note: Currently all of these errors use non_exhaustive, but in the future that may be removed
@@ -269,6 +261,69 @@ impl Default for Config {
 }
 
 __make_map!(pub Classes<ClassId, ClassVariant>);
+impl Classes {
+    fn register_array_class(&mut self, array_class: ArrayClass) {
+        self.insert(array_class.id(), ClassVariant::Array(array_class));
+    }
+
+    pub fn load_class(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        packages: &mut Packages,
+        class_file_id: ClassFileId,
+    ) -> Result<ClassId, StepError> {
+        if self.contains_key(&class_file_id) {
+            // It was already loaded
+            return Ok(class_file_id);
+        }
+
+        // Requires the class file to be loaded
+        if !class_files.contains_key(&class_file_id) {
+            class_files.load_by_class_path_id(class_directories, class_names, class_file_id)?;
+        }
+
+        let class_file = class_files.get(&class_file_id).unwrap();
+
+        let this_class_name = class_file
+            .get_this_class_name()
+            .map_err(LoadClassError::ClassFileIndex)?;
+        let super_class_name = class_file
+            .get_super_class_name()
+            .map_err(LoadClassError::ClassFileIndex)?;
+        let super_class_id = super_class_name.map(|x| class_names.gcid_from_str(x));
+
+        let package = {
+            let mut package = util::access_path_iter(this_class_name).peekable();
+            // TODO: Don't unwrap
+            let _class_name = package.next_back().unwrap();
+            let package = if package.peek().is_some() {
+                let package = packages.iter_parts_create_if_needed(package);
+                Some(package)
+            } else {
+                None
+            };
+
+            package
+        };
+
+        println!(
+            "== Loaded Class {:?} : {:?}",
+            this_class_name, super_class_name
+        );
+        let class = Class::new(
+            class_file_id,
+            super_class_id,
+            package,
+            class_file.methods().len(),
+        );
+
+        self.insert(class_file_id, ClassVariant::Class(class));
+
+        Ok(class_file_id)
+    }
+}
 __make_map!(pub Methods<MethodId, Method>);
 
 __make_map!(pub ClassNames<GeneralClassId, Vec<String>>);
@@ -316,7 +371,7 @@ impl ClassNames {
 
 __make_map!(pub ClassFiles<ClassFileId, ClassFileData>);
 impl ClassFiles {
-    fn load_by_class_path_iter<'a>(
+    pub fn load_by_class_path_iter<'a>(
         &mut self,
         class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
@@ -336,7 +391,7 @@ impl ClassFiles {
         Ok(class_file_id)
     }
 
-    fn load_by_class_path_slice<T: AsRef<str>>(
+    pub fn load_by_class_path_slice<T: AsRef<str>>(
         &mut self,
         class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
@@ -358,7 +413,7 @@ impl ClassFiles {
     }
 
     /// Note: the id should already be registered
-    fn load_by_class_path_id(
+    pub fn load_by_class_path_id(
         &mut self,
         class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
@@ -422,19 +477,10 @@ impl ClassFiles {
     }
 }
 
-// TODO: Should we implement clone?
-// The issue is that Queue doesn't implement Clone
-//   This is because of the Box'd function types it holds
-// we could implement Clone on them with the dyn-clone crate
-// or we could make so a cloned ProgramInfo clears the queue since it shouldn't
-// be required for safety
-// or we could do the above but use a custom function so that we don't have weird
-// clone behavior.
 pub struct ProgramInfo {
     pub class_directories: ClassDirectories,
     conf: Config,
     // == Data ==
-    pub queue: Queue,
     /// Stores a mapping of the general class id to the class access path
     /// this allows converting back to how it was before, which is needed to avoid random allocs
     /// since we can't put a borrow into a Command
@@ -450,14 +496,6 @@ impl ProgramInfo {
         Self {
             class_directories: ClassDirectories::default(),
             conf,
-            // We can't use a mspc channel because we want to insert at the start of the queue
-            // theoretically, that could be got around with an extra field that is
-            // process_field: [Option<Command>; 2]
-            // where the first command is processed then the second command if they exist
-            // and then the queue is re-entered
-            // but there doesn't seem to be much benefit to making this an mspc channel at the
-            // moment
-            queue: Queue::with_capacity(256),
             class_names: ClassNames::new(),
             class_files: ClassFiles::new(),
             packages: Packages::default(),
@@ -465,177 +503,28 @@ impl ProgramInfo {
             methods: Methods::new(),
         }
     }
-
-    #[must_use]
-    pub fn has_commands(&self) -> bool {
-        !self.queue.is_empty()
-    }
-
-    pub fn compute(&mut self) -> Result<(), StepError> {
-        while self.has_commands() {
-            self.process_step()?;
-        }
-
-        Ok(())
-    }
-
-    pub fn process_step(&mut self) -> Result<QueueAct, StepError> {
-        if let Some(cmd) = self.queue.pop() {
-            self.process_command(cmd)
-        } else {
-            Ok(QueueAct::EmptyQueue)
-        }
-    }
-
-    fn process_command(&mut self, command: Command) -> Result<QueueAct, StepError> {
-        match command {
-            Command::ClassFile(ClassFileCommand::LoadClassFile { id, rel_path }) => self
-                .class_files
-                .load_from_rel_path(&self.class_directories, id, rel_path)
-                .map_err(Into::into),
-            Command::Class(ClassCommand::LoadClassCb { class_file_id, cb }) => self
-                .process_load_class(class_file_id, cb)
-                .map_err(Into::into),
-            Command::Class(ClassCommand::LoadClass { class_file_id }) => self
-                .process_load_class(class_file_id, Box::new(|_, _| Ok(())))
-                .map_err(Into::into),
-            Command::Class(ClassCommand::RegisterArrayClass { array }) => {
-                self.classes.insert(array.id, ClassVariant::Array(array));
-                Ok(QueueAct::Done)
-            }
-            Command::Method(MethodCommand::LoadMethodFromId { method_id }) => self
-                .process_load_method_from_id(method_id)
-                .map_err(Into::into),
-            Command::Method(MethodCommand::LoadMethodFromIdCb { method_id, cb }) => self
-                .process_load_method_from_id_cb(method_id, cb)
-                .map_err(Into::into),
-            Command::Method(MethodCommand::LoadMethodFromDescCb {
-                class_id,
-                name,
-                desc,
-                cb,
-            }) => self
-                .process_load_method_from_desc_cb(class_id, name, desc, cb)
-                .map_err(Into::into),
-            Command::Method(MethodCommand::ForAllMethods { class_id, cb }) => {
-                self.process_for_all_methods(class_id, cb)
-            }
-            Command::Class(ClassCommand::LoadSuperClassesCb {
-                class_id,
-                entry_cb,
-                done_cb,
-            }) => self.process_load_super_classes_cb(class_id, entry_cb, done_cb),
-            Command::Method(MethodCommand::InitMethodOverrides { method_id }) => {
-                self.process_init_method_overrides(method_id)
-            }
-            Command::Method(MethodCommand::Code(MethodCodeCommand::LoadMethodCodeCb {
-                method_id,
-                cb,
-            })) => self.process_load_method_code(method_id, cb),
-            Command::Method(MethodCommand::VerifyMethodAccessFlags { method_id }) => self
-                .process_verify_method_access_flags(method_id)
-                .map_err(Into::into),
-            Command::Method(MethodCommand::Code(MethodCodeCommand::VerifyCodeExceptions {
-                method_id,
-            })) => self.process_verify_code_exceptions(method_id),
-            Command::Method(MethodCommand::LoadMethodDescriptorTypes { method_id }) => {
-                self.process_load_method_descriptor_types(method_id)
-            }
-            Command::DoMut { cb } => {
-                cb(self)?;
-                Ok(QueueAct::Done)
-            }
-        }
-    }
 }
 
 // === Processing ===
 impl ProgramInfo {
-    /// Assumes that class file id exists
-    fn process_load_class(
-        &mut self,
-        class_file_id: ClassFileId,
-        cb: LoadClassCb,
-    ) -> Result<QueueAct, StepError> {
-        if self.classes.contains_key(&class_file_id) {
-            cb(self, class_file_id)?;
-            // It was already loaded
-            return Ok(QueueAct::None);
-        }
-
-        // Pre-ordering: Requires the class file to be laoded
-        if !self.class_files.contains_key(&class_file_id) {
-            self.class_files.load_by_class_path_id(
-                &self.class_directories,
-                &mut self.class_names,
-                class_file_id,
-            )?;
-        }
-
-        let class_file = self.class_files.get(&class_file_id).unwrap();
-
-        let this_class_name = class_file
-            .get_this_class_name()
-            .map_err(LoadClassError::ClassFileIndex)?;
-        let super_class_name = class_file
-            .get_super_class_name()
-            .map_err(LoadClassError::ClassFileIndex)?;
-        let super_class_id = super_class_name.map(|x| self.class_names.gcid_from_str(x));
-
-        let package = {
-            let mut package = util::access_path_iter(this_class_name).peekable();
-            // TODO: Don't unwrap
-            let _class_name = package.next_back().unwrap();
-            let package = if package.peek().is_some() {
-                let package = self.packages.iter_parts_create_if_needed(package);
-                Some(package)
-            } else {
-                None
-            };
-
-            package
-        };
-
-        println!(
-            "== Loaded Class {:?} : {:?}",
-            this_class_name, super_class_name
-        );
-        let class = Class::new(
-            class_file_id,
-            super_class_id,
-            package,
-            class_file.methods().len(),
-        );
-
-        self.classes
-            .insert(class_file_id, ClassVariant::Class(class));
-        cb(self, class_file_id)?;
-
-        Ok(QueueAct::Done)
+    pub fn load_super_classes(&mut self, class_id: ClassId) -> Result<(), StepError> {
+        self.load_super_classes_cb(class_id, |_, _| Ok(()))
     }
 
     // TODO: Should we verify that they're accessible here, or in another command?
     // TODO: technically for the tree, we only need the super class files
-    fn process_load_super_classes_cb(
+    pub fn load_super_classes_cb<E: Fn(&mut ProgramInfo, ClassId) -> Result<(), StepError>>(
         &mut self,
         class_id: ClassId,
-        entry_cb: LoadClassMultCb,
-        done_cb: ProgCb,
-    ) -> Result<QueueAct, StepError> {
-        // Pre-ordering: Requires the class to get the super class id
-        if !self.classes.contains_key(&class_id) {
-            self.queue.pre_push(ClassCommand::LoadSuperClassesCb {
-                class_id,
-                entry_cb,
-                done_cb,
-            });
-            self.queue.pre_push(ClassCommand::LoadClass {
-                // They are equivalent
-                class_file_id: class_id,
-            });
-
-            return Ok(QueueAct::Reorder);
-        }
+        entry_cb: E,
+    ) -> Result<(), StepError> {
+        self.classes.load_class(
+            &self.class_directories,
+            &mut self.class_names,
+            &mut self.class_files,
+            &mut self.packages,
+            class_id,
+        )?;
 
         let class = self
             .classes
@@ -645,50 +534,26 @@ impl ProgramInfo {
             .ok_or(StepError::ExpectedNonArrayClass)?;
 
         if let Some(super_class_id) = class.super_class {
-            // TODO: This requires an alloc when it seems feasible to avoid them
-            self.queue
-                .q_load_class_by_class_file_id_cb(super_class_id, move |prog, class_id| {
-                    entry_cb(prog, class_id)?;
-                    prog.queue.push(ClassCommand::LoadSuperClassesCb {
-                        class_id,
-                        entry_cb,
-                        done_cb,
-                    });
-                    Ok(())
-                });
-        } else {
-            done_cb(self)?;
+            self.load_super_classes_cb(super_class_id, entry_cb)?;
         }
 
-        Ok(QueueAct::Done)
+        Ok(())
     }
 
-    pub fn process_load_method_from_id(&mut self, id: MethodId) -> Result<QueueAct, StepError> {
-        self.process_load_method_from_id_cb(id, Box::new(|_, _| Ok(())))
-    }
-
-    pub fn process_load_method_from_id_cb(
-        &mut self,
-        method_id: MethodId,
-        cb: LoadMethodFromIndexCb,
-    ) -> Result<QueueAct, StepError> {
+    pub fn load_method_from_id(&mut self, method_id: MethodId) -> Result<(), StepError> {
         if self.methods.contains_key(&method_id) {
             // It is already loaded
-            cb(self, method_id)?;
-            return Ok(QueueAct::None);
+            return Ok(());
         }
 
         let (class_id, index) = method_id.decompose();
-        if !self.classes.contains_key(&class_id) {
-            self.queue
-                .pre_push(MethodCommand::LoadMethodFromId { method_id });
-            self.queue.pre_push(ClassCommand::LoadClass {
-                // They are equivalent
-                class_file_id: class_id,
-            });
-
-            return Ok(QueueAct::Reorder);
-        }
+        self.classes.load_class(
+            &self.class_directories,
+            &mut self.class_names,
+            &mut self.class_files,
+            &mut self.packages,
+            class_id,
+        )?;
 
         // Since we have the class, we should also have the class file
         let class_file = self.class_files.get(&class_id).unwrap();
@@ -699,30 +564,22 @@ impl ProgramInfo {
         let method = Method::new_from_info(method_id, class_file, &mut self.class_names, method)?;
 
         self.methods.insert(method_id, method);
-        cb(self, method_id)?;
-        Ok(QueueAct::Done)
+        Ok(())
     }
 
-    fn process_load_method_from_desc_cb(
+    pub fn load_method_from_desc(
         &mut self,
         class_id: ClassId,
         name: Cow<'static, str>,
-        desc: MethodDescriptor,
-        cb: LoadMethodFromDescCb,
-    ) -> Result<QueueAct, StepError> {
-        if !self.classes.contains_key(&class_id) {
-            self.queue.pre_push(MethodCommand::LoadMethodFromDescCb {
-                class_id,
-                name,
-                desc,
-                cb,
-            });
-            self.queue.pre_push(ClassCommand::LoadClass {
-                class_file_id: class_id,
-            });
-
-            return Ok(QueueAct::Reorder);
-        }
+        desc: &MethodDescriptor,
+    ) -> Result<MethodId, StepError> {
+        self.classes.load_class(
+            &self.class_directories,
+            &mut self.class_names,
+            &mut self.class_files,
+            &mut self.packages,
+            class_id,
+        )?;
 
         let class_file = self.class_files.get(&class_id).unwrap();
         let method = class_file
@@ -743,15 +600,14 @@ impl ProgramInfo {
                 let x_desc = MethodDescriptor::from_text(descriptor_text, &mut self.class_names)
                     .map_err(LoadMethodError::MethodDescriptorError)
                     .unwrap();
-                desc == x_desc
+                desc == &x_desc
             });
         if let Some((method_index, method)) = method {
             let method_id = MethodId::unchecked_compose(class_file.id, method_index);
 
             if self.methods.contains_key(&method_id) {
                 // It was already loaded
-                cb(self, method_id)?;
-                return Ok(QueueAct::Done);
+                return Ok(method_id);
             }
 
             // TODO: We could move the descriptor since we know it is correct
@@ -764,67 +620,55 @@ impl ProgramInfo {
             )?;
 
             self.methods.insert(method_id, method);
-            cb(self, method_id)?;
-            Ok(QueueAct::Done)
+            Ok(method_id)
         } else {
             Err(LoadMethodError::NonexistentMethodName { class_id, name }.into())
         }
     }
 
-    fn process_load_method_descriptor_types(
-        &mut self,
-        method_id: MethodId,
-    ) -> Result<QueueAct, StepError> {
+    pub fn load_method_descriptor_types(&mut self, method_id: MethodId) -> Result<(), StepError> {
         // Pre-ordering: Method
-        if !self.methods.contains_key(&method_id) {
-            self.queue
-                .pre_push(MethodCommand::LoadMethodDescriptorTypes { method_id });
-            self.queue
-                .pre_push(MethodCommand::LoadMethodFromId { method_id });
-            return Ok(QueueAct::Reorder);
-        }
-
+        self.load_method_from_id(method_id)?;
         let method = self.methods.get(&method_id).unwrap();
 
-        for parameter_type in method.descriptor().parameters().iter() {
+        for parameter_type in method.descriptor().parameters().iter().cloned() {
             load_descriptor_type(
+                &mut self.classes,
                 &self.class_directories,
                 &mut self.class_names,
                 &mut self.class_files,
-                &mut self.queue,
+                &mut self.packages,
                 parameter_type,
             )?;
         }
 
-        if let Some(return_type) = method.descriptor().return_type() {
+        if let Some(return_type) = method.descriptor().return_type().cloned() {
             load_descriptor_type(
+                &mut self.classes,
                 &self.class_directories,
                 &mut self.class_names,
                 &mut self.class_files,
-                &mut self.queue,
+                &mut self.packages,
                 return_type,
             )?;
         }
 
-        Ok(QueueAct::Done)
+        Ok(())
     }
 
-    fn process_for_all_methods(
+    pub fn for_all_methods<F: Fn(&mut ProgramInfo, MethodId) -> Result<(), StepError>>(
         &mut self,
         class_id: ClassId,
-        cb: ForAllMethodsCb,
-    ) -> Result<QueueAct, StepError> {
+        cb: F,
+    ) -> Result<(), StepError> {
         // TODO: Technically we only need the class file
-        // Pre-ordering: The class that contains the method
-        if !self.classes.contains_key(&class_id) {
-            self.queue
-                .pre_push(MethodCommand::ForAllMethods { class_id, cb });
-            self.queue.pre_push(ClassCommand::LoadClass {
-                class_file_id: class_id,
-            });
-
-            return Ok(QueueAct::Reorder);
-        }
+        self.classes.load_class(
+            &self.class_directories,
+            &mut self.class_names,
+            &mut self.class_files,
+            &mut self.packages,
+            class_id,
+        )?;
 
         let class = self.classes.get(&class_id).unwrap();
         let len_method_idx = match class {
@@ -836,25 +680,11 @@ impl ProgramInfo {
             cb(self, MethodId::unchecked_compose(class_id, i))?;
         }
 
-        Ok(QueueAct::Done)
+        Ok(())
     }
 
-    /// This should never be ran in the back queue due to it using the back queue itself.
-    /// This should be easily avoidable as long as we don't add a method which causes this to
-    /// be queued into the back queue.
-    fn process_init_method_overrides(
-        &mut self,
-        method_id: MethodId,
-    ) -> Result<QueueAct, StepError> {
-        debug_assert!(!self.queue.is_back());
-
-        if !self.methods.contains_key(&method_id) {
-            self.queue
-                .pre_push(MethodCommand::InitMethodOverrides { method_id });
-            self.queue
-                .pre_push(MethodCommand::LoadMethodFromId { method_id });
-            return Ok(QueueAct::Reorder);
-        }
+    pub fn init_method_overrides(&mut self, method_id: MethodId) -> Result<(), StepError> {
+        self.load_method_from_id(method_id)?;
 
         let (class_id, _) = method_id.decompose();
         // It should have both the class and method
@@ -865,7 +695,7 @@ impl ProgramInfo {
             // TODO: There might be one override on them? But if we implement this well,
             // we probably don't need to compute overrides for them anyway.
             eprintln!("Skipped trying to find overrides for an array class");
-            return Ok(QueueAct::Done);
+            return Ok(());
         };
         let package = class.package;
 
@@ -873,22 +703,20 @@ impl ProgramInfo {
 
         // We have already collected the overrides.
         if method.overrides.is_some() {
-            return Ok(QueueAct::Done);
+            return Ok(());
         }
 
         let access_flags = method.access_flags;
         // Only some methods can override at all.
         if !method::can_method_override(access_flags) {
-            return Ok(QueueAct::Done);
+            return Ok(());
         }
 
         let overrides = {
             if let Some(super_class_file_id) = class.super_class {
-                if let Some(overridden) = self.process_helper_get_overrided_method(
-                    super_class_file_id,
-                    package,
-                    method_id,
-                )? {
+                if let Some(overridden) =
+                    self.helper_get_overrided_method(super_class_file_id, package, method_id)?
+                {
                     vec![MethodOverride::new(overridden)]
                 } else {
                     Vec::new()
@@ -905,16 +733,14 @@ impl ProgramInfo {
             .methods
             .get_mut(&method_id)
             .ok_or(StepError::MissingLoadedValue(
-                "process_init_method_overrides : method (post)",
+                "init_method_overrides : method (post)",
             ))?;
         method.overrides = Some(overrides);
 
-        Ok(QueueAct::Done)
+        Ok(())
     }
 
-    /// This should never be ran in the back queue due to it using the back queue itself.
-    /// `over_method` should already be loaded.
-    fn process_helper_get_overrided_method(
+    fn helper_get_overrided_method(
         &mut self,
         super_class_file_id: ClassFileId,
         over_package: Option<PackageId>,
@@ -926,7 +752,7 @@ impl ProgramInfo {
             self.classes
                 .get(&super_class_file_id)
                 .ok_or(StepError::MissingLoadedValue(
-                    "process_helper_get_overrided_method : super_class",
+                    "helper_get_overrided_method : super_class",
                 ))?;
         let super_class = if let ClassVariant::Class(super_class) = super_class {
             super_class
@@ -941,13 +767,13 @@ impl ProgramInfo {
             self.class_files
                 .get(&super_class_file_id)
                 .ok_or(StepError::MissingLoadedValue(
-                    "process_helper_get_overrided_method : super_class_file",
+                    "helper_get_overrided_method : super_class_file",
                 ))?;
         let over_method =
             self.methods
                 .get(&over_method_id)
                 .ok_or(StepError::MissingLoadedValue(
-                    "process_helper_get_overrided_method : over_method",
+                    "helper_get_overrided_method : over_method",
                 ))?;
         for (i, method) in super_class_file.methods().iter().enumerate() {
             let flags = method.access_flags;
@@ -1039,7 +865,7 @@ impl ProgramInfo {
                 super_super_class_file_id, super_class.id,
                 "A class had its own super class be itself"
             );
-            self.process_helper_get_overrided_method(
+            self.helper_get_overrided_method(
                 super_super_class_file_id,
                 over_package,
                 over_method_id,
@@ -1050,38 +876,16 @@ impl ProgramInfo {
         }
     }
 
-    fn process_verify_method_access_flags(
-        &mut self,
-        method_id: MethodId,
-    ) -> Result<QueueAct, VerifyMethodError> {
-        // Pre-ordering: Method
-        if !self.methods.contains_key(&method_id) {
-            self.queue
-                .pre_push(MethodCommand::VerifyMethodAccessFlags { method_id });
-            self.queue
-                .pre_push(MethodCommand::LoadMethodFromId { method_id });
-
-            return Ok(QueueAct::Reorder);
-        }
+    pub fn verify_method_access_flags(&mut self, method_id: MethodId) -> Result<(), StepError> {
+        self.load_method_from_id(method_id)?;
 
         let method = self.methods.get(&method_id).unwrap();
         method::verify_method_access_flags(method.access_flags)?;
-        Ok(QueueAct::Done)
+        Ok(())
     }
 
-    fn process_load_method_code(
-        &mut self,
-        method_id: MethodId,
-        cb: LoadMethodCodeCb,
-    ) -> Result<QueueAct, StepError> {
-        // Pre-ordering: Method
-        if !self.methods.contains_key(&method_id) {
-            self.queue
-                .pre_push(MethodCodeCommand::LoadMethodCodeCb { method_id, cb });
-            self.queue
-                .pre_push(MethodCommand::LoadMethodFromId { method_id });
-            return Ok(QueueAct::Reorder);
-        }
+    pub fn load_method_code(&mut self, method_id: MethodId) -> Result<(), StepError> {
+        self.load_method_from_id(method_id)?;
 
         let (class_id, _) = method_id.decompose();
 
@@ -1089,20 +893,19 @@ impl ProgramInfo {
             .class_files
             .get(&class_id)
             .ok_or(StepError::MissingLoadedValue(
-                "process_load_method_code : class_file",
+                "load_method_code : class_file",
             ))?;
         let method = self.methods.get(&method_id).unwrap();
 
         // TODO: Check for code for native/abstract methods to allow malformed
         // versions of them?
         if !method.should_have_code() {
-            cb(self, method_id, false)?;
-            return Ok(QueueAct::Done);
+            return Ok(());
         }
 
         if method.code().is_some() {
-            cb(self, method_id, true)?;
-            return Ok(QueueAct::Done);
+            // It already loaded
+            return Ok(());
         }
 
         let code_attr_idx = method
@@ -1128,19 +931,12 @@ impl ProgramInfo {
             let code = code::parse_code(code_attr).map_err(LoadCodeError::InstructionParse)?;
 
             self.methods.get_mut(&method_id).unwrap().code = Some(code);
-
-            cb(self, method_id, true)?;
-        } else {
-            cb(self, method_id, false)?;
         }
 
-        Ok(QueueAct::Done)
+        Ok(())
     }
 
-    fn process_verify_code_exceptions(
-        &mut self,
-        method_id: MethodId,
-    ) -> Result<QueueAct, StepError> {
+    pub fn verify_code_exceptions(&mut self, method_id: MethodId) -> Result<(), StepError> {
         fn get_class_method<'cf, 'm>(
             class_files: &'cf ClassFiles,
             methods: &'m Methods,
@@ -1150,53 +946,40 @@ impl ProgramInfo {
             let class_file = class_files
                 .get(&class_id)
                 .ok_or(StepError::MissingLoadedValue(
-                    "process_verify_code_exceptions : class_file",
+                    "verify_code_exceptions : class_file",
                 ))?;
             let method = methods
                 .get(&method_id)
                 .ok_or(StepError::MissingLoadedValue(
-                    "process_verify_code_exceptions : method",
+                    "verify_code_exceptions : method",
                 ))?;
             Ok((class_file, method))
         }
         fn get_code(method: &Method) -> Result<&CodeInfo, StepError> {
             let code = method.code().ok_or(StepError::MissingLoadedValue(
-                "process_verify_code_exceptions : method.code",
+                "verify_code_exceptions : method.code",
             ))?;
             Ok(code)
         }
 
-        if !self.methods.contains_key(&method_id) {
-            self.queue
-                .pre_push(MethodCodeCommand::VerifyCodeExceptions { method_id });
-            // Don't bother pushing the method request ourself,
-            // just load code which will load the method
-            self.queue.pre_push(MethodCodeCommand::LoadMethodCodeCb {
-                method_id,
-                cb: Box::new(|_, _, _| Ok(())),
-            });
-
-            return Ok(QueueAct::Reorder);
-        }
+        self.load_method_from_id(method_id)?;
 
         let (_, method) = get_class_method(&self.class_files, &self.methods, method_id)?;
         // TODO: What if it has code despite this
         if !method.should_have_code() {
-            return Ok(QueueAct::Done);
-        } else if method.code.is_none() {
-            self.queue
-                .pre_push(MethodCodeCommand::VerifyCodeExceptions { method_id });
-            self.queue.pre_push(MethodCodeCommand::LoadMethodCodeCb {
-                method_id,
-                cb: Box::new(|_, _, _| Ok(())),
-            });
-            return Ok(QueueAct::Reorder);
+            return Ok(());
         }
 
+        if method.code.is_none() {
+            self.load_method_code(method_id)?;
+        }
+
+        let (_, method) = get_class_method(&self.class_files, &self.methods, method_id)?;
         let code = get_code(method)?;
 
         if code.exception_table().is_empty() {
-            return Ok(QueueAct::Done);
+            // There are no exceptions to verify
+            return Ok(());
         }
 
         let throwable_id = self
@@ -1243,13 +1026,12 @@ impl ProgramInfo {
             }
         }
 
-        Ok(QueueAct::Done)
+        Ok(())
     }
 }
 
 // === Helper ===
 impl ProgramInfo {
-    /// Does not use the queue
     /// Note: includes itself
     pub fn does_extend_class(
         &mut self,
@@ -1298,37 +1080,20 @@ impl ProgramInfo {
             Ok(false)
         }
     }
-}
-
-// ==== Queue ====
-impl ProgramInfo {
-    // === Aggressive Queue ===
-    // These are functions that queue the command but run the queue immediately
-    // until it is empty.
-    // They create their own temporary queue that is used but then restored once they are done.
-    // This is a bit rough, but means that they don't have to wait for unrelated commands to run.
 
     pub fn load_class_variant_from_id(
         &mut self,
         class_file_id: ClassFileId,
     ) -> Result<&ClassVariant, StepError> {
-        self.queue.swap_qu();
-        debug_assert!(self.queue.is_back());
-        debug_assert!(self.queue.is_empty());
+        self.classes.load_class(
+            &self.class_directories,
+            &mut self.class_names,
+            &mut self.class_files,
+            &mut self.packages,
+            class_file_id,
+        )?;
 
-        let class_id = self.queue.q_load_class_by_class_file_id(class_file_id);
-
-        if let Err(err) = self.compute() {
-            self.queue.swap_qu();
-            return Err(err);
-        }
-
-        debug_assert!(self.queue.is_back());
-        debug_assert!(self.queue.is_empty());
-
-        self.queue.swap_qu();
-
-        self.get_class_variant(class_id)
+        self.get_class_variant(class_file_id)
             .ok_or(StepError::MissingLoadedValue("load_class_variant_from_id"))
     }
 
@@ -1343,7 +1108,6 @@ impl ProgramInfo {
         )
     }
 
-    /// Does not use the queue at all.
     pub fn load_class_file_by_class_path_slice<T: AsRef<str>>(
         &mut self,
         class_path: &[T],
@@ -1363,29 +1127,6 @@ impl ProgramInfo {
             .transpose()
             .ok_or(StepError::ExpectedNonArrayClass)?
     }
-
-    pub fn load_method_from_id(&mut self, method_id: MethodId) -> Result<&Method, StepError> {
-        // TODO: Is there a way to make so it automatically swaps back once we're done?
-        // I could imagine a guard but that's hard to implement while also messing with it.
-        self.queue.swap_qu();
-        debug_assert!(self.queue.is_back());
-        debug_assert!(self.queue.is_empty());
-
-        self.queue.q_load_method_by_id(method_id);
-
-        if let Err(err) = self.compute() {
-            self.queue.swap_qu();
-            return Err(err);
-        }
-
-        debug_assert!(self.queue.is_back());
-        debug_assert!(self.queue.is_empty());
-
-        self.queue.swap_qu();
-
-        self.get_method(method_id)
-            .ok_or(StepError::MissingLoadedValue("load_method_from_id"))
-    }
 }
 
 // === Getters ===
@@ -1402,35 +1143,57 @@ impl ProgramInfo {
 }
 
 pub(crate) fn load_basic_descriptor_type(
-    queue: &mut Queue,
+    classes: &mut Classes,
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    packages: &mut Packages,
     bdesc_type: &DescriptorTypeBasic,
-) -> Option<ClassId> {
+) -> Result<Option<ClassId>, StepError> {
     match bdesc_type {
         DescriptorTypeBasic::Class(class_id) => {
-            let class_id = *class_id;
-            queue.push(ClassCommand::LoadClass {
-                class_file_id: class_id,
-            });
-            Some(class_id)
+            classes.load_class(
+                class_directories,
+                class_names,
+                class_files,
+                packages,
+                *class_id,
+            )?;
+            Ok(Some(*class_id))
         }
-        _ => None,
+        _ => Ok(None),
     }
 }
 
 pub(crate) fn load_descriptor_type(
+    classes: &mut Classes,
     class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
-    queue: &mut Queue,
-    desc_type: &DescriptorType,
+    packages: &mut Packages,
+    desc_type: DescriptorType,
 ) -> Result<(), StepError> {
     match desc_type {
         DescriptorType::Basic(x) => {
-            load_basic_descriptor_type(queue, x);
+            load_basic_descriptor_type(
+                classes,
+                class_directories,
+                class_names,
+                class_files,
+                packages,
+                &x,
+            )?;
             Ok(())
         }
         DescriptorType::Array { level, component } => {
-            let component_id = load_basic_descriptor_type(queue, component);
+            let component_id = load_basic_descriptor_type(
+                classes,
+                class_directories,
+                class_names,
+                class_files,
+                packages,
+                &component,
+            )?;
 
             let object_id = class_names.gcid_from_slice(&["java", "lang", "Object"]);
 
@@ -1472,7 +1235,7 @@ pub(crate) fn load_descriptor_type(
                     component_type: prev_type,
                     access_flags,
                 };
-                queue.push(ClassCommand::RegisterArrayClass { array });
+                classes.register_array_class(array);
                 prev_type = ArrayComponentType::Class(id);
             }
 
