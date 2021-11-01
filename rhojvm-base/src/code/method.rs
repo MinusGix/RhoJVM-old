@@ -244,6 +244,16 @@ impl DescriptorType {
             },
         }
     }
+
+    #[must_use]
+    /// Helper to construct a single level array of the type.
+    /// type[]
+    pub fn single_array(component: DescriptorTypeBasic) -> Self {
+        Self::Array {
+            level: NonZeroUsize::new(1).unwrap(),
+            component,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
