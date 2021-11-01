@@ -264,6 +264,14 @@ pub struct MethodDescriptor {
 }
 impl MethodDescriptor {
     #[must_use]
+    pub fn new(parameters: Vec<DescriptorType>, return_type: Option<DescriptorType>) -> Self {
+        Self {
+            parameters,
+            return_type,
+        }
+    }
+
+    #[must_use]
     pub fn parameters(&self) -> &[DescriptorType] {
         self.parameters.as_slice()
     }
