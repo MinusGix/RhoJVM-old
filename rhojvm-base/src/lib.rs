@@ -540,21 +540,21 @@ impl ProgramInfo {
             class_id,
         )?;
 
-        // TODO: Allow array classes in this step but reject them as super classes
-        // in verification
-        let class = self
-            .classes
-            .get(&class_id)
-            .unwrap()
-            .as_class()
-            .ok_or(StepError::ExpectedNonArrayClass)?;
+        // The iteration logic for loading the super class file chain isn't too hard, but it is nice
+        // to be able to easily chain them.
+        self.load_super_class_files_cb(class_id, |prog, class_file_id| {
+            prog.classes.load_class(
+                &prog.class_directories,
+                &mut prog.class_names,
+                &mut prog.class_files,
+                &mut prog.packages,
+                class_file_id,
+            )?;
 
-        if let Some(super_class_id) = class.super_class {
-            self.load_super_classes_cb(super_class_id, entry_cb)?;
-            Ok(super_class_id)
-        } else {
-            Ok(class_id)
-        }
+            entry_cb(prog, class_file_id)?;
+
+            Ok(())
+        })
     }
 
     pub fn load_super_class_files(
@@ -565,6 +565,8 @@ impl ProgramInfo {
     }
 
     /// Returns the id of the topmost super classfile
+    /// If there is no super then it returns it self
+    /// entry_cb is not ran for current class
     pub fn load_super_class_files_cb<
         E: Fn(&mut ProgramInfo, ClassFileId) -> Result<(), StepError>,
     >(
@@ -579,16 +581,27 @@ impl ProgramInfo {
         )?;
 
         let class_file = self.class_files.get(&class_file_id).unwrap();
-
-        if let Some(super_class_file_id) = class_file
+        let mut topmost_class_file_id = class_file_id;
+        let mut super_class_file_id: Option<ClassFileId> = class_file
             .get_super_class_id(&mut self.class_names)
-            .map_err(StepError::ClassFileIndex)?
-        {
-            self.load_super_class_files(super_class_file_id)?;
-            Ok(super_class_file_id)
-        } else {
-            Ok(class_file_id)
+            .map_err(StepError::ClassFileIndex)?;
+
+        while let Some(sc_id) = super_class_file_id {
+            self.class_files.load_by_class_path_id(
+                &self.class_directories,
+                &mut self.class_names,
+                sc_id,
+            )?;
+            let class_file = self.class_files.get(&sc_id).unwrap();
+            topmost_class_file_id = sc_id;
+            super_class_file_id = class_file
+                .get_super_class_id(&mut self.class_names)
+                .map_err(StepError::ClassFileIndex)?;
+
+            entry_cb(self, sc_id)?;
         }
+
+        Ok(topmost_class_file_id)
     }
 
     pub fn load_method_from_id(&mut self, method_id: MethodId) -> Result<(), StepError> {
