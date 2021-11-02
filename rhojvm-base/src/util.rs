@@ -128,8 +128,12 @@ macro_rules! __make_map {
                 self.map.get_mut(key)
             }
 
-            pub(crate) fn insert(&mut self, key: $key, val: $val) {
-                self.map.insert(key, val);
+            /// Panics in debug mode if the key already exists
+            /// This helps find accidental multi-sets, since the maps should
+            /// not do that.
+            pub(crate) fn set_at(&mut self, key: $key, val: $val) {
+                let e = self.map.insert(key, val);
+                debug_assert!(e.is_none());
             }
 
             #[must_use]

@@ -251,7 +251,7 @@ impl Default for Config {
 __make_map!(pub Classes<ClassId, ClassVariant>);
 impl Classes {
     fn register_array_class(&mut self, array_class: ArrayClass) {
-        self.insert(array_class.id(), ClassVariant::Array(array_class));
+        self.set_at(array_class.id(), ClassVariant::Array(array_class));
     }
 
     pub fn load_class(
@@ -313,7 +313,7 @@ impl Classes {
             class_file.methods().len(),
         );
 
-        self.insert(class_file_id, ClassVariant::Class(class));
+        self.set_at(class_file_id, ClassVariant::Class(class));
 
         Ok(class_file_id)
     }
@@ -469,7 +469,7 @@ impl ClassFiles {
                 .map_err(LoadClassFileError::ClassFileParseError)?;
             debug_assert!(rem_data.is_empty());
 
-            self.insert(
+            self.set_at(
                 id,
                 ClassFileData {
                     id,
@@ -627,7 +627,7 @@ impl ProgramInfo {
 
         let method = Method::new_from_info(method_id, class_file, &mut self.class_names, method)?;
 
-        self.methods.insert(method_id, method);
+        self.methods.set_at(method_id, method);
         Ok(())
     }
 
@@ -683,7 +683,7 @@ impl ProgramInfo {
                 name.into_owned(),
             )?;
 
-            self.methods.insert(method_id, method);
+            self.methods.set_at(method_id, method);
             Ok(method_id)
         } else {
             Err(LoadMethodError::NonexistentMethodName { class_id, name }.into())
