@@ -309,6 +309,7 @@ impl Classes {
             class_file_id,
             super_class_id,
             package,
+            class_file.access_flags(),
             class_file.methods().len(),
         );
 

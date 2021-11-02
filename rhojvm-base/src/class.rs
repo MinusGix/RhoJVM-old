@@ -122,6 +122,14 @@ impl ClassVariant {
     }
 
     #[must_use]
+    pub fn access_flags(&self) -> ClassAccessFlags {
+        match self {
+            Self::Class(x) => x.access_flags,
+            Self::Array(x) => x.access_flags,
+        }
+    }
+
+    #[must_use]
     pub fn as_class(&self) -> Option<&Class> {
         match self {
             Self::Class(x) => Some(x),
@@ -134,6 +142,7 @@ pub struct Class {
     pub(crate) id: ClassId,
     pub(crate) super_class: Option<ClassFileId>,
     pub(crate) package: Option<PackageId>,
+    pub(crate) access_flags: ClassAccessFlags,
     /// This is just the length of methods
     /// Not all methods are guaranteed to be initialized
     /// 0..last_method_id
@@ -144,12 +153,14 @@ impl Class {
         id: ClassId,
         super_class: Option<ClassFileId>,
         package: Option<PackageId>,
+        access_flags: ClassAccessFlags,
         len_method_idx: MethodIndex,
     ) -> Self {
         Self {
             id,
             super_class,
             package,
+            access_flags,
             len_method_idx,
         }
     }
