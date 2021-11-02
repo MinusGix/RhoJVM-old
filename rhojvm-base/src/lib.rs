@@ -512,6 +512,12 @@ impl ProgramInfo {
 
 // === Processing ===
 impl ProgramInfo {
+    // TODO: These recursive load super class functions have the potential for cycles
+    // there should be some way to not have that. Iteration limit is most likely the simplest
+    // way, and it avoids allocation.
+    // Theoretically, with cb versions, the user could return an error if they notice
+    // a cycle, but that is unpleasant and there should at least be simple ways to do it.
+
     /// Returns the id of the topmost super class
     pub fn load_super_classes(&mut self, class_id: ClassId) -> Result<ClassId, StepError> {
         self.load_super_classes_cb(class_id, |_, _| Ok(()))
@@ -533,6 +539,8 @@ impl ProgramInfo {
             class_id,
         )?;
 
+        // TODO: Allow array classes in this step but reject them as super classes
+        // in verification
         let class = self
             .classes
             .get(&class_id)
@@ -545,6 +553,40 @@ impl ProgramInfo {
             Ok(super_class_id)
         } else {
             Ok(class_id)
+        }
+    }
+
+    pub fn load_super_class_files(
+        &mut self,
+        class_file_id: ClassFileId,
+    ) -> Result<ClassFileId, StepError> {
+        self.load_super_class_files_cb(class_file_id, |_, _| Ok(()))
+    }
+
+    /// Returns the id of the topmost super classfile
+    pub fn load_super_class_files_cb<
+        E: Fn(&mut ProgramInfo, ClassFileId) -> Result<(), StepError>,
+    >(
+        &mut self,
+        class_file_id: ClassFileId,
+        entry_cb: E,
+    ) -> Result<ClassFileId, StepError> {
+        self.class_files.load_by_class_path_id(
+            &self.class_directories,
+            &mut self.class_names,
+            class_file_id,
+        )?;
+
+        let class_file = self.class_files.get(&class_file_id).unwrap();
+
+        if let Some(super_class_file_id) = class_file
+            .get_super_class_id(&mut self.class_names)
+            .map_err(StepError::ClassFileIndex)?
+        {
+            self.load_super_class_files(super_class_file_id)?;
+            Ok(super_class_file_id)
+        } else {
+            Ok(class_file_id)
         }
     }
 
