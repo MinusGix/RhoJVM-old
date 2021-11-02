@@ -20,7 +20,7 @@ use super::CodeInfo;
 
 // TODO: We could have a MethodAlias (so Method becomes an enum of the current Method and
 // MethodAlias), which simply has the id of another method. This would then allow us to have
-// a Command to look for duplicates, and to limit generation of duplicates.
+// a method to look for duplicates, and to limit generation of duplicates.
 // but this does complicate the code somewhat and make more checks needed.
 // especially to avoid circularity
 // There could be a separate `method_aliases: HashMap<MethodId, MethodAlias>` on `ProgramInfo`,

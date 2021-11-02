@@ -5,3 +5,14 @@ edition = "2021"
 
 [dependencies]
 rhojvm-base = { path = "../rhojvm-base/" }
+tracing = "0.1"
+# Disables:
+# env-filter (potentially useful but brings in a good bit, and can be enabled for debug)
+# json (we don't really need this)
+# tracing-log (this logging is mainly for rhojvm/rhojvm-base, not for deps)
+# chrono (really don't need to bring in all this just to print some nice dates)
+tracing-subscriber = { version = "0.2.0", default-features = false, features = [
+    "fmt",
+    "registry",
+    "smallvec",
+] }

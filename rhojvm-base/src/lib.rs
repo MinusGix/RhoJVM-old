@@ -39,6 +39,7 @@ use code::{
 };
 use id::{ClassFileId, ClassId, GeneralClassId, MethodId, PackageId};
 use package::Packages;
+use tracing::{info, span, Level};
 
 use crate::code::{method::MethodOverride, CodeInfo};
 
@@ -205,19 +206,6 @@ impl From<VerifyCodeExceptionError> for StepError {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum QueueAct {
-    /// There was nothing to do at all
-    EmptyQueue,
-    /// The command didn't have to do anything
-    None,
-    /// The command is done
-    Done,
-    /// There was a needed reordering, aka a prerequirement.
-    /// It is up to the command to put itself back on the stack
-    Reorder,
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct ClassDirectories {
     directories: Vec<PathBuf>,
@@ -246,9 +234,9 @@ impl ClassDirectories {
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Whether access flags should be verified or not.
-    /// Note: This doesn't completely disable the feature, it just stops commands
-    /// that add a multitude of commands (such as verifying the entirety of a method)
-    /// from adding the VerifyMethodAccessFlags command.
+    /// Note: This doesn't completely disable the feature, it just stops functions
+    /// that do multiple verification steps for you (such as verifying the entirty of a method)
+    /// from performing verify method access flags
     /// The user can still manually do such.
     pub verify_method_access_flags: bool,
 }
@@ -279,6 +267,10 @@ impl Classes {
             return Ok(class_file_id);
         }
 
+        let class_name = class_names.tpath(class_file_id);
+        let _span_ = span!(Level::TRACE, "C::load_class").entered();
+        info!("Loading Class {:?}", class_name);
+
         // Requires the class file to be loaded
         if !class_files.contains_key(&class_file_id) {
             class_files.load_by_class_path_id(class_directories, class_names, class_file_id)?;
@@ -308,10 +300,11 @@ impl Classes {
             package
         };
 
-        println!(
-            "== Loaded Class {:?} : {:?}",
+        info!(
+            "Got Class Info: {} : {:?}",
             this_class_name, super_class_name
         );
+
         let class = Class::new(
             class_file_id,
             super_class_id,
@@ -366,6 +359,15 @@ impl ClassNames {
 
     pub(crate) fn path_from_gcid(&self, id: GeneralClassId) -> Result<&[String], BadIdError> {
         self.get(&id).map(Vec::as_slice).ok_or(BadIdError { id })
+    }
+
+    /// Used for getting nice traces without boilerplate
+    pub(crate) fn tpath(&self, id: GeneralClassId) -> &[String] {
+        // TODO: Once once_cell or static string alloc is stabilized, we could
+        // replace this with a String constant that is more visible like
+        // "UNKNOWN_CLASS_NAME"
+        const EMPTY_PATH: &[String] = &[String::new()];
+        self.path_from_gcid(id).unwrap_or(EMPTY_PATH)
     }
 }
 
@@ -423,6 +425,12 @@ impl ClassFiles {
             return Ok(());
         }
 
+        let _span_ = span!(Level::TRACE, "CF::load_by_class_path_id",).entered();
+        info!(
+            "Loading CF With CPath {:?}",
+            class_names.tpath(class_file_id)
+        );
+
         let class_path = class_names
             .path_from_gcid(class_file_id)
             .map_err(LoadClassFileError::BadId)?;
@@ -433,21 +441,20 @@ impl ClassFiles {
         Ok(())
     }
 
-    /// Loading the class file does not use the queue at all
-    /// It isn't trivial to call but it does mean that it can be used for basic
-    /// information getting that is required anyway, and leads to simpler code
-    /// due to not having to manage the queue
     fn load_from_rel_path(
         &mut self,
         class_directories: &ClassDirectories,
         id: ClassFileId,
         rel_path: PathBuf,
-    ) -> Result<QueueAct, LoadClassFileError> {
+    ) -> Result<(), LoadClassFileError> {
         if self.contains_key(&id) {
             // It has already been loaded
-            return Ok(QueueAct::None);
+            return Ok(());
         }
 
+        let _span_ = span!(Level::TRACE, "CF::load_from_rel_path").entered();
+
+        info!("Loading CF from {:?}", rel_path);
         if let Some((file_path, mut file)) =
             class_directories.load_class_file_with_rel_path(&rel_path)
         {
@@ -470,7 +477,7 @@ impl ClassFiles {
                 },
             );
 
-            Ok(QueueAct::Done)
+            Ok(())
         } else {
             Err(LoadClassFileError::NonexistentFile(rel_path))
         }
@@ -482,8 +489,6 @@ pub struct ProgramInfo {
     conf: Config,
     // == Data ==
     /// Stores a mapping of the general class id to the class access path
-    /// this allows converting back to how it was before, which is needed to avoid random allocs
-    /// since we can't put a borrow into a Command
     pub class_names: ClassNames,
     pub class_files: ClassFiles,
     pub packages: Packages,
@@ -511,7 +516,6 @@ impl ProgramInfo {
         self.load_super_classes_cb(class_id, |_, _| Ok(()))
     }
 
-    // TODO: Should we verify that they're accessible here, or in another command?
     // TODO: technically for the tree, we only need the super class files
     pub fn load_super_classes_cb<E: Fn(&mut ProgramInfo, ClassId) -> Result<(), StepError>>(
         &mut self,
