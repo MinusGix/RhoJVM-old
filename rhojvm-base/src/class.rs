@@ -4,8 +4,10 @@ use classfile_parser::{
     constant_info::{ConstantInfo, Utf8Constant},
     constant_pool::ConstantPoolIndex,
     method_info::MethodInfo,
-    ClassAccessFlags, ClassFile,
+    ClassFile,
 };
+
+pub use classfile_parser::ClassAccessFlags;
 
 use crate::{
     id::{ClassFileId, ClassId, MethodIndex, PackageId},
