@@ -519,89 +519,21 @@ impl ProgramInfo {
     // Theoretically, with cb versions, the user could return an error if they notice
     // a cycle, but that is unpleasant and there should at least be simple ways to do it.
 
-    /// Returns the id of the topmost super class
-    pub fn load_super_classes(&mut self, class_id: ClassId) -> Result<ClassId, StepError> {
-        self.load_super_classes_cb(class_id, |_, _| Ok(()))
-    }
-
-    // TODO: technically for the tree, we only need the super class files
-    /// Returns the id of the topmost super class
-    /// That is, java/lang/Object returns the id of itself.
-    pub fn load_super_classes_cb<E: Fn(&mut ProgramInfo, ClassId) -> Result<(), StepError>>(
-        &mut self,
-        class_id: ClassId,
-        entry_cb: E,
-    ) -> Result<ClassId, StepError> {
-        self.classes.load_class(
-            &self.class_directories,
-            &mut self.class_names,
-            &mut self.class_files,
-            &mut self.packages,
-            class_id,
-        )?;
-
-        // The iteration logic for loading the super class file chain isn't too hard, but it is nice
-        // to be able to easily chain them.
-        self.load_super_class_files_cb(class_id, |prog, class_file_id| {
-            prog.classes.load_class(
-                &prog.class_directories,
-                &mut prog.class_names,
-                &mut prog.class_files,
-                &mut prog.packages,
-                class_file_id,
-            )?;
-
-            entry_cb(prog, class_file_id)?;
-
-            Ok(())
-        })
-    }
-
-    pub fn load_super_class_files(
-        &mut self,
-        class_file_id: ClassFileId,
-    ) -> Result<ClassFileId, StepError> {
-        self.load_super_class_files_cb(class_file_id, |_, _| Ok(()))
-    }
-
-    /// Returns the id of the topmost super classfile
-    /// If there is no super then it returns it self
-    /// entry_cb is not ran for current class
-    pub fn load_super_class_files_cb<
-        E: Fn(&mut ProgramInfo, ClassFileId) -> Result<(), StepError>,
-    >(
-        &mut self,
-        class_file_id: ClassFileId,
-        entry_cb: E,
-    ) -> Result<ClassFileId, StepError> {
-        self.class_files.load_by_class_path_id(
-            &self.class_directories,
-            &mut self.class_names,
-            class_file_id,
-        )?;
-
-        let class_file = self.class_files.get(&class_file_id).unwrap();
-        let mut topmost_class_file_id = class_file_id;
-        let mut super_class_file_id: Option<ClassFileId> = class_file
-            .get_super_class_id(&mut self.class_names)
-            .map_err(StepError::ClassFileIndex)?;
-
-        while let Some(sc_id) = super_class_file_id {
-            self.class_files.load_by_class_path_id(
-                &self.class_directories,
-                &mut self.class_names,
-                sc_id,
-            )?;
-            let class_file = self.class_files.get(&sc_id).unwrap();
-            topmost_class_file_id = sc_id;
-            super_class_file_id = class_file
-                .get_super_class_id(&mut self.class_names)
-                .map_err(StepError::ClassFileIndex)?;
-
-            entry_cb(self, sc_id)?;
+    /// Note: not really an iterator
+    /// Includes the class passed in.
+    pub fn load_super_classes_iter(&mut self, class_id: ClassId) -> SuperClassIterator {
+        SuperClassIterator {
+            scfi: SuperClassFileIterator::new(class_id),
         }
+    }
 
-        Ok(topmost_class_file_id)
+    /// Note: not really an iterator
+    /// Includes the class passed in.
+    pub fn load_super_class_files_iter(
+        &mut self,
+        class_file_id: ClassFileId,
+    ) -> SuperClassFileIterator {
+        SuperClassFileIterator::new(class_file_id)
     }
 
     pub fn load_method_from_id(&mut self, method_id: MethodId) -> Result<(), StepError> {
@@ -1203,6 +1135,97 @@ impl ProgramInfo {
     #[must_use]
     pub fn get_method(&self, method_id: MethodId) -> Option<&Method> {
         self.methods.get(&method_id)
+    }
+}
+
+// TODO: It would be nice of SuperClassIterator could simply
+// be implemented as a normal `.map` over super_class file iterator
+// but SCFI borrows fields that this one needs and it wouldn't be able to access
+// them.
+pub struct SuperClassIterator {
+    scfi: SuperClassFileIterator,
+}
+impl SuperClassIterator {
+    pub fn next_item(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        classes: &mut Classes,
+        packages: &mut Packages,
+    ) -> Option<Result<ClassFileId, StepError>> {
+        match self
+            .scfi
+            .next_item(class_directories, class_names, class_files)
+        {
+            Some(Ok(id)) => {
+                Some(classes.load_class(class_directories, class_names, class_files, packages, id))
+            }
+            Some(Err(err)) => Some(Err(err)),
+            None => None,
+        }
+    }
+}
+
+pub struct SuperClassFileIterator {
+    topmost: Option<Result<ClassFileId, StepError>>,
+    had_error: bool,
+}
+impl SuperClassFileIterator {
+    /// Construct the iterator, doing basic processing
+    fn new(base_class_id: ClassId) -> SuperClassFileIterator {
+        SuperClassFileIterator {
+            topmost: Some(Ok(base_class_id)),
+            had_error: false,
+        }
+    }
+
+    // This isn't an iterator, unfortunately, because it needs state paseed into `next_item`
+    // to make it usable.
+    // We can't simply borrow the fields because the code that is using the iterator likely
+    // wants to use them too!
+    // TODO: We could maybe make a weird iterator trait that takes in:
+    // type Args = (&'a ClassDirectories, &'a mut ClassNames, &'a mut ClassFiles)
+    // for its next and then for any iterator methods which we need
+    pub fn next_item(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+    ) -> Option<Result<ClassFileId, StepError>> {
+        if self.had_error {
+            return None;
+        }
+
+        // Get the id, returning the error if there is one
+        let topmost = match self.topmost.take() {
+            Some(Ok(topmost)) => topmost,
+            Some(Err(err)) => {
+                self.had_error = true;
+                return Some(Err(err));
+            }
+            // We are now done.
+            None => return None,
+        };
+
+        // Load the class file by the id
+        if let Err(err) = class_files.load_by_class_path_id(class_directories, class_names, topmost)
+        {
+            self.had_error = true;
+            return Some(Err(err.into()));
+        }
+
+        // We just loaded it
+        let class_file = class_files.get(&topmost).unwrap();
+
+        // Get the super class for next iteration, but we delay checking the error
+        self.topmost = class_file
+            .get_super_class_id(class_names)
+            .map_err(StepError::ClassFileIndex)
+            .transpose();
+
+        // The class file was initialized
+        Some(Ok(topmost))
     }
 }
 
