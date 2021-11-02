@@ -1,6 +1,7 @@
 use std::{borrow::Cow, num::NonZeroUsize, path::Path};
 
 use rhojvm_base::{
+    class::{ClassAccessFlags, ClassVariant},
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         op::InstM,
@@ -78,7 +79,7 @@ fn main() {
     info!("RhoJVM Initializing");
 
     let entry_point_cp = ["HelloWorld"];
-    let class_dirs = ["./ex/rt/", "./ex/jce/", "./ex/"];
+    let class_dirs = ["./rhojvm/ex/rt/", "./rhojvm/ex/jce/", "./rhojvm/ex/"];
 
     // Initialize ProgramInfo
     let mut prog = ProgramInfo::new(Config {
@@ -123,9 +124,10 @@ fn main() {
 }
 
 #[derive(Debug)]
-enum GeneralError {
+pub enum GeneralError {
     Step(StepError),
     RunInst(RunInstError),
+    Verification(VerificationError),
 }
 
 impl From<StepError> for GeneralError {
@@ -138,9 +140,34 @@ impl From<RunInstError> for GeneralError {
         Self::RunInst(err)
     }
 }
+impl From<VerificationError> for GeneralError {
+    fn from(err: VerificationError) -> Self {
+        Self::Verification(err)
+    }
+}
 
 #[derive(Debug)]
-enum RunInstError {
+pub enum VerificationError {
+    /// Crawling up the chain of a class tree, the topmost class was not `Object`.
+    MostSuperClassNonObject {
+        /// The class which we were looking at
+        base_class_id: ClassId,
+        /// The topmost class
+        most_super_class_id: ClassId,
+    },
+    /// The super class of some class was final, which means it should
+    /// not have been a super class.
+    SuperClassWasFinal {
+        /// The immediate base class
+        base_class_id: ClassFileId,
+        super_class_id: ClassFileId,
+    },
+    /// The method should have had Code but it did not
+    NoMethodCode { method_id: MethodId },
+}
+
+#[derive(Debug)]
+pub enum RunInstError {
     NoClassFile(ClassFileId),
     NoMethod(MethodId),
     NoCode(MethodId),
@@ -157,6 +184,109 @@ fn pre_initialize_class(
     state: &mut State,
     class_id: ClassId,
 ) -> Result<(), GeneralError> {
+    // TODO: Technically we don't have to verify according to the type checking rules
+    // for class files < version 50.0
+    // and, if the type checking fails for version == 50.0, then we can choose to
+    // do verification through type inference
+
+    // - classIsTypeSafe
+    // Load super classes
+    let mut iter = prog.load_super_classes_iter(class_id);
+
+    // Skip the first class, since that is the base and so it is allowed to be final
+    // We store the latest class so that we can update it and use it for errors
+    // and checking if the topmost class is Object
+    let mut latest_class = iter
+        .next_item(
+            &prog.class_directories,
+            &mut prog.class_names,
+            &mut prog.class_files,
+            &mut prog.classes,
+            &mut prog.packages,
+        )
+        .expect("The base to be included in the processing")?;
+
+    while let Some(res) = iter.next_item(
+        &prog.class_directories,
+        &mut prog.class_names,
+        &mut prog.class_files,
+        &mut prog.classes,
+        &mut prog.packages,
+    ) {
+        let super_class_id = res?;
+
+        // TODO: Are we intended to preinitialize the entire super-chain?
+        let class = prog.class_files.get(&super_class_id).unwrap();
+        let access_flags = class.access_flags();
+        if access_flags.contains(ClassAccessFlags::FINAL) {
+            return Err(VerificationError::SuperClassWasFinal {
+                base_class_id: latest_class,
+                super_class_id,
+            }
+            .into());
+        }
+
+        // We only set this after the check so that we can return the base class
+        latest_class = super_class_id;
+    }
+
+    // verify that topmost class is object
+    if latest_class != state.object_id {
+        return Err(VerificationError::MostSuperClassNonObject {
+            base_class_id: class_id,
+            most_super_class_id: latest_class,
+        }
+        .into());
+    }
+
+    verify_type_safe_methods(prog, state, class_id)?;
+
+    Ok(())
+}
+
+fn verify_type_safe_methods(
+    prog: &mut ProgramInfo,
+    state: &mut State,
+    class_id: ClassId,
+) -> Result<(), GeneralError> {
+    prog.load_class_from_id(class_id)?;
+
+    let class = prog.classes.get(&class_id).unwrap();
+    let method_id_iter = match class {
+        ClassVariant::Class(class) => class.iter_method_ids(),
+        ClassVariant::Array(_) => {
+            tracing::warn!("TODO: Skipped verifying ArrayClass methods");
+            return Ok(());
+        }
+    };
+
+    for method_id in method_id_iter {
+        verify_type_safe_method(prog, state, method_id)?;
+    }
+    Ok(())
+}
+
+fn verify_type_safe_method(
+    prog: &mut ProgramInfo,
+    state: &mut State,
+    method_id: MethodId,
+) -> Result<(), GeneralError> {
+    prog.load_method_from_id(method_id)?;
+    prog.verify_method_access_flags(method_id)?;
+    // TODO: Document that this assures that it isn't overriding a final method
+    prog.init_method_overrides(method_id)?;
+
+    prog.load_method_code(method_id)?;
+
+    let method = prog.methods.get(&method_id).unwrap();
+    if method.should_have_code() {
+        if let Some(code) = method.code() {
+        } else {
+            // We should have code but there was no code!
+            return Err(VerificationError::NoMethodCode { method_id }.into());
+        }
+    }
+
     Ok(())
 }
 
@@ -166,7 +296,7 @@ fn initialize_class(
     state: &mut State,
     class_id: ClassId,
 ) -> Result<(), GeneralError> {
-    prog.load_super_classes(class_id)?;
+    pre_initialize_class(prog, state, class_id)?;
 
     Ok(())
 }
