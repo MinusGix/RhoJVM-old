@@ -358,7 +358,7 @@ impl ClassNames {
         id
     }
 
-    pub(crate) fn path_from_gcid(&self, id: GeneralClassId) -> Result<&[String], BadIdError> {
+    pub fn path_from_gcid(&self, id: GeneralClassId) -> Result<&[String], BadIdError> {
         self.get(&id).map(Vec::as_slice).ok_or(BadIdError { id })
     }
 
