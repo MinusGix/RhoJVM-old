@@ -132,8 +132,11 @@ macro_rules! __make_map {
             /// This helps find accidental multi-sets, since the maps should
             /// not do that.
             pub(crate) fn set_at(&mut self, key: $key, val: $val) {
+                let key2 = key.clone();
                 let e = self.map.insert(key, val);
-                debug_assert!(e.is_none());
+                if e.is_some() {
+                    tracing::warn!("Duplicate Setting for map '{}' with {:?}", stringify!($name), key2);
+                }
             }
 
             #[must_use]
