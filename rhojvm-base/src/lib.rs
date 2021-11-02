@@ -512,16 +512,19 @@ impl ProgramInfo {
 
 // === Processing ===
 impl ProgramInfo {
-    pub fn load_super_classes(&mut self, class_id: ClassId) -> Result<(), StepError> {
+    /// Returns the id of the topmost super class
+    pub fn load_super_classes(&mut self, class_id: ClassId) -> Result<ClassId, StepError> {
         self.load_super_classes_cb(class_id, |_, _| Ok(()))
     }
 
     // TODO: technically for the tree, we only need the super class files
+    /// Returns the id of the topmost super class
+    /// That is, java/lang/Object returns the id of itself.
     pub fn load_super_classes_cb<E: Fn(&mut ProgramInfo, ClassId) -> Result<(), StepError>>(
         &mut self,
         class_id: ClassId,
         entry_cb: E,
-    ) -> Result<(), StepError> {
+    ) -> Result<ClassId, StepError> {
         self.classes.load_class(
             &self.class_directories,
             &mut self.class_names,
@@ -539,9 +542,10 @@ impl ProgramInfo {
 
         if let Some(super_class_id) = class.super_class {
             self.load_super_classes_cb(super_class_id, entry_cb)?;
+            Ok(super_class_id)
+        } else {
+            Ok(class_id)
         }
-
-        Ok(())
     }
 
     pub fn load_method_from_id(&mut self, method_id: MethodId) -> Result<(), StepError> {
