@@ -652,33 +652,6 @@ impl ProgramInfo {
         Ok(())
     }
 
-    pub fn for_all_methods<F: Fn(&mut ProgramInfo, MethodId) -> Result<(), StepError>>(
-        &mut self,
-        class_id: ClassId,
-        cb: F,
-    ) -> Result<(), StepError> {
-        // TODO: Technically we only need the class file
-        self.classes.load_class(
-            &self.class_directories,
-            &mut self.class_names,
-            &mut self.class_files,
-            &mut self.packages,
-            class_id,
-        )?;
-
-        let class = self.classes.get(&class_id).unwrap();
-        let len_method_idx = match class {
-            ClassVariant::Class(class) => class.len_method_idx,
-            ClassVariant::Array(_) => unimplemented!(),
-        };
-
-        for i in 0..len_method_idx {
-            cb(self, MethodId::unchecked_compose(class_id, i))?;
-        }
-
-        Ok(())
-    }
-
     pub fn init_method_overrides(&mut self, method_id: MethodId) -> Result<(), StepError> {
         self.load_method_from_id(method_id)?;
 

@@ -10,7 +10,7 @@ use classfile_parser::{
 pub use classfile_parser::ClassAccessFlags;
 
 use crate::{
-    id::{ClassFileId, ClassId, MethodIndex, PackageId},
+    id::{ClassFileId, ClassId, MethodId, MethodIndex, PackageId},
     ClassNames,
 };
 
@@ -180,6 +180,13 @@ impl Class {
     #[must_use]
     pub fn package(&self) -> Option<PackageId> {
         self.package
+    }
+
+    /// Iterate over all method ids that this method has.
+    /// Note that this is just the ids, they are not guaranteed to be loaded.
+    pub fn iter_method_ids(&self) -> impl Iterator<Item = MethodId> {
+        let class_id = self.id;
+        (0..self.len_method_idx).map(move |idx| MethodId::unchecked_compose(class_id, idx))
     }
 }
 #[derive(Debug, Clone)]
