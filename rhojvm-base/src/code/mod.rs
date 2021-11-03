@@ -1,11 +1,13 @@
 use classfile_parser::{
-    attribute_info::{AttributeInfo, ExceptionEntry, InstructionIndex},
+    attribute_info::{AttributeInfo, ExceptionEntry},
     constant_info::ConstantInfo,
 };
 
 use crate::{class::ClassFileData, util::MemorySize, VerifyCodeExceptionError};
 
 use self::{method::Method, op::Inst, op_ex::InstructionParseError};
+
+pub use classfile_parser::attribute_info::InstructionIndex;
 
 pub mod method;
 pub mod op;
