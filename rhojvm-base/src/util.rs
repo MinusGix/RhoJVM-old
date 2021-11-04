@@ -90,7 +90,7 @@ impl<T> StaticMemorySize for ConstantPoolIndex<T> {
 /// Private macro.
 #[macro_export]
 macro_rules! __make_map {
-    ($v:vis $name:ident < $key:ty, $val:ty >) => {
+    ($v:vis $name:ident < $key:ty, $val:ty > $(; $($tag:ident),*)?) => {
         $v struct $name {
             map: std::collections::BTreeMap<$key, $val>,
         }
@@ -117,7 +117,18 @@ macro_rules! __make_map {
             pub fn contains_key(&self, key: &$key) -> bool {
                 self.map.contains_key(key)
             }
+        }
 
+        $(
+            $(
+                __make_map!(I $tag $name < $key, $val >);
+            )*
+        )?
+
+    };
+    (I access $name:ident < $key:ty, $val:ty >) => {
+        #[allow(dead_code)]
+        impl $name {
             #[must_use]
             pub fn get(&self, key: &$key) -> Option<&$val> {
                 self.map.get(key)
@@ -144,6 +155,5 @@ macro_rules! __make_map {
                 self.map.iter()
             }
         }
-
-    };
+    }
 }

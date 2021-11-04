@@ -251,7 +251,7 @@ impl Default for Config {
     }
 }
 
-__make_map!(pub Classes<ClassId, ClassVariant>);
+__make_map!(pub Classes<ClassId, ClassVariant>; access);
 impl Classes {
     fn register_array_class(&mut self, array_class: ArrayClass) {
         self.set_at(array_class.id(), ClassVariant::Array(array_class));
@@ -270,9 +270,16 @@ impl Classes {
             return Ok(class_file_id);
         }
 
-        let class_name = class_names.tpath(class_file_id);
+        let class_name = class_names
+            .name_from_gcid(class_file_id)
+            .map_err(StepError::BadId)?;
         let _span_ = span!(Level::TRACE, "C::load_class").entered();
-        info!("Loading Class {:?}", class_name);
+        info!("Loading Class {:?}", class_name.path());
+
+        if !class_name.has_class_file() {
+            // At the moment, if an array class is loaded, it is already within the classes
+            return Ok(class_file_id);
+        }
 
         // Requires the class file to be loaded
         if !class_files.contains_key(&class_file_id) {
@@ -289,10 +296,7 @@ impl Classes {
             .map_err(LoadClassError::ClassFileIndex)?;
         let super_class_id = super_class_name.map(|x| class_names.gcid_from_str(x));
 
-        // TODO: Should array classes inherit the package of their element?
-        let package = if is_array_class(this_class_name) {
-            None
-        } else {
+        let package = {
             let mut package = util::access_path_iter(this_class_name).peekable();
             // TODO: Don't unwrap
             let _class_name = package.next_back().unwrap();
@@ -324,7 +328,7 @@ impl Classes {
         Ok(class_file_id)
     }
 }
-__make_map!(pub Methods<MethodId, Method>);
+__make_map!(pub Methods<MethodId, Method>; access);
 
 #[derive(Debug, Clone)]
 enum InternalKind {
@@ -335,8 +339,7 @@ impl InternalKind {
         class_path
             .get(0)
             .map(AsRef::as_ref)
-            .map(InternalKind::from_str)
-            .flatten()
+            .and_then(InternalKind::from_str)
     }
 
     fn from_str(class_path: &str) -> Option<InternalKind> {
@@ -368,6 +371,7 @@ impl Name {
         self.path.as_slice()
     }
 
+    #[must_use]
     /// Note: this is about whether it _should_ have a class file
     /// not whether one actually exists
     pub fn has_class_file(&self) -> bool {
@@ -378,7 +382,7 @@ impl Name {
         }
     }
 }
-__make_map!(pub ClassNames<GeneralClassId, Name>);
+__make_map!(pub ClassNames<GeneralClassId, Name>; access);
 impl ClassNames {
     /// Store the class path hash if it doesn't already exist and get the id
     /// If possible, all creations of ids should go through these functions to allow
@@ -460,7 +464,7 @@ impl ClassNames {
     }
 }
 
-__make_map!(pub ClassFiles<ClassFileId, ClassFileData>);
+__make_map!(pub ClassFiles<ClassFileId, ClassFileData>; access);
 impl ClassFiles {
     pub fn load_by_class_path_iter<'a>(
         &mut self,
