@@ -41,7 +41,10 @@ use id::{ClassFileId, ClassId, GeneralClassId, MethodId, PackageId};
 use package::Packages;
 use tracing::{info, span, Level};
 
-use crate::code::{method::MethodOverride, CodeInfo};
+use crate::{
+    code::{method::MethodOverride, CodeInfo},
+    id::is_array_class,
+};
 
 pub mod class;
 pub mod code;
@@ -286,7 +289,10 @@ impl Classes {
             .map_err(LoadClassError::ClassFileIndex)?;
         let super_class_id = super_class_name.map(|x| class_names.gcid_from_str(x));
 
-        let package = {
+        // TODO: Should array classes inherit the package of their element?
+        let package = if is_array_class(this_class_name) {
+            None
+        } else {
             let mut package = util::access_path_iter(this_class_name).peekable();
             // TODO: Don't unwrap
             let _class_name = package.next_back().unwrap();
@@ -320,29 +326,105 @@ impl Classes {
 }
 __make_map!(pub Methods<MethodId, Method>);
 
-__make_map!(pub ClassNames<GeneralClassId, Vec<String>>);
+#[derive(Debug, Clone)]
+enum InternalKind {
+    Array,
+}
+impl InternalKind {
+    fn from_slice<T: AsRef<str>>(class_path: &[T]) -> Option<InternalKind> {
+        class_path
+            .get(0)
+            .map(AsRef::as_ref)
+            .map(InternalKind::from_str)
+            .flatten()
+    }
+
+    fn from_str(class_path: &str) -> Option<InternalKind> {
+        if id::is_array_class(class_path) {
+            Some(InternalKind::Array)
+        } else {
+            None
+        }
+    }
+
+    fn has_class_file(&self) -> bool {
+        false
+    }
+
+    fn is_array(&self) -> bool {
+        matches!(self, Self::Array)
+    }
+}
+#[derive(Debug, Clone)]
+pub struct Name {
+    /// Indicates that the class is for an internal type which does not have an actual backing
+    /// classfile.
+    internal_kind: Option<InternalKind>,
+    path: Vec<String>,
+}
+impl Name {
+    #[must_use]
+    pub fn path(&self) -> &[String] {
+        self.path.as_slice()
+    }
+
+    /// Note: this is about whether it _should_ have a class file
+    /// not whether one actually exists
+    pub fn has_class_file(&self) -> bool {
+        if let Some(kind) = &self.internal_kind {
+            kind.has_class_file()
+        } else {
+            true
+        }
+    }
+}
+__make_map!(pub ClassNames<GeneralClassId, Name>);
 impl ClassNames {
     /// Store the class path hash if it doesn't already exist and get the id
     /// If possible, all creations of ids should go through these functions to allow
     /// a mapping from the id back to to the path
     pub fn gcid_from_slice<T: AsRef<str>>(&mut self, class_path: &[T]) -> GeneralClassId {
+        let kind = InternalKind::from_slice(class_path);
+        if let Some(kind) = &kind {
+            if kind.is_array() && class_path.len() > 1 {
+                tracing::error!(
+                    "gcid_from_slice had internal-kind but had more entries than expected"
+                );
+            }
+        }
+
         let id = id::hash_access_path_slice(class_path);
-        self.map.entry(id).or_insert_with(|| {
-            class_path
+        self.map.entry(id).or_insert_with(move || Name {
+            internal_kind: kind,
+            path: class_path
                 .iter()
                 .map(AsRef::as_ref)
                 .map(ToOwned::to_owned)
-                .collect()
+                .collect(),
         });
         id
     }
 
     pub fn gcid_from_str(&mut self, class_path: &str) -> GeneralClassId {
+        let kind = InternalKind::from_str(class_path);
+
         let id = id::hash_access_path(class_path);
         self.map.entry(id).or_insert_with(|| {
-            util::access_path_iter(class_path)
-                .map(ToOwned::to_owned)
-                .collect()
+            if let Some(kind) = kind {
+                match kind {
+                    InternalKind::Array => Name {
+                        internal_kind: Some(kind),
+                        path: vec![class_path.to_string()],
+                    },
+                }
+            } else {
+                Name {
+                    internal_kind: kind,
+                    path: util::access_path_iter(class_path)
+                        .map(ToOwned::to_owned)
+                        .collect(),
+                }
+            }
         });
         id
     }
@@ -351,15 +433,21 @@ impl ClassNames {
         &mut self,
         class_path: impl Iterator<Item = &'a str> + Clone,
     ) -> GeneralClassId {
+        let kind = class_path.clone().next().and_then(InternalKind::from_str);
         let id = id::hash_access_path_iter(class_path.clone());
-        self.map
-            .entry(id)
-            .or_insert_with(|| class_path.map(ToOwned::to_owned).collect());
+        self.map.entry(id).or_insert_with(|| Name {
+            internal_kind: kind,
+            path: class_path.map(ToOwned::to_owned).collect(),
+        });
         id
     }
 
     pub fn path_from_gcid(&self, id: GeneralClassId) -> Result<&[String], BadIdError> {
-        self.get(&id).map(Vec::as_slice).ok_or(BadIdError { id })
+        self.name_from_gcid(id).map(Name::path)
+    }
+
+    pub fn name_from_gcid(&self, id: GeneralClassId) -> Result<&Name, BadIdError> {
+        self.get(&id).ok_or(BadIdError { id })
     }
 
     /// Used for getting nice traces without boilerplate
@@ -385,7 +473,8 @@ impl ClassFiles {
         }
 
         let class_file_id: ClassFileId = class_names.gcid_from_iter(class_path.clone());
-        if self.contains_key(&class_file_id) {
+        let class_file_name = class_names.name_from_gcid(class_file_id).unwrap();
+        if !class_file_name.has_class_file() || self.contains_key(&class_file_id) {
             return Ok(class_file_id);
         }
 
@@ -405,7 +494,9 @@ impl ClassFiles {
         }
 
         let class_file_id: ClassFileId = class_names.gcid_from_slice(class_path);
-        if self.contains_key(&class_file_id) {
+        let class_file_name = class_names.name_from_gcid(class_file_id).unwrap();
+        debug_assert!(!class_file_name.path().is_empty());
+        if !class_file_name.has_class_file() && self.contains_key(&class_file_id) {
             return Ok(class_file_id);
         }
 
@@ -432,12 +523,16 @@ impl ClassFiles {
             class_names.tpath(class_file_id)
         );
 
-        let class_path = class_names
-            .path_from_gcid(class_file_id)
+        let class_name = class_names
+            .name_from_gcid(class_file_id)
             .map_err(LoadClassFileError::BadId)?;
-        debug_assert!(!class_path.is_empty());
+        debug_assert!(!class_name.path().is_empty());
 
-        let rel_path = util::class_path_slice_to_relative_path(class_path);
+        if !class_name.has_class_file() {
+            return Ok(());
+        }
+
+        let rel_path = util::class_path_slice_to_relative_path(class_name.path());
         self.load_from_rel_path(class_directories, class_file_id, rel_path)?;
         Ok(())
     }
@@ -628,6 +723,7 @@ impl ProgramInfo {
         let method = self.methods.get(&method_id).unwrap();
 
         for parameter_type in method.descriptor().parameters().iter().cloned() {
+            tracing::info!("\tParam: {:?}", parameter_type);
             load_descriptor_type(
                 &mut self.classes,
                 &self.class_directories,
@@ -1202,6 +1298,27 @@ impl SuperClassFileIterator {
     }
 }
 
+// pub(crate) fn descriptor_type_basic_id(
+//     class_names: &mut ClassNames,
+//     bdesc_type: &DescriptorTypeBasic,
+// ) -> Option<ClassId> {
+//     if let DescriptorTypeBasic::Class(class_id) = bdesc_type {
+//         Some(*class_id)
+//     } else {
+//         None
+//     }
+// }
+
+// pub(crate) fn descriptor_type_id(
+//     class_names: &mut ClassNames,
+//     desc_type: &DescriptorType,
+// ) -> Option<ClassId> {
+//     match desc_type {
+//         DescriptorType::Basic(x) => descriptor_type_basic_id(class_names, x),
+//         DescriptorType::Array { level, component } => {}
+//     }
+// }
+
 pub(crate) fn load_basic_descriptor_type(
     classes: &mut Classes,
     class_directories: &ClassDirectories,
@@ -1257,36 +1374,29 @@ pub(crate) fn load_descriptor_type(
 
             let object_id = class_names.gcid_from_slice(&["java", "lang", "Object"]);
 
-            let (component_name, access_flags) = if let Some(component_id) = component_id {
+            let access_flags = if let Some(component_id) = component_id {
                 class_files.load_by_class_path_id(class_directories, class_names, component_id)?;
                 let class_file = class_files.get(&component_id).unwrap();
-                let class_name = class_names
-                    .path_from_gcid(component_id)
-                    .map_err(StepError::BadId)?;
-                // only the last part is relevant?
-                let class_name = class_name.last().unwrap().as_str();
-                let access_flags = class_file.access_flags();
-                (class_name, access_flags)
+                class_file.access_flags()
             } else {
                 // These methods only return none if it was a class, but if it was then it would
                 // be in the other branch
-                (component.name().unwrap(), component.access_flags().unwrap())
+                component.access_flags().unwrap()
             };
 
             let component_type = component.as_array_component_type();
 
-            let mut name = component_name.to_string();
+            let mut name = component
+                .to_desc_string(class_names)
+                .map_err(StepError::BadId)?;
             let mut prev_type = component_type;
             for _ in 0..level.get() {
-                // TODO: is this the right naming scheme?
-                // Should we store it like descriptors, [[[Ljava/lang/Object; and ([int, or [I)?
-                // This names it like java/lang/Object[] and int[]
-                // should it be java.lang.Object[] and int[]
+                // We store it like the descriptor type because that is what it appears as in other
+                // places. This does mean that we can't simply use this name as a java-equivalent
+                // access path, unfortunately, since an array of ints becomes [I.
 
-                name.push_str("[]");
-                // This will parse it as ["java", "lang", "Object[]"] which is kinda weird but works
-                // well enough, but it may be a good idea to see if we can get rid of name for
-                // arrays
+                name.insert(0, '[');
+                // This has custom handling to keep an array as a lone string
                 let id = class_names.gcid_from_str(&name);
                 let array = ArrayClass {
                     id,

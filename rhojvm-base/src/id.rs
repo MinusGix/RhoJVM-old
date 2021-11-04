@@ -44,7 +44,11 @@ pub(crate) fn make_hasher() -> impl Hasher {
 
 #[must_use]
 pub(crate) fn hash_access_path(path: &str) -> HashId {
-    hash_access_path_iter(util::access_path_iter(path))
+    if is_array_class(path) {
+        hash_access_path_iter([path].into_iter())
+    } else {
+        hash_access_path_iter(util::access_path_iter(path))
+    }
 }
 
 #[must_use]
@@ -57,15 +61,34 @@ pub(crate) fn hash_access_path_slice<T: AsRef<str>>(path: &[T]) -> HashId {
 // because we are unsure if there is any assurance that hashing
 // "java/lang/Object" is equivalent to hashing the individual
 // "java" '/' "lang" '/' "Object"
+// and so this function simply does it the latter way.
+// This method does handle array classes properly.
 pub(crate) fn hash_access_path_iter<'a>(path: impl Iterator<Item = &'a str> + Clone) -> HashId {
     let count = path.clone().count();
     let mut state = make_hasher();
-    for (i, part) in path.enumerate() {
-        part.hash(&mut state);
-        if i + 1 != count {
-            '/'.hash(&mut state);
+
+    // Check for arrays since they shouldn't be hashed in the same manner
+    let mut path = path.peekable();
+    if path.peek().map_or(false, |x| is_array_class(x)) {
+        for (i, part) in path.enumerate() {
+            if i > 0 {
+                tracing::warn!("hash_access_path_iter received iterator of array type with more than one entry");
+                panic!("");
+            }
+            part.hash(&mut state);
+        }
+    } else {
+        for (i, part) in path.enumerate() {
+            part.hash(&mut state);
+            if i + 1 != count {
+                '/'.hash(&mut state);
+            }
         }
     }
 
     state.finish()
+}
+
+pub(crate) fn is_array_class(first: &str) -> bool {
+    first.starts_with('[')
 }

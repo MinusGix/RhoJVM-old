@@ -13,7 +13,7 @@ use classfile_parser::{
 use crate::{
     class::{ArrayComponentType, ClassFileData},
     id::{ClassId, MethodId},
-    ClassNames, LoadMethodError, VerifyMethodError,
+    BadIdError, ClassNames, LoadMethodError, VerifyMethodError,
 };
 
 use super::CodeInfo;
@@ -173,6 +173,24 @@ pub enum DescriptorTypeBasic {
     Boolean,
 }
 impl DescriptorTypeBasic {
+    /// Convert to a string used in a descriptor
+    pub fn to_desc_string(&self, class_names: &mut ClassNames) -> Result<String, BadIdError> {
+        match self {
+            DescriptorTypeBasic::Byte => Ok("B".to_owned()),
+            DescriptorTypeBasic::Char => Ok("C".to_owned()),
+            DescriptorTypeBasic::Double => Ok("D".to_owned()),
+            DescriptorTypeBasic::Float => Ok("F".to_owned()),
+            DescriptorTypeBasic::Int => Ok("I".to_owned()),
+            DescriptorTypeBasic::Long => Ok("J".to_owned()),
+            DescriptorTypeBasic::Class(class_id) => {
+                let class_name = class_names.path_from_gcid(*class_id)?;
+                Ok(format!("L{path};", path = class_name.join("/")))
+            }
+            DescriptorTypeBasic::Short => Ok("S".to_owned()),
+            DescriptorTypeBasic::Boolean => Ok("Z".to_owned()),
+        }
+    }
+
     fn from_class_file_desc(desc: DescriptorTypeBasicCF<'_>, class_names: &mut ClassNames) -> Self {
         match desc {
             DescriptorTypeBasicCF::Byte => Self::Byte,

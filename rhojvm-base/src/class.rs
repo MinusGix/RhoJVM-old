@@ -189,6 +189,8 @@ impl Class {
         (0..self.len_method_idx).map(move |idx| MethodId::unchecked_compose(class_id, idx))
     }
 }
+
+// TODO: Are arrays in the same package as their defining type?
 #[derive(Debug, Clone)]
 pub struct ArrayClass {
     pub(crate) id: ClassId,
