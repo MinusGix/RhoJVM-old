@@ -37,7 +37,7 @@ impl Packages {
         &self,
         path: impl Iterator<Item = &'a str> + Clone,
     ) -> Option<&Package> {
-        let id = id::hash_access_path_iter(path);
+        let id = id::hash_access_path_iter(path, false);
         self.get(id)
     }
 
@@ -64,7 +64,7 @@ impl Packages {
         &mut self,
         path: impl Iterator<Item = &'a str> + Clone,
     ) -> PackageId {
-        let id = id::hash_access_path_iter(path.clone());
+        let id = id::hash_access_path_iter(path.clone(), false);
         if let Some(p) = self.get(id) {
             p.id()
         } else {

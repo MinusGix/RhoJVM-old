@@ -48,15 +48,15 @@ pub(crate) fn make_hasher() -> impl Hasher {
 #[must_use]
 pub(crate) fn hash_access_path(path: &str) -> HashId {
     if is_array_class(path) {
-        hash_access_path_iter([path].into_iter())
+        hash_access_path_iter([path].into_iter(), true)
     } else {
-        hash_access_path_iter(util::access_path_iter(path))
+        hash_access_path_iter(util::access_path_iter(path), true)
     }
 }
 
 #[must_use]
 pub(crate) fn hash_access_path_slice<T: AsRef<str>>(path: &[T]) -> HashId {
-    hash_access_path_iter(path.iter().map(AsRef::as_ref))
+    hash_access_path_iter(path.iter().map(AsRef::as_ref), false)
 }
 
 #[must_use]
@@ -64,14 +64,17 @@ pub(crate) fn hash_access_path_slice<T: AsRef<str>>(path: &[T]) -> HashId {
 /// because hashing a string is not the same as hashing the individual
 /// characters
 /// This method does handle array classes properly.
-pub(crate) fn hash_access_path_iter<'a>(path: impl Iterator<Item = &'a str> + Clone) -> HashId {
+pub(crate) fn hash_access_path_iter<'a>(
+    path: impl Iterator<Item = &'a str> + Clone,
+    is_single_str: bool,
+) -> HashId {
     let count = path.clone().count();
     let mut state = make_hasher();
 
     // Check for arrays since they shouldn't be hashed in the same manner
     let mut path = path.peekable();
     if path.peek().map_or(false, |x| is_array_class(x)) {
-        if count > 1 {
+        if count > 1 && !is_single_str {
             tracing::warn!(
                 "hash_access_path_iter received iterator of array type with more than one entry"
             );

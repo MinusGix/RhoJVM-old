@@ -36,15 +36,13 @@ use classfile_parser::{
 use code::{
     method::{self, DescriptorType, DescriptorTypeBasic, Method, MethodDescriptor},
     op_ex::InstructionParseError,
+    stack_map::StackMapError,
 };
 use id::{ClassFileId, ClassId, GeneralClassId, MethodId, PackageId};
 use package::Packages;
 use tracing::{info, span, Level};
 
-use crate::{
-    code::{method::MethodOverride, CodeInfo},
-    id::is_array_class,
-};
+use crate::code::{method::MethodOverride, CodeInfo};
 
 pub mod class;
 pub mod code;
@@ -167,6 +165,7 @@ pub enum StepError {
     VerifyMethod(VerifyMethodError),
     LoadCode(LoadCodeError),
     VerifyCodeException(VerifyCodeExceptionError),
+    StackMapError(StackMapError),
     /// Some code loaded a value and then tried accessing it but it was missing.
     /// This might be a sign that it shouldn't assume that, or a sign of a bug elsewhere
     /// that caused it to not load but also not reporting an error.
@@ -206,6 +205,11 @@ impl From<LoadCodeError> for StepError {
 impl From<VerifyCodeExceptionError> for StepError {
     fn from(err: VerifyCodeExceptionError) -> Self {
         Self::VerifyCodeException(err)
+    }
+}
+impl From<StackMapError> for StepError {
+    fn from(err: StackMapError) -> Self {
+        Self::StackMapError(err)
     }
 }
 
@@ -438,10 +442,29 @@ impl ClassNames {
         class_path: impl Iterator<Item = &'a str> + Clone,
     ) -> GeneralClassId {
         let kind = class_path.clone().next().and_then(InternalKind::from_str);
-        let id = id::hash_access_path_iter(class_path.clone());
+        let id = id::hash_access_path_iter(class_path.clone(), false);
         self.map.entry(id).or_insert_with(|| Name {
             internal_kind: kind,
             path: class_path.map(ToOwned::to_owned).collect(),
+        });
+        id
+    }
+
+    /// Turns an iterator of strs into a class id.
+    /// This the `single` version, which has the iterator turned into a single string rather than a
+    /// a slice of strings.
+    pub fn gcid_from_iter_single<'a>(
+        &mut self,
+        class_path: impl Iterator<Item = &'a str> + Clone,
+    ) -> GeneralClassId {
+        let kind = class_path.clone().next().and_then(InternalKind::from_str);
+        let id = id::hash_access_path_iter(class_path.clone(), true);
+        self.map.entry(id).or_insert_with(|| Name {
+            internal_kind: kind,
+            path: vec![class_path.fold(String::new(), |mut acc, x| {
+                acc.push_str(x);
+                acc
+            })],
         });
         id
     }
@@ -1301,27 +1324,6 @@ impl SuperClassFileIterator {
         Some(Ok(topmost))
     }
 }
-
-// pub(crate) fn descriptor_type_basic_id(
-//     class_names: &mut ClassNames,
-//     bdesc_type: &DescriptorTypeBasic,
-// ) -> Option<ClassId> {
-//     if let DescriptorTypeBasic::Class(class_id) = bdesc_type {
-//         Some(*class_id)
-//     } else {
-//         None
-//     }
-// }
-
-// pub(crate) fn descriptor_type_id(
-//     class_names: &mut ClassNames,
-//     desc_type: &DescriptorType,
-// ) -> Option<ClassId> {
-//     match desc_type {
-//         DescriptorType::Basic(x) => descriptor_type_basic_id(class_names, x),
-//         DescriptorType::Array { level, component } => {}
-//     }
-// }
 
 pub(crate) fn load_basic_descriptor_type(
     classes: &mut Classes,

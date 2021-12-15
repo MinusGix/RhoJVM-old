@@ -5,23 +5,72 @@ use rhojvm_base::{
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         op::InstM,
+        stack_map::{StackMapError, VerifyStackMapError},
     },
     id::{ClassFileId, ClassId, MethodId},
     Config, ProgramInfo, StepError,
 };
 use tracing::info;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 mod formatter;
+mod stack_map;
 
 const ENV_TRACING_LEVEL: &str = "RHO_LOG_LEVEL";
 const DEFAULT_TRACING_LEVEL: tracing::Level = tracing::Level::WARN;
+
+/// The maximum amount of 4 bytes that a stack can occupy.
+/// This stores the amount of 4 bytes that can be used since not having
+/// a multiple of four is odd, and can be merely rounded.
+#[derive(Debug, Clone)]
+pub struct MaxStackSize(NonZeroUsize);
+impl MaxStackSize {
+    /// Construct a max stack size with the number of 4 bytes that a stack can occupy
+    /// Note: If receiving bytes, then likely dividing by 4 and rounding down will work well.
+    pub fn new(entries: NonZeroUsize) -> MaxStackSize {
+        MaxStackSize(entries)
+    }
+
+    /// The maximum amount of 4 bytes that a stack can occupy
+    pub fn count(&self) -> NonZeroUsize {
+        self.0
+    }
+
+    /// Returns the number of bytes that this means
+    /// Returns `None` if the resulting multiplication would overflow.
+    pub fn byte_count(&self) -> Option<NonZeroUsize> {
+        // TODO: Simplify this once NonZero types have checked_mul
+        self.0
+            .get()
+            .checked_mul(4)
+            .map(NonZeroUsize::new)
+            // The result can not be zero, so [`NonZeroUsize::new`] cannot fail
+            .map(Option::unwrap)
+    }
+}
+impl Default for MaxStackSize {
+    fn default() -> Self {
+        // TODO: Move this to a constant once you can panic in constants?
+        // 1024 KB
+        MaxStackSize(NonZeroUsize::new(1024 * 1024).unwrap())
+    }
+}
+
 struct StateConfig {
     tracing_level: tracing::Level,
+    /// The maximum amount of 4 bytes that a stack can occupy
+    /// `None`: No limit on stack size. Though, limits caused by implementation
+    /// mean that this may not result in all available memory being used.
+    /// It is advised to have some form of limit, though.
+    max_stack_size: Option<MaxStackSize>,
 }
 impl StateConfig {
     fn new() -> StateConfig {
         let tracing_level = StateConfig::compute_tracing_level();
-        StateConfig { tracing_level }
+        StateConfig {
+            tracing_level,
+            max_stack_size: Some(MaxStackSize::default()),
+        }
     }
 
     fn compute_tracing_level() -> tracing::Level {
@@ -44,14 +93,14 @@ impl StateConfig {
     }
 }
 
-struct State {
+pub(crate) struct State {
     object_id: ClassId,
     entry_point_class: Option<ClassId>,
     entry_point_method: Option<MethodId>,
     conf: StateConfig,
 }
 impl State {
-    pub fn new(conf: StateConfig, prog: &mut ProgramInfo) -> Self {
+    fn new(conf: StateConfig, prog: &mut ProgramInfo) -> Self {
         let object_id = prog
             .class_names
             .gcid_from_slice(&["java", "lang", "Object"]);
@@ -67,10 +116,18 @@ impl State {
 fn main() {
     let conf = StateConfig::new();
 
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open("./rho.log")
+        .expect("Expected to be able to open log file");
+    let log_file = std::sync::Arc::new(log_file);
+
     let t_subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(conf.tracing_level)
         .without_time()
         .event_format(formatter::Formatter)
+        .with_writer(std::io::stderr.and(log_file))
         .finish();
     // TODO: We may make this jvm a library so this should not be done
     tracing::subscriber::set_global_default(t_subscriber)
@@ -102,6 +159,15 @@ fn main() {
             &prog.class_directories,
             &mut prog.class_names,
             &entry_point_cp,
+        )
+        .unwrap();
+    prog.classes
+        .load_class(
+            &prog.class_directories,
+            &mut prog.class_names,
+            &mut prog.class_files,
+            &mut prog.packages,
+            entrypoint_id,
         )
         .unwrap();
     state.entry_point_class = Some(entrypoint_id);
@@ -145,9 +211,16 @@ impl From<VerificationError> for GeneralError {
         Self::Verification(err)
     }
 }
+impl From<StackMapError> for GeneralError {
+    fn from(err: StackMapError) -> Self {
+        Self::Verification(VerificationError::StackMap(err))
+    }
+}
 
 #[derive(Debug)]
 pub enum VerificationError {
+    StackMap(StackMapError),
+    VerifyStackMapError(VerifyStackMapError),
     /// Crawling up the chain of a class tree, the topmost class was not `Object`.
     MostSuperClassNonObject {
         /// The class which we were looking at
@@ -163,7 +236,9 @@ pub enum VerificationError {
         super_class_id: ClassFileId,
     },
     /// The method should have had Code but it did not
-    NoMethodCode { method_id: MethodId },
+    NoMethodCode {
+        method_id: MethodId,
+    },
 }
 
 #[derive(Debug)]
@@ -216,7 +291,7 @@ fn pre_initialize_class(
         let super_class_id = res?;
 
         // TODO: Are we intended to preinitialize the entire super-chain?
-        let class = prog.class_files.get(&super_class_id).unwrap();
+        let class = prog.classes.get(&super_class_id).unwrap();
         let access_flags = class.access_flags();
         if access_flags.contains(ClassAccessFlags::FINAL) {
             return Err(VerificationError::SuperClassWasFinal {
@@ -280,10 +355,11 @@ fn verify_type_safe_method(
 
     let method = prog.methods.get(&method_id).unwrap();
     if method.should_have_code() {
-        if let Some(code) = method.code() {
-        } else {
+        if method.code().is_none() {
             // We should have code but there was no code!
             return Err(VerificationError::NoMethodCode { method_id }.into());
+        } else {
+            stack_map::verify_type_safe_method_stack_map(prog, state, method_id)?;
         }
     }
 
@@ -297,6 +373,18 @@ fn initialize_class(
     class_id: ClassId,
 ) -> Result<(), GeneralError> {
     pre_initialize_class(prog, state, class_id)?;
+
+    let class = prog.classes.get(&class_id).unwrap().as_class().unwrap();
+    for method_id in class.iter_method_ids() {
+        prog.load_method_from_id(method_id)?;
+        prog.load_method_descriptor_types(method_id)?;
+        //     let method = prog.methods.get(&method_id).unwrap();
+        //     let param_len = method.descriptor().parameters().len();
+        //     for param_i in 0..param_len {
+        //         let method = prog.methods.get(&method_id).unwrap();
+        //         let param = &method.descriptor().parameters()[param_i];
+        //     }
+    }
 
     Ok(())
 }
