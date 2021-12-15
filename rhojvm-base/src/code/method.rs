@@ -241,6 +241,14 @@ impl DescriptorTypeBasic {
             DescriptorTypeBasic::Boolean => ArrayComponentType::Boolean,
         }
     }
+
+    pub fn as_class_id(&self) -> Option<ClassId> {
+        if let DescriptorTypeBasic::Class(class_id) = self {
+            Some(*class_id)
+        } else {
+            None
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum DescriptorType {
@@ -270,6 +278,23 @@ impl DescriptorType {
         Self::Array {
             level: NonZeroUsize::new(1).unwrap(),
             component,
+        }
+    }
+
+    pub fn as_class_id(&self, class_names: &mut ClassNames) -> Result<Option<ClassId>, BadIdError> {
+        match self {
+            DescriptorType::Basic(x) => Ok(x.as_class_id()),
+            DescriptorType::Array { level, component } => {
+                // TODO: We could replace to_desc_string with something that returns an iterator
+                // over T: AsRef<str>
+                // TODO: This could also avoid extra string allocs by hashing the parts directly.
+                let name = component.to_desc_string(class_names)?;
+                let class_name = std::iter::repeat("[")
+                    .take(level.get())
+                    .chain([name.as_str()].into_iter());
+                let id = class_names.gcid_from_iter_single(class_name);
+                Ok(Some(id))
+            }
         }
     }
 }
