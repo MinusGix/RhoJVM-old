@@ -4,7 +4,7 @@ use classfile_parser::{
     constant_info::{ConstantInfo, Utf8Constant},
     constant_pool::ConstantPoolIndex,
     method_info::MethodInfo,
-    ClassFile,
+    ClassFile, ClassFileVersion,
 };
 
 pub use classfile_parser::ClassAccessFlags;
@@ -30,6 +30,14 @@ pub struct ClassFileData {
     pub(crate) class_file: ClassFile,
 }
 impl ClassFileData {
+    pub fn id(&self) -> ClassFileId {
+        self.id
+    }
+
+    pub fn version(&self) -> Option<ClassFileVersion> {
+        Some(self.class_file.version)
+    }
+
     pub fn get_t<'a, T>(&'a self, i: impl TryInto<ConstantPoolIndex<T>>) -> Option<&'a T>
     where
         &'a T: TryFrom<&'a ConstantInfo>,
