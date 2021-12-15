@@ -86,6 +86,7 @@ dependencies = [
 name = "rhojvm"
 version = "0.1.0"
 dependencies = [
+ "classfile-parser",
  "rhojvm-base",
  "tracing",
  "tracing-subscriber",
