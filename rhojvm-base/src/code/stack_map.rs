@@ -134,11 +134,11 @@ impl StackMapType {
 
 #[derive(Debug, Clone)]
 pub struct StackMapFrame {
-    at: InstructionIndex,
+    pub at: InstructionIndex,
     /// Operand Stack
-    stack: Vec<StackMapType>,
+    pub stack: Vec<StackMapType>,
     /// Local variables
-    locals: Vec<StackMapType>,
+    pub locals: Vec<StackMapType>,
 }
 impl StackMapFrame {
     /// Whether this frame has an uninitialized this, which constrains behavior of methods that
