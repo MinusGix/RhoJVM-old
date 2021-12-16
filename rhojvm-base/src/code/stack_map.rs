@@ -386,6 +386,14 @@ impl StackMapFrames {
             InstructionIndex(last.at.0 + offset_delta + 1)
         }
     }
+
+    fn iter(&self) -> std::slice::Iter<'_, StackMapFrame> {
+        self.frames.iter()
+    }
+
+    fn into_vec(self) -> Vec<StackMapFrame> {
+        self.frames
+    }
 }
 
 fn iter_verif_to_stack_map_types(
