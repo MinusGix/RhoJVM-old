@@ -93,11 +93,32 @@ impl StateConfig {
     }
 }
 
+/// Keeps track of the Warnings that are emitted
+pub struct Warnings(Vec<Warning>);
+impl Warnings {
+    pub fn push(&mut self, warning: Warning) {
+        self.0.push(warning)
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, Warning> {
+        self.0.iter()
+    }
+}
+
+/// A warning
+/// These provide information that isn't a bug but might be indicative of weird
+/// decisions in the compiling code, or incorrect reasoning by this JVM implementation
+/// As well, there will be settings which allow emitting some info, such as warning
+/// if a function has a stack that is of an absurd size.
+pub enum Warning {}
+
 pub(crate) struct State {
     object_id: ClassId,
     entry_point_class: Option<ClassId>,
     entry_point_method: Option<MethodId>,
     conf: StateConfig,
+
+    pub warnings: Warnings,
 }
 impl State {
     fn new(conf: StateConfig, prog: &mut ProgramInfo) -> Self {
@@ -109,6 +130,7 @@ impl State {
             entry_point_class: None,
             entry_point_method: None,
             conf,
+            warnings: Warnings(Vec::new()),
         }
     }
 }
