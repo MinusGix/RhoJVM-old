@@ -133,8 +133,6 @@ impl StackMapType {
 pub struct StackMapFrame {
     at: InstructionIndex,
     /// Operand Stack
-    /// Note: This is inverted handling relative to the original, in this we use the last element
-    /// as the top of the array, since that is more typical of a stack
     stack: Vec<StackMapType>,
     /// Local variables
     locals: Vec<StackMapType>,
