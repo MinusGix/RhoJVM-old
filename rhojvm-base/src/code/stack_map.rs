@@ -387,11 +387,11 @@ impl StackMapFrames {
         }
     }
 
-    fn iter(&self) -> std::slice::Iter<'_, StackMapFrame> {
+    pub fn iter(&self) -> std::slice::Iter<'_, StackMapFrame> {
         self.frames.iter()
     }
 
-    fn into_vec(self) -> Vec<StackMapFrame> {
+    pub fn into_vec(self) -> Vec<StackMapFrame> {
         self.frames
     }
 }
