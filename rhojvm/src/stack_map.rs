@@ -17,12 +17,22 @@ pub(crate) fn verify_type_safe_method_stack_map(
     let class_file = prog.class_files.get(&class_id).unwrap();
     let method = prog.methods.get(&method_id).unwrap();
 
+    let code = if let Some(code) = method.code() {
+        code
+    } else {
+        // We tried loading the code but there wasn't any.
+        // Thus, there is no stack map to validate
+        return Ok(());
+    };
+
     let stack_frames = if let Some(stack_frames) =
-        StackMapFrames::parse_frames(&mut prog.class_names, class_file, method)?
+        StackMapFrames::parse_frames(&mut prog.class_names, class_file, method.descriptor(), code)?
     {
         stack_frames
     } else {
         // If there were no stack frames then there is no need to verify them
+        // This is because the types can be inferred easily, such as in a function
+        // without control flow
         return Ok(());
     };
 
@@ -31,6 +41,12 @@ pub(crate) fn verify_type_safe_method_stack_map(
     // TODO: If we are verifying max stack size usage above, then it would be nice if the stack map
     // frame parsing let us do some checks for each iteration of it, so that we could produce
     // an error without parsing everything.
+
+    // We don't bother with the merging of stack map and code, since we can get the associated stack
+    // map relatively easily, and so there doesn't seem to be much point pairing them together
+    // especially since, if we have some types associated with instructions, they'll be more
+    // in-detail ones for analysis, rather than the relatively basic ones that stack maps supply
+    // (See: mergeStackMapAndCode jvm ch. 4)
 
     Ok(())
 }

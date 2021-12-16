@@ -5,7 +5,10 @@ use classfile_parser::attribute_info::{
 
 use crate::{class::ClassFileData, id::ClassId, BadIdError, ClassNames};
 
-use super::method::{DescriptorType, DescriptorTypeBasic, Method};
+use super::{
+    method::{DescriptorType, DescriptorTypeBasic, Method, MethodDescriptor},
+    CodeInfo,
+};
 
 #[derive(Debug)]
 pub enum StackMapError {
@@ -154,22 +157,14 @@ pub struct StackMapFrames {
     frames: Vec<StackMapFrame>,
 }
 impl StackMapFrames {
-    pub fn parse_frames(
+    pub fn parse_frames<'a>(
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        method: &Method,
+        descriptor: &'a MethodDescriptor,
+        method_code: &'a CodeInfo,
     ) -> Result<Option<StackMapFrames>, StackMapError> {
-        let code = if let Some(code) = method.code() {
-            code
-        } else {
-            // We tried loading the code but there wasn't any.
-            // Thus, there is no stack map to validate
-            return Ok(None);
-        };
-
         let initial_frame = {
-            let desc = method.descriptor();
-            let locals = desc
+            let locals = descriptor
                 .parameters()
                 .iter()
                 .map(|x| StackMapType::from_desc(class_names, x))
@@ -195,7 +190,7 @@ impl StackMapFrames {
         };
 
         // Stack map table attribute
-        let smt = code
+        let smt = method_code
             .attributes()
             .iter()
             .find(|x| class_file.get_text_t(x.attribute_name_index) == Some("StackMapTable"));
