@@ -11,7 +11,7 @@ pub use classfile_parser::ClassAccessFlags;
 
 use crate::{
     id::{ClassFileId, ClassId, MethodId, MethodIndex, PackageId},
-    ClassNames,
+    ClassNames, code::types::PrimitiveType, BadIdError,
 };
 
 #[derive(Debug, Clone)]
@@ -238,4 +238,39 @@ pub enum ArrayComponentType {
     Float,
     Double,
     Class(ClassId),
+}
+impl ArrayComponentType {
+    pub fn to_desc_string(&self, class_names: &mut ClassNames) -> Result<String, BadIdError> {
+        match self {
+            ArrayComponentType::Byte => Ok("B".to_owned()),
+            ArrayComponentType::Char => Ok("C".to_owned()),
+            ArrayComponentType::Double => Ok("D".to_owned()),
+            ArrayComponentType::Float => Ok("F".to_owned()),
+            ArrayComponentType::Int => Ok("I".to_owned()),
+            ArrayComponentType::Long => Ok("J".to_owned()),
+            ArrayComponentType::Class(class_id) => {
+                let class_name = class_names.path_from_gcid(*class_id)?;
+                Ok(format!("L{path};", path = class_name.join("/")))
+            }
+            ArrayComponentType::Short => Ok("S".to_owned()),
+            ArrayComponentType::Boolean => Ok("Z".to_owned()),
+        }
+    }
+}
+// TODO: Make From<DescriptorTypeBasic>
+impl From<PrimitiveType> for ArrayComponentType {
+    fn from(prim: PrimitiveType) -> ArrayComponentType {
+        match prim {
+            PrimitiveType::Byte => ArrayComponentType::Byte,
+            PrimitiveType::UnsignedByte => ArrayComponentType::Byte,
+            PrimitiveType::Short => ArrayComponentType::Short,
+            PrimitiveType::UnsignedShort => ArrayComponentType::Short,
+            PrimitiveType::Int => ArrayComponentType::Int,
+            PrimitiveType::Long => ArrayComponentType::Long,
+            PrimitiveType::Float => ArrayComponentType::Float,
+            PrimitiveType::Double => ArrayComponentType::Double,
+            PrimitiveType::Char => ArrayComponentType::Char,
+            PrimitiveType::Boolean => ArrayComponentType::Boolean,
+        }
+    }
 }
