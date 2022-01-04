@@ -1,24 +1,20 @@
-use std::{borrow::Cow, num::NonZeroUsize, path::Path};
+use std::{num::NonZeroUsize, path::Path};
 
 use rhojvm_base::{
     class::{ClassAccessFlags, ClassVariant},
     code::{
-        method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
+        method::{DescriptorType, DescriptorTypeBasic},
         op::InstM,
         stack_map::StackMapError,
     },
     id::{ClassFileId, ClassId, MethodId},
     Config, ProgramInfo, StepError,
 };
-use stack_map::VerifyStackMapError;
+use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use tracing::info;
-use tracing_subscriber::{
-    fmt::writer::{BoxMakeWriter, EitherWriter, MakeWriterExt},
-    prelude::__tracing_subscriber_SubscriberExt,
-};
+use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 
 mod formatter;
-mod stack_map;
 
 const ENV_TRACING_LEVEL: &str = "RHO_LOG_LEVEL";
 const DEFAULT_TRACING_LEVEL: tracing::Level = tracing::Level::WARN;
@@ -60,38 +56,9 @@ impl Default for MaxStackSize {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct StackMapVerificationLogging {
-    /// Whether to log the name of the method and class as we start verifying it
-    pub log_method_name: bool,
-    /// Whether to log each frame received from the class file.
-    /// Should be paired with `log_instruction` to know which instruction it was located at
-    pub log_received_frame: bool,
-    /// Whether to log each instruction as they are processed
-    pub log_instruction: bool,
-    /// Whether to log each PUSH/POP
-    /// intended to be used with `log_instruction` but can be standalone
-    pub log_stack_modifications: bool,
-    /// Whether to log each READ/WRITE to local variables
-    /// intended to be used with `log_instruction` but can be standalone
-    pub log_local_variable_modifications: bool,
-    // TODO: Option to log individual frame parts
-}
-impl Default for StackMapVerificationLogging {
-    fn default() -> Self {
-        Self {
-            log_method_name: false,
-            log_received_frame: false,
-            log_instruction: false,
-            log_stack_modifications: false,
-            log_local_variable_modifications: false,
-        }
-    }
-}
-
 struct StateConfig {
     tracing_level: tracing::Level,
-    pub stackmap_verification_logging: StackMapVerificationLogging,
+    pub stack_map_verification_logging: StackMapVerificationLogging,
     /// The maximum amount of 4 bytes that a stack can occupy
     /// `None`: No limit on stack size. Though, limits caused by implementation
     /// mean that this may not result in all available memory being used.
@@ -103,7 +70,7 @@ impl StateConfig {
         let tracing_level = StateConfig::compute_tracing_level();
         StateConfig {
             tracing_level,
-            stackmap_verification_logging: StackMapVerificationLogging::default(),
+            stack_map_verification_logging: StackMapVerificationLogging::default(),
             max_stack_size: Some(MaxStackSize::default()),
         }
     }
@@ -245,7 +212,7 @@ fn init_logging(conf: &StateConfig) {
 
 fn main() {
     let mut conf = StateConfig::new();
-    conf.stackmap_verification_logging = StackMapVerificationLogging {
+    conf.stack_map_verification_logging = StackMapVerificationLogging {
         log_method_name: true,
         log_received_frame: false,
         log_instruction: false,
@@ -348,16 +315,16 @@ impl From<StackMapError> for GeneralError {
         Self::Verification(VerificationError::StackMap(err))
     }
 }
-impl From<VerifyStackMapError> for GeneralError {
-    fn from(err: VerifyStackMapError) -> Self {
-        Self::Verification(VerificationError::VerifyStackMap(err))
+impl From<VerifyStackMapGeneralError> for GeneralError {
+    fn from(err: VerifyStackMapGeneralError) -> Self {
+        Self::Verification(VerificationError::VerifyStackMapGeneralError(err))
     }
 }
 
 #[derive(Debug)]
 pub enum VerificationError {
     StackMap(StackMapError),
-    VerifyStackMap(VerifyStackMapError),
+    VerifyStackMapGeneralError(VerifyStackMapGeneralError),
     /// Crawling up the chain of a class tree, the topmost class was not `Object`.
     MostSuperClassNonObject {
         /// The class which we were looking at
@@ -502,7 +469,11 @@ fn verify_type_safe_method(
             // We should have code but there was no code!
             return Err(VerificationError::NoMethodCode { method_id }.into());
         } else {
-            stack_map::verify_type_safe_method_stack_map(prog, state, method_id)?;
+            stack_map_verifier::verify_type_safe_method_stack_map(
+                prog,
+                state.conf().stack_map_verification_logging.clone(),
+                method_id,
+            )?;
         }
     }
 

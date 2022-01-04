@@ -1,0 +1,10 @@
+[package]
+name = "stack_map-verifier"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rhojvm-base = { path = "../rhojvm-base/" }
+# TODO: It would be nice to not have to depend on this directly at all.
+classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
+tracing = "0.1"

@@ -5,7 +5,7 @@ use classfile_parser::{
     constant_info::{ClassConstant, FieldRefConstant, NameAndTypeConstant, Utf8Constant},
     constant_pool::ConstantPoolIndexRaw,
 };
-use rhojvm_base::code::stack_map::StackMapFrames;
+use rhojvm_base::code::stack_map::{StackMapError, StackMapFrames};
 use rhojvm_base::code::types::{
     Category, LocalVariableInType, LocalVariableIndex, LocalVariableType, LocalsIn, LocalsOutAt,
     PopComplexType, StackSizes,
@@ -27,7 +27,22 @@ use rhojvm_base::{
     ClassDirectories, ClassFiles, ClassNames, Classes, ProgramInfo, StepError,
 };
 
-use crate::{GeneralError, State};
+#[derive(Debug)]
+pub enum VerifyStackMapGeneralError {
+    StepError(StepError),
+    VerifyStackMapError(VerifyStackMapError),
+    StackMapError(StackMapError),
+}
+impl From<StepError> for VerifyStackMapGeneralError {
+    fn from(err: StepError) -> Self {
+        VerifyStackMapGeneralError::StepError(err)
+    }
+}
+impl From<VerifyStackMapError> for VerifyStackMapGeneralError {
+    fn from(err: VerifyStackMapError) -> Self {
+        VerifyStackMapGeneralError::VerifyStackMapError(err)
+    }
+}
 
 // TODO: Include method id?
 #[derive(Debug)]
@@ -167,6 +182,36 @@ pub enum VerifyStackMapError {
     BadConstantType,
 }
 
+/// Settings for logging in the stack map verification.
+#[derive(Debug, Clone)]
+pub struct StackMapVerificationLogging {
+    /// Whether to log the name of the method and class as we start verifying it
+    pub log_method_name: bool,
+    /// Whether to log each frame received from the class file.
+    /// Should be paired with `log_instruction` to know which instruction it was located at
+    pub log_received_frame: bool,
+    /// Whether to log each instruction as they are processed
+    pub log_instruction: bool,
+    /// Whether to log each PUSH/POP
+    /// intended to be used with `log_instruction` but can be standalone
+    pub log_stack_modifications: bool,
+    /// Whether to log each READ/WRITE to local variables
+    /// intended to be used with `log_instruction` but can be standalone
+    pub log_local_variable_modifications: bool,
+    // TODO: Option to log individual frame parts
+}
+impl Default for StackMapVerificationLogging {
+    fn default() -> Self {
+        Self {
+            log_method_name: false,
+            log_received_frame: false,
+            log_instruction: false,
+            log_stack_modifications: false,
+            log_local_variable_modifications: false,
+        }
+    }
+}
+
 /// Variants of this enumeration are unstable and should not be relied upon.
 #[derive(Debug, Clone)]
 pub enum Local {
@@ -234,7 +279,7 @@ impl Locals {
         class_file: &ClassFileData,
         code: &CodeInfo,
         types: &[StackMapType],
-    ) -> Result<(), GeneralError> {
+    ) -> Result<(), VerifyStackMapGeneralError> {
         self.locals.clear();
 
         let mut types_iter = types.iter().peekable();
@@ -386,11 +431,11 @@ struct Frame {
     locals: Locals,
 }
 
-pub(crate) fn verify_type_safe_method_stack_map(
+pub fn verify_type_safe_method_stack_map(
     prog: &mut ProgramInfo,
-    state: &mut State,
+    conf: StackMapVerificationLogging,
     method_id: MethodId,
-) -> Result<(), GeneralError> {
+) -> Result<(), VerifyStackMapGeneralError> {
     let _span = tracing::span!(tracing::Level::TRACE, "stackmap verification").entered();
 
     let (class_id, _) = method_id.decompose();
@@ -403,7 +448,7 @@ pub(crate) fn verify_type_safe_method_stack_map(
     let class_file = prog.class_files.get(&class_id).unwrap();
     let method = prog.methods.get(&method_id).unwrap();
 
-    if state.conf().stackmap_verification_logging.log_method_name {
+    if conf.log_method_name {
         tracing::info!(
             "! Checking {} :: {}{}",
             prog.class_names
@@ -422,12 +467,13 @@ pub(crate) fn verify_type_safe_method_stack_map(
         return Ok(());
     };
 
-    if state.conf().stackmap_verification_logging.log_method_name {
+    if conf.log_method_name {
         tracing::info!("\tLocals: #{}", code.max_locals());
     }
 
     let stack_frames = if let Some(stack_frames) =
-        StackMapFrames::parse_frames(&mut prog.class_names, class_file, method, code)?
+        StackMapFrames::parse_frames(&mut prog.class_names, class_file, method, code)
+            .map_err(VerifyStackMapGeneralError::StackMapError)?
     {
         stack_frames
     } else {
@@ -486,7 +532,7 @@ pub(crate) fn verify_type_safe_method_stack_map(
         inst_types.clear();
 
         let inst_name = inst.name();
-        if state.conf().stackmap_verification_logging.log_instruction {
+        if conf.log_instruction {
             tracing::info!(
                 "# ({}) {}",
                 idx.0,
@@ -505,11 +551,7 @@ pub(crate) fn verify_type_safe_method_stack_map(
             // to preserve memory.
             let class_file = prog.class_files.get(&class_id).unwrap();
 
-            if state
-                .conf()
-                .stackmap_verification_logging
-                .log_received_frame
-            {
+            if conf.log_received_frame {
                 tracing::info!("\t Received Frame: {:#?}", frame);
             }
 
@@ -721,11 +763,7 @@ pub(crate) fn verify_type_safe_method_stack_map(
                 &mut prog.packages,
                 last_frame_type,
             )? {
-                if state
-                    .conf()
-                    .stackmap_verification_logging
-                    .log_stack_modifications
-                {
+                if conf.log_stack_modifications {
                     tracing::info!(
                         "\t\tPOP {}    -- {:?}",
                         last_frame_type.as_pretty_string(&prog.class_names),
@@ -775,11 +813,7 @@ pub(crate) fn verify_type_safe_method_stack_map(
                 .into());
             }
 
-            if state
-                .conf()
-                .stackmap_verification_logging
-                .log_local_variable_modifications
-            {
+            if conf.log_local_variable_modifications {
                 tracing::info!(
                     "\t\tLLOAD [{}] = {}    -- {:?}",
                     local_index,
@@ -810,11 +844,7 @@ pub(crate) fn verify_type_safe_method_stack_map(
                 inst_name,
                 class_id,
             )?;
-            if state
-                .conf()
-                .stackmap_verification_logging
-                .log_local_variable_modifications
-            {
+            if conf.log_local_variable_modifications {
                 tracing::info!(
                     "\t\tLSTORE [{}] = {}    -- {:?}",
                     local_index,
@@ -855,11 +885,7 @@ pub(crate) fn verify_type_safe_method_stack_map(
                 class_id,
             )?;
 
-            if state
-                .conf()
-                .stackmap_verification_logging
-                .log_stack_modifications
-            {
+            if conf.log_stack_modifications {
                 tracing::info!(
                     "\t\tPUSH {}    -- {:?}",
                     push_type.as_pretty_string(&prog.class_names),
@@ -931,7 +957,7 @@ impl FrameType {
         class_files: &mut ClassFiles,
         packages: &mut Packages,
         right: &FrameType,
-    ) -> Result<bool, GeneralError> {
+    ) -> Result<bool, VerifyStackMapGeneralError> {
         Ok(match (self, right) {
             (FrameType::Primitive(left), FrameType::Primitive(right)) => {
                 left.is_same_type_on_stack(right)
@@ -1055,7 +1081,7 @@ impl FrameType {
         class_file: &ClassFileData,
         code: &CodeInfo,
         types: &[StackMapType],
-    ) -> Result<Vec<FrameType>, GeneralError> {
+    ) -> Result<Vec<FrameType>, VerifyStackMapGeneralError> {
         // Overallocates a little, technically could quickly grab the number of
         // expected types with one iteration, but this is probably fine
         // since there will never be that many alive frames
@@ -1129,7 +1155,7 @@ impl FrameType {
         class_files: &mut ClassFiles,
         packages: &mut Packages,
         complex: &ComplexType,
-    ) -> Result<FrameType, GeneralError> {
+    ) -> Result<FrameType, VerifyStackMapGeneralError> {
         Ok(match complex {
             ComplexType::RefArrayPrimitive(prim) => {
                 let array_id = classes.load_array_of_primitives(class_names, *prim)?;
@@ -1168,7 +1194,7 @@ impl FrameType {
         locals: &mut Locals,
         inst_name: &'static str,
         class_id: ClassId,
-    ) -> Result<FrameType, GeneralError> {
+    ) -> Result<FrameType, VerifyStackMapGeneralError> {
         // TODO: Don't unwrap on accessing class id
         Ok(match with_t {
             WithType::Type(pop_index) => {
@@ -1409,7 +1435,7 @@ impl FrameType {
         typ: &PopComplexType,
         last_frame_type: &FrameType,
         inst_name: &'static str,
-    ) -> Result<FrameType, GeneralError> {
+    ) -> Result<FrameType, VerifyStackMapGeneralError> {
         // The way this type works means that if we want to ground it as a specific type
         // (which we do), we have to do some validity checking in it.
         Ok(match typ {
@@ -1554,7 +1580,7 @@ impl FrameType {
         locals: &mut Locals,
         inst_name: &'static str,
         class_id: ClassId,
-    ) -> Result<FrameType, GeneralError> {
+    ) -> Result<FrameType, VerifyStackMapGeneralError> {
         match typ {
             Type::Primitive(primitive) => Ok(FrameType::from_opcode_primitive_type(primitive)),
             Type::Complex(complex) => FrameType::from_opcode_complex_type(
@@ -1587,7 +1613,7 @@ impl FrameType {
         class_files: &mut ClassFiles,
         packages: &mut Packages,
         typ: &Type,
-    ) -> Result<Option<FrameType>, GeneralError> {
+    ) -> Result<Option<FrameType>, VerifyStackMapGeneralError> {
         match typ {
             Type::Primitive(primitive) => {
                 Ok(Some(FrameType::from_opcode_primitive_type(primitive)))
@@ -1616,7 +1642,7 @@ impl FrameType {
         locals: &mut Locals,
         inst_name: &'static str,
         class_id: ClassId,
-    ) -> Result<FrameType, GeneralError> {
+    ) -> Result<FrameType, VerifyStackMapGeneralError> {
         match typ {
             LocalVariableType::Type(typ) => Self::from_opcode_type(
                 classes,
@@ -1644,7 +1670,7 @@ impl FrameType {
         locals: &mut Locals,
         inst_name: &'static str,
         class_id: ClassId,
-    ) -> Result<FrameType, GeneralError> {
+    ) -> Result<FrameType, VerifyStackMapGeneralError> {
         match typ {
             PushType::Type(typ) => Self::from_opcode_type(
                 classes,

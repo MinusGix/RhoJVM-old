@@ -1,2 +1,2 @@
 [workspace]
-members = ["rhojvm", "rhojvm-base"]
+members = ["rhojvm", "rhojvm-base", "stack_map-verifier"]
