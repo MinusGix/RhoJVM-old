@@ -122,6 +122,11 @@ impl Method {
         self.name.as_str()
     }
 
+    /// Whether or not it is an <init> function
+    pub fn is_init(&self) -> bool {
+        self.name() == "<init>"
+    }
+
     #[must_use]
     pub fn descriptor(&self) -> &MethodDescriptor {
         &self.descriptor
@@ -183,15 +188,25 @@ impl DescriptorTypeBasic {
             DescriptorTypeBasic::Int => Ok("I".to_owned()),
             DescriptorTypeBasic::Long => Ok("J".to_owned()),
             DescriptorTypeBasic::Class(class_id) => {
-                let class_name = class_names.path_from_gcid(*class_id)?;
-                Ok(format!("L{path};", path = class_name.join("/")))
+                let name = class_names.name_from_gcid(*class_id)?;
+                let path = name.path();
+                if name.is_array() {
+                    // If we have the id for an array then we just use the singular path it has
+                    // because writing it as an object is incorrect.
+                    Ok(path[0].clone())
+                } else {
+                    Ok(format!("L{path};", path = path.join("/")))
+                }
             }
             DescriptorTypeBasic::Short => Ok("S".to_owned()),
             DescriptorTypeBasic::Boolean => Ok("Z".to_owned()),
         }
     }
 
-    fn from_class_file_desc(desc: DescriptorTypeBasicCF<'_>, class_names: &mut ClassNames) -> Self {
+    pub(crate) fn from_class_file_desc(
+        desc: DescriptorTypeBasicCF<'_>,
+        class_names: &mut ClassNames,
+    ) -> Self {
         match desc {
             DescriptorTypeBasicCF::Byte => Self::Byte,
             DescriptorTypeBasicCF::Char => Self::Char,
@@ -249,6 +264,20 @@ impl DescriptorTypeBasic {
             None
         }
     }
+
+    pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
+        match self {
+            DescriptorTypeBasic::Class(id) => {
+                if let Ok(name) = class_names.display_path_from_gcid(*id) {
+                    format!("{}", name)
+                } else {
+                    format!("[BadClassId #{}]", *id)
+                }
+            }
+            // All the primitive types can be handled with `name`
+            _ => self.name().unwrap().to_owned(),
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum DescriptorType {
@@ -259,7 +288,7 @@ pub enum DescriptorType {
     },
 }
 impl DescriptorType {
-    fn from_class_file_desc(desc: DescriptorTypeCF<'_>, class_names: &mut ClassNames) -> Self {
+    pub fn from_class_file_desc(class_names: &mut ClassNames, desc: DescriptorTypeCF<'_>) -> Self {
         match desc {
             DescriptorTypeCF::Basic(x) => {
                 Self::Basic(DescriptorTypeBasic::from_class_file_desc(x, class_names))
@@ -294,6 +323,19 @@ impl DescriptorType {
                     .chain([name.as_str()].into_iter());
                 let id = class_names.gcid_from_iter_single(class_name);
                 Ok(Some(id))
+            }
+        }
+    }
+
+    pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
+        match self {
+            DescriptorType::Basic(basic) => basic.as_pretty_string(class_names),
+            DescriptorType::Array { level, component } => {
+                let mut result = component.as_pretty_string(class_names);
+                for _ in 0..level.get() {
+                    result += "[]";
+                }
+                result
             }
         }
     }
@@ -344,6 +386,10 @@ impl MethodDescriptor {
         self.return_type.as_ref()
     }
 
+    pub fn into_parameters_ret(self) -> (Vec<DescriptorType>, Option<DescriptorType>) {
+        (self.parameters, self.return_type)
+    }
+
     pub(crate) fn from_text(
         desc: &str,
         class_names: &mut ClassNames,
@@ -366,10 +412,29 @@ impl MethodDescriptor {
         Self {
             parameters: parameter_types
                 .into_iter()
-                .map(|x| DescriptorType::from_class_file_desc(x, class_names))
+                .map(|x| DescriptorType::from_class_file_desc(class_names, x))
                 .collect(),
-            return_type: return_type.map(|x| DescriptorType::from_class_file_desc(x, class_names)),
+            return_type: return_type.map(|x| DescriptorType::from_class_file_desc(class_names, x)),
         }
+    }
+
+    pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
+        let mut result = "(".to_owned();
+        for (i, parameter) in self.parameters.iter().enumerate() {
+            result.push_str(parameter.as_pretty_string(class_names).as_str());
+            if i + 1 < self.parameters.len() {
+                result.push_str(", ");
+            }
+        }
+        result.push_str(") -> ");
+
+        if let Some(return_type) = &self.return_type {
+            result.push_str(return_type.as_pretty_string(class_names).as_str());
+        } else {
+            result.push_str("void");
+        }
+
+        result
     }
 }
 

@@ -23,6 +23,7 @@ use std::{
     collections::BTreeMap,
     fs::File,
     io::Read,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
 };
 
@@ -30,13 +31,18 @@ use class::{
     ArrayClass, ArrayComponentType, Class, ClassFileData, ClassFileIndexError, ClassVariant,
 };
 use classfile_parser::{
-    attribute_info::code_attribute_parser, class_parser, constant_info::Utf8Constant,
-    constant_pool::ConstantPoolIndexRaw, method_info::MethodAccessFlags,
+    attribute_info::code_attribute_parser,
+    class_parser,
+    constant_info::{ClassConstant, Utf8Constant},
+    constant_pool::ConstantPoolIndexRaw,
+    method_info::MethodAccessFlags,
+    ClassAccessFlags,
 };
 use code::{
     method::{self, DescriptorType, DescriptorTypeBasic, Method, MethodDescriptor},
     op_ex::InstructionParseError,
     stack_map::StackMapError,
+    types::{PrimitiveType, StackInfoError},
 };
 use id::{ClassFileId, ClassId, GeneralClassId, MethodId, PackageId};
 use package::Packages;
@@ -83,6 +89,10 @@ pub enum LoadClassError {
     BadId(BadIdError),
     LoadClassFile(LoadClassFileError),
     ClassFileIndex(ClassFileIndexError),
+    /// An invalid index into the constant pool for an interface
+    BadInterfaceIndex(ConstantPoolIndexRaw<ClassConstant>),
+    /// An invalid index for an interface's name into the constant pool
+    BadInterfaceNameIndex(ConstantPoolIndexRaw<Utf8Constant>),
 }
 impl From<ClassFileIndexError> for LoadClassError {
     fn from(err: ClassFileIndexError) -> Self {
@@ -166,6 +176,8 @@ pub enum StepError {
     LoadCode(LoadCodeError),
     VerifyCodeException(VerifyCodeExceptionError),
     StackMapError(StackMapError),
+    StackInfoError(StackInfoError),
+    DescriptorTypeError(classfile_parser::descriptor::DescriptorTypeError),
     /// Some code loaded a value and then tried accessing it but it was missing.
     /// This might be a sign that it shouldn't assume that, or a sign of a bug elsewhere
     /// that caused it to not load but also not reporting an error.
@@ -176,6 +188,8 @@ pub enum StepError {
     ClassFileIndex(ClassFileIndexError),
     /// There was a bad class id that didn't have a name stored
     BadId(BadIdError),
+    /// The type held by a descriptor was unexpected
+    UnexpectedDescriptorType,
 }
 impl From<LoadClassFileError> for StepError {
     fn from(err: LoadClassFileError) -> Self {
@@ -210,6 +224,11 @@ impl From<VerifyCodeExceptionError> for StepError {
 impl From<StackMapError> for StepError {
     fn from(err: StackMapError) -> Self {
         Self::StackMapError(err)
+    }
+}
+impl From<StackInfoError> for StepError {
+    fn from(err: StackInfoError) -> Self {
+        Self::StackInfoError(err)
     }
 }
 
@@ -257,7 +276,9 @@ impl Default for Config {
 
 __make_map!(pub Classes<ClassId, ClassVariant>; access);
 impl Classes {
-    fn register_array_class(&mut self, array_class: ArrayClass) {
+    // FIXME: This doesn't force any verification
+    /// The given array class must have valid and correct fields!
+    pub fn register_array_class(&mut self, array_class: ArrayClass) {
         self.set_at(array_class.id(), ClassVariant::Array(array_class));
     }
 
@@ -281,7 +302,14 @@ impl Classes {
         info!("Loading Class {:?}", class_name.path());
 
         if !class_name.has_class_file() {
-            // At the moment, if an array class is loaded, it is already within the classes
+            // Just load the array class
+            self.get_array_class(
+                class_directories,
+                class_names,
+                class_files,
+                packages,
+                class_file_id,
+            )?;
             return Ok(class_file_id);
         }
 
@@ -331,6 +359,511 @@ impl Classes {
 
         Ok(class_file_id)
     }
+
+    // TODO: We could maybe generate the id for these various arrays without string
+    // allocations so that we can simply check if they exist cheaply
+    pub fn load_array_of_instances(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        packages: &mut Packages,
+        class_id: ClassId,
+    ) -> Result<ClassId, StepError> {
+        let component_type = ArrayComponentType::Class(class_id);
+
+        let mut name = component_type
+            .to_desc_string(class_names)
+            .map_err(StepError::BadId)?;
+        name.insert(0, '[');
+
+        let id = class_names.gcid_from_str(&name);
+        if let Some(class) = self.get(&id) {
+            // It was already loaded
+            debug_assert!(matches!(class, ClassVariant::Array(_)));
+            return Ok(id);
+        }
+
+        let access_flags = {
+            // TODO: For normal classes, we only need to load the class file
+            self.load_class(
+                class_directories,
+                class_names,
+                class_files,
+                packages,
+                class_id,
+            )?;
+            let class = self.get(&class_id).unwrap();
+            class.access_flags()
+        };
+        let array = ArrayClass {
+            id,
+            name,
+            super_class: class_names.object_id(),
+            component_type,
+            access_flags,
+        };
+        self.register_array_class(array);
+        Ok(id)
+    }
+
+    pub fn load_array_of_primitives(
+        &mut self,
+        class_names: &mut ClassNames,
+        prim: PrimitiveType,
+    ) -> Result<ClassId, StepError> {
+        let component_type = ArrayComponentType::from(prim);
+        let mut name = component_type
+            .to_desc_string(class_names)
+            .map_err(StepError::BadId)?;
+        name.insert(0, '[');
+
+        let array_id = class_names.gcid_from_str(&name);
+        if let Some(class) = self.get(&array_id) {
+            // It was already loaded
+            debug_assert!(matches!(class, ClassVariant::Array(_)));
+            return Ok(array_id);
+        }
+
+        let array = ArrayClass::new_unchecked(
+            array_id,
+            name,
+            component_type,
+            class_names.object_id(),
+            // Since all the types are primitive, we can simply use this
+            ClassAccessFlags::PUBLIC,
+        );
+        self.register_array_class(array);
+        Ok(array_id)
+    }
+
+    pub fn load_level_array_of_primitives(
+        &mut self,
+        class_names: &mut ClassNames,
+        level: NonZeroUsize,
+        prim: PrimitiveType,
+    ) -> Result<ClassId, StepError> {
+        let component_type = ArrayComponentType::from(prim);
+        let mut name = component_type
+            .to_desc_string(class_names)
+            .map_err(StepError::BadId)?;
+
+        let object_id = class_names.object_id();
+
+        let mut prev_type = component_type;
+        let mut last_id = None;
+        for _ in 0..level.get() {
+            name.insert(0, '[');
+            let id = class_names.gcid_from_str(&name);
+            if let Some(class) = self.get(&id) {
+                // It was already loaded, so do nothing
+                debug_assert!(matches!(class, ClassVariant::Array(_)));
+            } else {
+                let array = ArrayClass {
+                    id,
+                    name: name.clone(),
+                    super_class: object_id,
+                    component_type: prev_type,
+                    // All primitive types are public
+                    access_flags: ClassAccessFlags::PUBLIC,
+                };
+                self.register_array_class(array);
+            }
+            prev_type = ArrayComponentType::Class(id);
+            last_id = Some(id);
+        }
+
+        // Last id must always be filled due to nonzero level
+        Ok(last_id.unwrap())
+    }
+
+    pub fn load_level_array_of_desc_type_basic(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        packages: &mut Packages,
+        level: NonZeroUsize,
+        component: DescriptorTypeBasic,
+    ) -> Result<ClassId, StepError> {
+        let component_id = load_basic_descriptor_type(
+            self,
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            &component,
+        )?;
+
+        let object_id = class_names.object_id();
+
+        let access_flags = if let Some(component_id) = component_id {
+            // TODO: For normal classes, we only need to load the class file
+            self.load_class(
+                class_directories,
+                class_names,
+                class_files,
+                packages,
+                component_id,
+            )?;
+            let class = self.get(&component_id).unwrap();
+            class.access_flags()
+        } else {
+            // These methods only return none if it was a class, but if it was then it would
+            // be in the other branch
+            component.access_flags().unwrap()
+        };
+
+        let component_type = component.as_array_component_type();
+
+        let mut name = component
+            .to_desc_string(class_names)
+            .map_err(StepError::BadId)?;
+        let mut prev_type = component_type;
+        let mut last_id = None;
+        for _ in 0..level.get() {
+            // We store it like the descriptor type because that is what it appears as in other
+            // places. This does mean that we can't simply use this name as a java-equivalent
+            // access path, unfortunately, since an array of ints becomes [I.
+
+            name.insert(0, '[');
+            // This has custom handling to keep an array as a lone string
+            let id = class_names.gcid_from_str(&name);
+            if let Some(class) = self.get(&id) {
+                // It was already loaded, so do nothing
+                debug_assert!(matches!(class, ClassVariant::Array(_)));
+            } else {
+                let array = ArrayClass {
+                    id,
+                    name: name.clone(),
+                    super_class: object_id,
+                    component_type: prev_type,
+                    access_flags,
+                };
+                self.register_array_class(array);
+            }
+            prev_type = ArrayComponentType::Class(id);
+            last_id = Some(id)
+        }
+
+        // level being NonZero means that this must be set
+        Ok(last_id.unwrap())
+    }
+
+    pub fn load_level_array_of_class_id(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        packages: &mut Packages,
+        level: NonZeroUsize,
+        class_id: ClassId,
+    ) -> Result<ClassId, StepError> {
+        // TODO: Inline this so that we do slightly less work
+        self.load_level_array_of_desc_type_basic(
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            level,
+            DescriptorTypeBasic::Class(class_id),
+        )
+    }
+
+    /// Returns the ArrayClass if it is an array
+    /// This should be used rather than loading the class itself, because this
+    /// avoids loading classes that it doesn't need to.
+    pub fn get_array_class(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        packages: &mut Packages,
+        class_id: ClassId,
+    ) -> Result<Option<&ArrayClass>, StepError> {
+        use classfile_parser::descriptor::DescriptorType as DescriptorTypeCF;
+
+        // This weird contains_key then unwrap get is to avoid unpleasant borrow checker errors
+        if self.contains_key(&class_id) {
+            return Ok(self.get(&class_id).unwrap().as_array());
+        } else if class_files.get(&class_id).is_some() {
+            return Ok(None);
+        }
+
+        // Otherwise, we load the class, if it has a classname.
+        let name = class_names
+            .name_from_gcid(class_id)
+            .map_err(StepError::BadId)?;
+
+        if !name.is_array() {
+            // It isn't an array, but that's fine.
+            return Ok(None);
+        }
+
+        let descriptor: DescriptorTypeCF<'static> = {
+            // TODO: Return an error if this doesn't exist, but if it does not then that is sign
+            // of an internal bug
+            let path = name.path()[0].as_str();
+            let (descriptor, remaining) =
+                DescriptorTypeCF::parse(path).map_err(StepError::DescriptorTypeError)?;
+            // TODO: This should actually be a runtime error
+            assert!(remaining.is_empty());
+            // TODO: We shouldn't have to potentially allocate.
+            descriptor.to_owned()
+        };
+        match descriptor {
+            DescriptorTypeCF::Array { level, component } => {
+                let component = DescriptorTypeBasic::from_class_file_desc(component, class_names);
+                let id = self.load_level_array_of_desc_type_basic(
+                    class_directories,
+                    class_names,
+                    class_files,
+                    packages,
+                    level,
+                    component,
+                )?;
+                debug_assert_eq!(id, class_id);
+
+                // TODO: Better error handling than unwrap
+                let array = self.get(&id).unwrap().as_array().unwrap();
+                Ok(Some(array))
+            }
+            // TODO: This is likely indicative of an internal error since name parsing thought this was an array!
+            _ => return Err(StepError::UnexpectedDescriptorType),
+        }
+    }
+
+    /// Note: This specifically checks if it is a super class, if they are equal it returns false
+    pub fn is_super_class(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        packages: &mut Packages,
+        class_id: ClassId,
+        maybe_super_class_id: ClassId,
+    ) -> Result<bool, StepError> {
+        let object_id = class_names.object_id();
+
+        if class_id == maybe_super_class_id {
+            return Ok(false);
+        }
+
+        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+
+        // If this is an array, then it only extends the given class if it is java.lang.Object
+        if let Some(_array_class) = self.get_array_class(
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            class_id,
+        )? {
+            // Arrays only extend object
+            return Ok(maybe_super_class_id == object_id);
+        }
+
+        // TODO: We could do a bit of optimization for if the class file was unloaded but the class
+        // still existed
+        // Load the class file, because we need the super id
+        let mut current_class_id = class_id;
+        loop {
+            class_files.load_by_class_path_id(class_directories, class_names, current_class_id)?;
+            let class_file = class_files.get(&current_class_id).unwrap();
+
+            if let Some(super_id) = class_file
+                .get_super_class_id(class_names)
+                .map_err(StepError::ClassFileIndex)?
+            {
+                if super_id == maybe_super_class_id {
+                    return Ok(true);
+                }
+
+                current_class_id = super_id;
+            } else {
+                break;
+            }
+        }
+
+        Ok(false)
+    }
+
+    pub fn implements_interface(
+        &self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        class_id: ClassId,
+        impl_interface_id: ClassId,
+    ) -> Result<bool, StepError> {
+        // Special handling for arrays
+        if let Some(ClassVariant::Array(_class)) = self.get(&class_id) {
+            let cloneable = class_names.gcid_from_slice(&["java", "lang", "Cloneable"]);
+            if impl_interface_id == cloneable {
+                return Ok(true);
+            }
+
+            let serializable = class_names.gcid_from_slice(&["java", "io", "Serializable"]);
+            if impl_interface_id == serializable {
+                return Ok(true);
+            }
+
+            return Ok(false);
+        }
+
+        let mut current_class_id = Some(class_id);
+
+        while let Some(current_id) = current_class_id {
+            let interfaces = {
+                class_files.load_by_class_path_id(class_directories, class_names, current_id)?;
+                let class_file = class_files.get(&current_id).unwrap();
+
+                // Get all the interfaces. This is collected to a vec because we will invalidate the
+                // class file reference
+                let interfaces = class_file.interfaces_indices_iter().collect::<Vec<_>>();
+
+                // Check all the topmost indices first
+                for interface_index in interfaces.iter().cloned() {
+                    let interface_constant = class_file
+                        .get_t(interface_index)
+                        .ok_or(LoadClassError::BadInterfaceIndex(interface_index))?;
+                    let interface_name =
+                        class_file.get_text_t(interface_constant.name_index).ok_or(
+                            LoadClassError::BadInterfaceNameIndex(interface_constant.name_index),
+                        )?;
+                    let interface_id = class_names.gcid_from_str(interface_name);
+
+                    if interface_id == impl_interface_id {
+                        return Ok(true);
+                    }
+                }
+
+                interfaces
+            };
+
+            // Check if any of the interfaces implement it
+            // This is done after the topmost interfaces are checked so that it makes those calls cheaper
+            for interface_index in interfaces.iter().cloned() {
+                // Sadly, code can autocast an interface down to an interface that it extends
+                // Ex: A extends B, B extends C
+                // we can cast A down to C
+                // The problem with this is that it requires loading every interface's class file..
+
+                // We can't trust that the class file is still loaded.
+                class_files.load_by_class_path_id(class_directories, class_names, current_id)?;
+                let class_file = class_files.get(&current_id).unwrap();
+
+                let interface_constant = class_file
+                    .get_t(interface_index)
+                    .ok_or(LoadClassError::BadInterfaceIndex(interface_index))?;
+                let interface_name = class_file.get_text_t(interface_constant.name_index).ok_or(
+                    LoadClassError::BadInterfaceNameIndex(interface_constant.name_index),
+                )?;
+                let interface_id = class_names.gcid_from_str(interface_name);
+
+                if self.implements_interface(
+                    class_directories,
+                    class_names,
+                    class_files,
+                    interface_id,
+                    impl_interface_id,
+                )? {
+                    return Ok(true);
+                }
+            }
+
+            class_files.load_by_class_path_id(class_directories, class_names, current_id)?;
+            let class_file = class_files.get(&current_id).unwrap();
+
+            current_class_id = class_file
+                .get_super_class_id(class_names)
+                .map_err(StepError::ClassFileIndex)?;
+        }
+
+        Ok(false)
+    }
+
+    /// Checks if `class_id` is an array and can be downcasted to `target_id` (if it is an array)
+    /// Ex: `java.lang.String[]` -> `Object[]`
+    /// Note that this does not return true if they are of the same exact type
+    /// That is because it is easy to determine from their class ids
+    pub fn is_castable_array(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        packages: &mut Packages,
+        class_id: ClassId,
+        target_id: ClassId,
+    ) -> Result<bool, StepError> {
+        let class_array = if let Some(class_array) = self.get_array_class(
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            class_id,
+        )? {
+            class_array
+        } else {
+            // It wasn't an array
+            return Ok(false);
+        };
+        let class_elem = class_array.component_type();
+
+        let target_array = if let Some(target_array) = self.get_array_class(
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            target_id,
+        )? {
+            target_array
+        } else {
+            // It wasn't an array
+            return Ok(false);
+        };
+        let target_elem = target_array.component_type();
+
+        // If it isn't a class id then this would be comparison of primitive arrays which
+        // can just be done by comparing the ids
+
+        let class_elem_id = if let Some(class_elem_id) = class_elem.into_class_id() {
+            class_elem_id
+        } else {
+            return Ok(false);
+        };
+
+        let target_elem_id = if let Some(target_elem_id) = target_elem.into_class_id() {
+            target_elem_id
+        } else {
+            return Ok(false);
+        };
+
+        // if it can be cast down because it extends it (B[] -> A[])
+        // if it can be cast down because target elem is an interface (A[] -> Cloneable[])
+        // or if it can be cast down because it holds a castable array (B[][] -> A[][])
+        Ok(self.is_super_class(
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            class_elem_id,
+            target_elem_id,
+        )? || self.implements_interface(
+            class_directories,
+            class_names,
+            class_files,
+            class_elem_id,
+            target_elem_id,
+        )? || self.is_castable_array(
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            class_elem_id,
+            target_elem_id,
+        )?)
+    }
 }
 __make_map!(pub Methods<MethodId, Method>; access);
 
@@ -367,6 +900,7 @@ pub struct Name {
     /// Indicates that the class is for an internal type which does not have an actual backing
     /// classfile.
     internal_kind: Option<InternalKind>,
+    /// internal arrays only have one entry in this
     path: Vec<String>,
 }
 impl Name {
@@ -385,9 +919,18 @@ impl Name {
             true
         }
     }
+
+    pub fn is_array(&self) -> bool {
+        matches!(self.internal_kind, Some(InternalKind::Array))
+    }
 }
 __make_map!(pub ClassNames<GeneralClassId, Name>; access);
 impl ClassNames {
+    /// Gets the id for `java.lang.Object`
+    pub fn object_id(&mut self) -> GeneralClassId {
+        self.gcid_from_slice(&["java", "lang", "Object"])
+    }
+
     /// Store the class path hash if it doesn't already exist and get the id
     /// If possible, all creations of ids should go through these functions to allow
     /// a mapping from the id back to to the path
@@ -475,6 +1018,20 @@ impl ClassNames {
 
     pub fn name_from_gcid(&self, id: GeneralClassId) -> Result<&Name, BadIdError> {
         self.get(&id).ok_or(BadIdError { id })
+    }
+
+    /// A more nicely formatted path from the gcid
+    pub fn display_path_from_gcid(&self, id: GeneralClassId) -> Result<String, BadIdError> {
+        let path = self.path_from_gcid(id)?;
+        let mut result = String::new();
+        for (i, part) in path.iter().enumerate() {
+            result.push_str(&part);
+            if i + 1 < path.len() {
+                result.push('.');
+            }
+        }
+
+        Ok(result)
     }
 
     /// Used for getting nice traces without boilerplate
@@ -750,7 +1307,6 @@ impl ProgramInfo {
         let method = self.methods.get(&method_id).unwrap();
 
         for parameter_type in method.descriptor().parameters().iter().cloned() {
-            tracing::info!("\tParam: {:?}", parameter_type);
             load_descriptor_type(
                 &mut self.classes,
                 &self.class_directories,
@@ -1369,51 +1925,14 @@ pub(crate) fn load_descriptor_type(
             Ok(())
         }
         DescriptorType::Array { level, component } => {
-            let component_id = load_basic_descriptor_type(
-                classes,
+            classes.load_level_array_of_desc_type_basic(
                 class_directories,
                 class_names,
                 class_files,
                 packages,
-                &component,
+                level,
+                component,
             )?;
-
-            let object_id = class_names.gcid_from_slice(&["java", "lang", "Object"]);
-
-            let access_flags = if let Some(component_id) = component_id {
-                class_files.load_by_class_path_id(class_directories, class_names, component_id)?;
-                let class_file = class_files.get(&component_id).unwrap();
-                class_file.access_flags()
-            } else {
-                // These methods only return none if it was a class, but if it was then it would
-                // be in the other branch
-                component.access_flags().unwrap()
-            };
-
-            let component_type = component.as_array_component_type();
-
-            let mut name = component
-                .to_desc_string(class_names)
-                .map_err(StepError::BadId)?;
-            let mut prev_type = component_type;
-            for _ in 0..level.get() {
-                // We store it like the descriptor type because that is what it appears as in other
-                // places. This does mean that we can't simply use this name as a java-equivalent
-                // access path, unfortunately, since an array of ints becomes [I.
-
-                name.insert(0, '[');
-                // This has custom handling to keep an array as a lone string
-                let id = class_names.gcid_from_str(&name);
-                let array = ArrayClass {
-                    id,
-                    name: name.clone(),
-                    super_class: object_id,
-                    component_type: prev_type,
-                    access_flags,
-                };
-                classes.register_array_class(array);
-                prev_type = ArrayComponentType::Class(id);
-            }
 
             Ok(())
         }

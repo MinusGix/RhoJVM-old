@@ -12,6 +12,7 @@ pub use classfile_parser::attribute_info::InstructionIndex;
 pub mod method;
 pub mod op;
 pub mod op_ex;
+mod op_print;
 pub mod stack_map;
 pub mod types;
 

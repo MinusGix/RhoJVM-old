@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use classfile_parser::{
-    constant_info::{ConstantInfo, Utf8Constant},
-    constant_pool::ConstantPoolIndex,
+    constant_info::{ClassConstant, ConstantInfo, Utf8Constant},
+    constant_pool::{ConstantPoolIndex, ConstantPoolIndexRaw},
     method_info::MethodInfo,
     ClassFile, ClassFileVersion,
 };
@@ -10,8 +10,9 @@ use classfile_parser::{
 pub use classfile_parser::ClassAccessFlags;
 
 use crate::{
+    code::types::PrimitiveType,
     id::{ClassFileId, ClassId, MethodId, MethodIndex, PackageId},
-    ClassNames, code::types::PrimitiveType, BadIdError,
+    BadIdError, ClassNames,
 };
 
 #[derive(Debug, Clone)]
@@ -107,6 +108,12 @@ impl ClassFileData {
             .get_super_class_name()?
             .map(|x| class_names.gcid_from_str(x)))
     }
+
+    pub fn interfaces_indices_iter<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = ConstantPoolIndexRaw<ClassConstant>> + 'a {
+        self.class_file.interfaces.iter().cloned()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +151,14 @@ impl ClassVariant {
         match self {
             Self::Class(x) => Some(x),
             Self::Array(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn as_array(&self) -> Option<&ArrayClass> {
+        match self {
+            Self::Class(_) => None,
+            Self::Array(x) => Some(x),
         }
     }
 }
@@ -209,6 +224,29 @@ pub struct ArrayClass {
     pub(crate) access_flags: ClassAccessFlags,
 }
 impl ArrayClass {
+    // TODO: provide more libsound ways of creating this
+    pub fn new_unchecked(
+        id: ClassId,
+        name: String,
+        component_type: ArrayComponentType,
+        super_class: ClassId,
+        access_flags: ClassAccessFlags,
+    ) -> Self {
+        ArrayClass {
+            id,
+            name,
+            component_type,
+            super_class,
+            access_flags,
+        }
+    }
+
+    /// Note: This should not be used for strictly identifying
+    /// This is strictly for debug purposes
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
     #[must_use]
     pub fn id(&self) -> ClassId {
         self.id
@@ -240,6 +278,18 @@ pub enum ArrayComponentType {
     Class(ClassId),
 }
 impl ArrayComponentType {
+    pub fn is_primitive(&self) -> bool {
+        !matches!(self, ArrayComponentType::Class(_))
+    }
+
+    /// Convert to class id if it is of the `Class` variant, aka if it is non-Primitive
+    pub fn into_class_id(self) -> Option<ClassId> {
+        match self {
+            ArrayComponentType::Class(id) => Some(id),
+            _ => None,
+        }
+    }
+
     pub fn to_desc_string(&self, class_names: &mut ClassNames) -> Result<String, BadIdError> {
         match self {
             ArrayComponentType::Byte => Ok("B".to_owned()),
@@ -249,8 +299,15 @@ impl ArrayComponentType {
             ArrayComponentType::Int => Ok("I".to_owned()),
             ArrayComponentType::Long => Ok("J".to_owned()),
             ArrayComponentType::Class(class_id) => {
-                let class_name = class_names.path_from_gcid(*class_id)?;
-                Ok(format!("L{path};", path = class_name.join("/")))
+                let name = class_names.name_from_gcid(*class_id)?;
+                let path = name.path();
+                if name.is_array() {
+                    // If we have the id for an array then we just use the singular path it has
+                    // because writing it as an object is incorrect.
+                    Ok(path[0].clone())
+                } else {
+                    Ok(format!("L{path};", path = path.join("/")))
+                }
             }
             ArrayComponentType::Short => Ok("S".to_owned()),
             ArrayComponentType::Boolean => Ok("Z".to_owned()),

@@ -1,4 +1,3 @@
 /target
-/ex/rt
-/ex/jce
+/ex/lib/
 /ex/*.class

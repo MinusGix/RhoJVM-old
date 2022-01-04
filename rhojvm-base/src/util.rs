@@ -147,6 +147,7 @@ macro_rules! __make_map {
                 let e = self.map.insert(key, val);
                 if e.is_some() {
                     tracing::warn!("Duplicate Setting for map '{}' with {:?}", stringify!($name), key2);
+                    panic!();
                 }
             }
 

@@ -7,23 +7,44 @@ use classfile_parser::constant_pool::ConstantPoolIndexRaw;
 
 use crate::code::op_ex::InstructionParseError;
 use crate::code::types::{
-    Byte, Char, ComplexType, Double, Float, Int, LocalVariableIndexByte, Long, ParseOutput,
-    PopIndex, PrimitiveType, PushIndex, Short, Type, UnsignedByte, UnsignedShort, WithType,
+    Byte, Char, ComplexType, Double, Float, HasStackInfo, Int, LocalVariableInType,
+    LocalVariableIndex, LocalVariableIndexByte, LocalVariableIndexByteType, LocalVariableIndexType,
+    LocalVariableType, LocalsIn, LocalsOutAt, Long, ParseOutput, PopComplexType, PopIndex, PopType,
+    PopTypeAt, PrimitiveType, PushIndex, PushType, PushTypeAt, Short, StackInfo, StackSizes, Type,
+    UnsignedByte, UnsignedShort, WithType,
 };
 use crate::util::{MemorySize, StaticMemorySize};
+
+use super::types::ConstantPoolIndexRawU8;
+
+// TODO: Replace this with a count macro if that is ever added to Rust
+macro_rules! replace_expr {
+    ($_t:tt $sub:expr) => {
+        $sub
+    };
+}
+
+macro_rules! count_tts {
+    ($($tts:tt)*) => {0 $(+ replace_expr!($tts 1))*};
+}
 
 macro_rules! define_pop {
     ($for:ident, [$(
         $(#[$pop_outer:meta])*
         $pop_name:ident : $pop_ty:expr
     ),* $(,)*]) => {
-        impl $for {
-            #[must_use]
-            pub fn pop_type_at(&self, i: PopIndex) -> Option<Type> {
-                let pops = [$(Type::from($pop_ty)),*];
+        impl PopTypeAt for $for {
+            fn pop_type_at(&self, i: PopIndex) -> Option<PopType> {
+                let pops = [$(PopType::from($pop_ty)),*];
                 std::array::IntoIter::new(pops).nth(i)
             }
 
+            fn pop_count(&self) -> usize {
+                let pops: &[PopType] = &[$(PopType::from($pop_ty)),*];
+                pops.len()
+            }
+        }
+        impl $for {
             #[must_use]
             pub fn pop_type_name_at(&self, i: PopIndex) -> Option<&'static str> {
                 let pops = [$(stringify!($pop_name)),*];
@@ -38,13 +59,18 @@ macro_rules! define_push {
         $(#[$push_outer:meta])*
         $push_name:ident : $push_ty:expr
     ),* $(,)*]) => {
-        impl $for {
-            #[must_use]
-            pub fn push_type_at(&self, i: PushIndex) -> Option<Type> {
-                let push = [$(Type::from($push_ty)),*];
+        impl PushTypeAt for $for {
+            fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
+                let push = [$(PushType::from($push_ty)),*];
                 std::array::IntoIter::new(push).nth(i)
             }
 
+            fn push_count(&self) -> usize {
+                let push: &[PushType] = &[$(PushType::from($push_ty)),*];
+                push.len()
+            }
+        }
+        impl $for {
             #[must_use]
             pub fn push_type_name_at(&self, i: PushIndex) -> Option<&'static str> {
                 let push = [$(stringify!($push_name)),*];
@@ -53,6 +79,57 @@ macro_rules! define_push {
         }
     };
     ($for:ident, [{extern}]) => {};
+}
+macro_rules! define_locals_out {
+    ($for:ident, [$(
+        $(#[$local_outer:meta])*
+        $local_name:ident ($local_index:expr): $local_ty:expr
+    ),* $(,)*]) => {
+        impl LocalsOutAt for $for {
+            type Iter = std::array::IntoIter<(LocalVariableIndex, LocalVariableType), {count_tts!($($local_name)*)}>;
+
+            #[must_use]
+            fn locals_out_type_iter(&self) -> Self::Iter {
+                [$(($local_index, LocalVariableType::from($local_ty)))*].into_iter()
+            }
+        }
+    };
+    ($for:ident, [{extern}]) => {};
+}
+macro_rules! define_locals_in {
+    ($for:ident, [$(
+        $(#[$local_outer:meta])*
+        ($local_index:expr, $local_ty:expr)
+    ),* $(,)*]) => {
+        impl LocalsIn for $for {
+            type Iter = std::array::IntoIter<(LocalVariableIndex, LocalVariableInType), {count_tts!($($local_ty)*)}>;
+
+            #[must_use]
+            fn locals_in_type_iter(&self) -> Self::Iter {
+                [$(($local_index, LocalVariableInType::from($local_ty)))*].into_iter()
+            }
+        }
+    };
+    ($for:ident, [{extern}]) => {};
+}
+
+macro_rules! define_stack_info {
+    ($for:ident, [extern]) => {};
+    ($for:ident, []) => {
+        impl StackInfo for $for {}
+        impl HasStackInfo for $for {
+            type Output = Self;
+            fn stack_info(
+                &self,
+                _: &mut $crate::ProgramInfo,
+                _: $crate::id::ClassFileId,
+                _: $crate::id::MethodId,
+                _: StackSizes,
+            ) -> Result<Self::Output, $crate::StepError> {
+                Ok(self.clone())
+            }
+        }
+    };
 }
 
 macro_rules! define_init {
@@ -92,6 +169,9 @@ macro_rules! define_instruction {
             $(#[$exception_outer:meta])*
             $exception_name:ident
         ),* $(,)*],
+        $(stack_info: $stack_info_data:ident,)?
+        $(locals_out: [$($locals_out_data:tt)*],)?
+        $(locals_in: [$($locals_in_data:tt)*],)?
         $(init: [$($init_data:tt)*],)?
     }) => {
         $(#[$name_outer])*
@@ -128,6 +208,11 @@ macro_rules! define_instruction {
                         )*
                     })
                 }
+
+                // TODO: Feature to not compile this in
+                pub fn name(&self) -> &'static str {
+                    stringify!($name)
+                }
             }
             impl $name {
                 pub const OPCODE: RawOpcode = $opcode;
@@ -138,6 +223,9 @@ macro_rules! define_instruction {
             }
             define_pop!($name, [$($pop_data)*]);
             define_push!($name, [$($push_data)*]);
+            define_locals_out!($name, [$($($locals_out_data)*)?]);
+            define_locals_in!($name, [$($($locals_in_data)*)?]);
+            define_stack_info!($name, [$($stack_info_data)?]);
             $(define_init!($name, [$($init_data)*]);)?
             // TODO: is there a simpler way of generating code for the case where there is no init?
             inverse_do!({define_init!($name, []);} : $($($init_data)*)?);
@@ -194,6 +282,117 @@ macro_rules! define_instructions {
             }
         }
 
+        pub enum StackInfosM {
+            $(
+                $name(<$name as HasStackInfo>::Output)
+            ),+
+        }
+        impl StackInfo for StackInfosM {}
+        impl PopTypeAt for StackInfosM {
+            fn pop_type_at(&self, i: usize) -> Option<PopType> {
+                match self {
+                    $(
+                        StackInfosM::$name(x) => x.pop_type_at(i),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => return None,
+                }
+            }
+
+            fn pop_count(&self) -> usize {
+                match self {
+                    $(
+                        StackInfosM::$name(x) => x.pop_count(),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+        impl PushTypeAt for StackInfosM {
+            fn push_type_at(&self, i: usize) -> Option<PushType> {
+                match self {
+                    $(
+                        StackInfosM::$name(x) => x.push_type_at(i),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => return None,
+                }
+            }
+
+            fn push_count(&self) -> usize {
+                match self {
+                    $(
+                        StackInfosM::$name(x) => x.push_count(),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        pub enum LocalsOutIter {
+            $(
+                $name(<<$name as HasStackInfo>::Output as LocalsOutAt>::Iter)
+            ),+
+        }
+        impl Iterator for LocalsOutIter {
+            type Item = (LocalVariableIndex, LocalVariableType);
+            fn next(&mut self) -> Option<Self::Item> {
+                match self {
+                    $(
+                        LocalsOutIter::$name(x) => x.next(),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+        impl LocalsOutAt for StackInfosM {
+            type Iter = LocalsOutIter;
+
+            fn locals_out_type_iter(&self) -> Self::Iter {
+                match self {
+                    $(
+                        StackInfosM::$name(x) => LocalsOutIter::$name(x.locals_out_type_iter()),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        pub enum LocalsInIter {
+            $(
+                $name(<<$name as HasStackInfo>::Output as LocalsIn>::Iter)
+            ),+
+        }
+        impl Iterator for LocalsInIter {
+            type Item = (LocalVariableIndex, LocalVariableInType);
+            fn next(&mut self) -> Option<Self::Item> {
+                match self {
+                    $(
+                        LocalsInIter::$name(x) => x.next(),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+        impl LocalsIn for StackInfosM {
+            type Iter = LocalsInIter;
+
+            fn locals_in_type_iter(&self) -> Self::Iter {
+                match self {
+                    $(
+                        StackInfosM::$name(x) => LocalsInIter::$name(x.locals_in_type_iter()),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+
         #[derive(Clone)]
         pub enum InstM {
             $(
@@ -220,26 +419,27 @@ macro_rules! define_instructions {
                 }
             }
 
-            #[must_use]
-            pub fn pop_type_at(&self, i: usize) -> Option<Type> {
+            pub fn name(&self) -> &'static str {
                 match self {
                     $(
-                        InstM::$name(x) => x.pop_type_at(i),
+                        InstM::$name(inst) => inst.name(),
                     )+
                     #[allow(unreachable_patterns)]
-                    _ => return None,
+                    _ => unreachable!()
                 }
             }
+        }
+        impl HasStackInfo for InstM {
+            type Output = StackInfosM;
 
-            #[must_use]
-            pub fn push_type_at(&self, i: usize) -> Option<Type> {
-                match self {
+            fn stack_info(&self, prog: &mut $crate::ProgramInfo, class_id: $crate::id::ClassFileId, method_id: $crate::id::MethodId, stack_sizes: StackSizes,) -> Result<StackInfosM, $crate::StepError> {
+                Ok(match self {
                     $(
-                        InstM::$name(x) => x.push_type_at(i),
-                    )+
+                        InstM::$name(inst) => StackInfosM::$name(inst.stack_info(prog, class_id, method_id, stack_sizes)?),
+                    )*
                     #[allow(unreachable_patterns)]
-                    _ => return None,
-                }
+                    _ => unimplemented!(),
+                })
             }
         }
         impl MemorySize for InstM {
@@ -261,6 +461,116 @@ macro_rules! define_instructions {
                     $(
                         InstM::$name(v) => std::fmt::Debug::fmt(v, f),
                     )*
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        pub enum WideStackInfosM {
+            $(
+                $wide_name(<$wide_name as HasStackInfo>::Output)
+            ),+
+        }
+        impl StackInfo for WideStackInfosM {}
+        impl PopTypeAt for WideStackInfosM {
+            fn pop_type_at(&self, i: usize) -> Option<PopType> {
+                match self {
+                    $(
+                        WideStackInfosM::$wide_name(x) => x.pop_type_at(i),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => return None,
+                }
+            }
+
+            fn pop_count(&self) -> usize {
+                match self {
+                    $(
+                        WideStackInfosM::$wide_name(x) => x.pop_count(),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+        impl PushTypeAt for WideStackInfosM {
+            fn push_type_at(&self, i: usize) -> Option<PushType> {
+                match self {
+                    $(
+                        WideStackInfosM::$wide_name(x) => x.push_type_at(i),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => return None,
+                }
+            }
+
+            fn push_count(&self) -> usize {
+                match self {
+                    $(
+                        WideStackInfosM::$wide_name(x) => x.push_count(),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+        pub enum WideLocalsOutIter {
+            $(
+                $wide_name(<<$wide_name as HasStackInfo>::Output as LocalsOutAt>::Iter)
+            ),+
+        }
+        impl Iterator for WideLocalsOutIter {
+            type Item = (LocalVariableIndex, LocalVariableType);
+            fn next(&mut self) -> Option<Self::Item> {
+                match self {
+                    $(
+                        WideLocalsOutIter::$wide_name(x) => x.next(),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+        impl LocalsOutAt for WideStackInfosM {
+            type Iter = WideLocalsOutIter;
+
+            fn locals_out_type_iter(&self) -> Self::Iter {
+                match self {
+                    $(
+                        WideStackInfosM::$wide_name(x) => WideLocalsOutIter::$wide_name(x.locals_out_type_iter()),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        pub enum WideLocalsInIter {
+            $(
+                $wide_name(<<$wide_name as HasStackInfo>::Output as LocalsIn>::Iter)
+            ),+
+        }
+        impl Iterator for WideLocalsInIter {
+            type Item = (LocalVariableIndex, LocalVariableInType);
+            fn next(&mut self) -> Option<Self::Item> {
+                match self {
+                    $(
+                        WideLocalsInIter::$wide_name(x) => x.next(),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+        impl LocalsIn for WideStackInfosM {
+            type Iter = WideLocalsInIter;
+
+            fn locals_in_type_iter(&self) -> Self::Iter {
+                match self {
+                    $(
+                        WideStackInfosM::$wide_name(x) => WideLocalsInIter::$wide_name(x.locals_in_type_iter()),
+                    )+
                     #[allow(unreachable_patterns)]
                     _ => unreachable!(),
                 }
@@ -293,26 +603,27 @@ macro_rules! define_instructions {
                 }
             }
 
-            #[must_use]
-            pub fn pop_type_at(&self, i: usize) -> Option<Type> {
+            pub fn name(&self) -> &'static str {
                 match self {
                     $(
-                        WideInstM::$wide_name(x) => x.pop_type_at(i),
+                        WideInstM::$wide_name(inst) => inst.name(),
                     )+
                     #[allow(unreachable_patterns)]
-                    _ => return None,
+                    _ => unreachable!()
                 }
             }
+        }
+        impl HasStackInfo for WideInstM {
+            type Output = WideStackInfosM;
 
-            #[must_use]
-            pub fn push_type_at(&self, i: usize) -> Option<Type> {
-                match self {
+            fn stack_info(&self, prog: &mut $crate::ProgramInfo, class_id: $crate::id::ClassFileId, method_id: $crate::id::MethodId, stack_sizes: StackSizes) -> Result<WideStackInfosM, $crate::StepError> {
+                Ok(match self {
                     $(
-                        WideInstM::$wide_name(x) => x.push_type_at(i),
-                    )+
+                        WideInstM::$wide_name(inst) => WideStackInfosM::$wide_name(inst.stack_info(prog, class_id, method_id, stack_sizes)?),
+                    )*
                     #[allow(unreachable_patterns)]
-                    _ => return None,
-                }
+                    _ => unimplemented!(),
+                })
             }
         }
         impl MemorySize for WideInstM {
@@ -350,11 +661,11 @@ define_instructions! {[
         opcode: 0x32,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayRefAny,
-            index: WithType::IntArrayIndexInto(0),
+            index: WithType::IntArrayIndexInto(1),
+            arrayref: PopComplexType::RefArrayRefAny,
         ],
         push: [
-            res: WithType::RefArrayRefType(0),
+            res: WithType::RefArrayRefType(1),
         ],
         exceptions: [
             /// If arrayref is null
@@ -368,11 +679,11 @@ define_instructions! {[
         opcode: 0x53,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayRefAny,
-            index: WithType::IntArrayIndexInto(0),
+            value: WithType::RefArrayRefType(2),
+            index: WithType::IntArrayIndexInto(2),
+            arrayref: PopComplexType::RefArrayRefAny,
             // TODO: there is technically more specific rules for this
             // that may need to be specifically supported
-            value: WithType::RefArrayRefType(0),
         ],
         push: [],
         exceptions: [
@@ -400,13 +711,12 @@ define_instructions! {[
         args: [
             /// Index into the local variable array of the current frame
             /// The locvar at index must contain a reference
-            index: LocalVariableIndexByte,
+            index: LocalVariableIndexByteType,
         ],
         pop: [],
-        push: [
-            objectref: WithType::LocalVariableRefAtNoRetAddr(0),
-        ],
+        push: [{extern}],
         exceptions: [],
+        locals_in: [{extern}],
         init: [inst; RequireValidLocalVariableIndex(inst.index as u16)],
     },
     // TODO: We really need some way to generate these automatically, they are just adding
@@ -423,6 +733,7 @@ define_instructions! {[
             objectref: WithType::LocalVariableRefAtIndexNoRetAddr(0),
         ],
         exceptions: [],
+        locals_in: [(0, LocalVariableInType::ReferenceAny)],
         init: [; RequireValidLocalVariableIndex(0)],
     },
     /// Indexes into the local variable array at index 1
@@ -436,6 +747,7 @@ define_instructions! {[
             objectref: WithType::LocalVariableRefAtIndexNoRetAddr(1),
         ],
         exceptions: [],
+        locals_in: [(1, LocalVariableInType::ReferenceAny)],
         init: [; RequireValidLocalVariableIndex(1)],
     },
     /// Indexes into the local variable array at index 2
@@ -450,6 +762,7 @@ define_instructions! {[
             objectref: WithType::LocalVariableRefAtIndexNoRetAddr(2),
         ],
         exceptions: [],
+        locals_in: [(2, LocalVariableInType::ReferenceAny)],
         init: [; RequireValidLocalVariableIndex(2)],
     },
     /// Indexes into the local variable array at index 0
@@ -463,6 +776,7 @@ define_instructions! {[
             objectref: WithType::LocalVariableRefAtIndexNoRetAddr(3),
         ],
         exceptions: [],
+        locals_in: [(3, LocalVariableInType::ReferenceAny)],
         init: [; RequireValidLocalVariableIndex(3)],
     },
     /// Create a new array of reference
@@ -497,7 +811,6 @@ define_instructions! {[
             index: ConstantPoolIndexRaw<ClassConstant>,
             dimensions: UnsignedByte,
         ],
-        // TODO: #[dimensions] count variable
         pop: [{extern}],
         push: [{extern}],
         exceptions: [
@@ -535,7 +848,7 @@ define_instructions! {[
         args: [],
         pop: [
             /// Must be assignment compatible with the type in the return descriptor
-            objectref: ComplexType::ReferenceAny
+            objectref: PopComplexType::ReferenceAny
         ],
         push: [],
         // TODO: Could we have a return field?
@@ -549,7 +862,7 @@ define_instructions! {[
     ArrayLength: {
         opcode: 0xBE,
         args: [],
-        pop: [arrayref: ComplexType::RefArrayAny],
+        pop: [arrayref: PopComplexType::RefArrayAny],
         // TODO: Array length type?
         push: [length: Int],
         exceptions: [
@@ -562,15 +875,16 @@ define_instructions! {[
         opcode: 0x3A,
         args: [
             /// Index into local variable array of current frame
-            index: LocalVariableIndexByte
+            index: LocalVariableIndexByteType
         ],
         pop: [
-            // TODO: custom type for returnAddress?
+            // TODO: extern type for returnAddress?
             /// Must be of type returnAddress | reference
-            objectref: ComplexType::ReferenceAny,
+            objectref: PopComplexType::ReferenceAny,
         ],
         push: [],
         exceptions: [],
+        locals_out: [{extern}],
         init: [inst; RequireValidLocalVariableIndex(inst.index as u16)],
     },
     /// Store reference into local variable 0
@@ -579,10 +893,13 @@ define_instructions! {[
         args: [],
         pop: [
             /// Must be of type returnAddress | reference
-            objectef: ComplexType::ReferenceAny,
+            objectef: PopComplexType::ReferenceAny,
         ],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (0): WithType::Type(0)
+        ],
         init: [; RequireValidLocalVariableIndex(0)],
     },
     /// Store reference into local variable 1
@@ -591,10 +908,13 @@ define_instructions! {[
         args: [],
         pop: [
             /// Must be of type returnAddress | reference
-            objectef: ComplexType::ReferenceAny,
+            objectef: PopComplexType::ReferenceAny,
         ],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (1): WithType::Type(0)
+        ],
         init: [; RequireValidLocalVariableIndex(1)],
     },
     /// Store reference into local variable 2
@@ -603,10 +923,13 @@ define_instructions! {[
         args: [],
         pop: [
             /// Must be of type returnAddress | reference
-            objectef: ComplexType::ReferenceAny,
+            objectef: PopComplexType::ReferenceAny,
         ],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (2): WithType::Type(0)
+        ],
         init: [; RequireValidLocalVariableIndex(2)],
     },
     /// Store reference into local variable 3
@@ -615,12 +938,19 @@ define_instructions! {[
         args: [],
         pop: [
             /// Must be of type returnAddress | reference
-            objectef: ComplexType::ReferenceAny,
+            objectef: PopComplexType::ReferenceAny,
         ],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (3): WithType::Type(0)
+        ],
         init: [; RequireValidLocalVariableIndex(3)],
     },
+
+    // Note: Invoke methods don't have a push value in the documentation, but the return
+    // instructions push a value onto the callers operand stack, and so they *do* have some
+    // pushed type
 
     InvokeSpecial: {
         opcode: 0xB7,
@@ -637,7 +967,7 @@ define_instructions! {[
             index: ConstantPoolIndexRaw<ConstantInfo>,
         ],
         pop: [{extern}],
-        push: [],
+        push: [{extern}],
         exceptions: [
             /// If the resolved method is an instance init method, and the class in which
             /// it is declared is not the class symbolically referenced
@@ -655,6 +985,7 @@ define_instructions! {[
             /// If it was a nativem ethod and the code that implements it can't be bound
             UnsatisfiedLinkError,
         ],
+        stack_info: extern,
         init: [{extern}],
     },
     InvokeInterface: {
@@ -664,14 +995,12 @@ define_instructions! {[
             count: UnsignedByte,
             zero: UnsignedByte,
         ],
-        pop: [
-            objectref: ComplexType::ReferenceAny,
-            // TODO: Args
-        ],
-        push: [],
+        pop: [{extern}],
+        push: [{extern}],
         exceptions: [
             // TODO
         ],
+        stack_info: extern,
         init: [{extern}],
     },
     InvokeDynamic: {
@@ -681,15 +1010,12 @@ define_instructions! {[
             zero1: Byte,
             zero2: Byte,
         ],
-        pop: [
-            // TODO: args
-        ],
-        push: [
-            // TODO: args?
-        ],
+        pop: [{extern}],
+        push: [{extern}],
         exceptions: [
             // TODO: exceptions
         ],
+        stack_info: extern,
         init: [{extern}],
     },
 
@@ -757,7 +1083,7 @@ define_instructions! {[
             index: ConstantPoolIndexRaw<FieldRefConstant>,
         ],
         pop: [],
-        push: [/* TODO: */],
+        push: [{extern}],
         exceptions: [
             /// If field lookup fails
             NoSuchFieldError,
@@ -765,6 +1091,7 @@ define_instructions! {[
             IllegalMonitorStateException,
             /// If the resolved field is a not a static class field or an interface field
             IncompatibleClassChangeError,
+            // TODO:
         ],
         init: [{extern}],
     },
@@ -780,11 +1107,10 @@ define_instructions! {[
             /// Index into constant pool of current class
             /// Must be a int, float, reference to a string literal, symbolic-ref to a class,
             /// method type, or method handle.
-            // TODO: ConstantPoolIndexRawU8
-            index: UnsignedByte,
+            index: ConstantPoolIndexRawU8<ConstantInfo>,
         ],
         pop: [],
-        push: [],
+        push: [{extern}],
         exceptions: [
             // TODO: This is incomplete
             /// If class is not accessible
@@ -795,11 +1121,13 @@ define_instructions! {[
     LoadConstantWide: {
         opcode: 0x13,
         args: [
+            /// Index into constant pool of current class
+            /// Must be an int | float | reference to string literal | symref to class |
+            /// method type | method handle
             index: ConstantPoolIndexRaw<ConstantInfo>,
         ],
         pop: [],
-        // TODO: This isn't exactly category 1, more 4 byte?
-        push: [val: ComplexType::Category1],
+        push: [{extern}],
         exceptions: [],
         init: [{extern}],
     },
@@ -812,7 +1140,7 @@ define_instructions! {[
             index: ConstantPoolIndexRaw<ConstantInfo>,
         ],
         pop: [],
-        push: [value: ComplexType::Category2],
+        push: [{extern}],
         exceptions: [],
     },
 
@@ -829,11 +1157,7 @@ define_instructions! {[
             index: ConstantPoolIndexRaw<ClassConstant>,
         ],
         pop: [],
-        push: [
-            // TODO: nonnull?
-            /// The newly created object
-            objectref: ComplexType::ReferenceAny
-        ],
+        push: [{extern}],
         exceptions: [
             // TODO: resolution errors
             /// Resolved to a interface or abstract class
@@ -880,13 +1204,12 @@ define_instructions! {[
             /// if it has not already been
             index: ConstantPoolIndexRaw<ConstantInfo>,
         ],
-        pop: [
-            // args
-        ],
-        push: [],
+        pop: [{extern}],
+        push: [{extern}],
         exceptions: [
             // TODO
         ],
+        stack_info: extern,
         init: [{extern}],
     },
     InvokeVirtual: {
@@ -902,11 +1225,8 @@ define_instructions! {[
             /// subclass of the current class.
             index: ConstantPoolIndexRaw<ConstantInfo>,
         ],
-        pop: [
-            objectref: ComplexType::ReferenceAny,
-            // TODO: arbitrary args
-        ],
-        push: [],
+        pop: [{extern}],
+        push: [{extern}],
         exceptions: [
             // TODO: incomplete
             /// If the resolved method is a class static method
@@ -918,6 +1238,7 @@ define_instructions! {[
             /// current class or a subclass of the current class.
             IllegalAccessError,
         ],
+        stack_info: extern,
         init: [{extern}],
     },
     /// Goto a specific offset from the current position
@@ -933,7 +1254,7 @@ define_instructions! {[
     },
     /// Branch to an offset if two ints are equal
     /// Continues onwards if the condition fails
-    IfICmpEq: {
+    IfIntCmpEq: {
         opcode: 0x9F,
         args: [
             /// Branches to this offset from current position
@@ -946,7 +1267,7 @@ define_instructions! {[
     },
     /// Branch to an offset if two ints are not equal
     /// Continues onwards if the condition fails
-    IfICmpNe: {
+    IfIntCmpNe: {
         opcode: 0xA0,
         args: [
             /// Branches to this offset from current position
@@ -959,7 +1280,7 @@ define_instructions! {[
     },
     /// Branch to an offset if less than
     /// Continues onwards if the condition fails
-    IfICmpLt: {
+    IfIntCmpLt: {
         opcode: 0xA1,
         args: [
             /// Branches to this offset from current position
@@ -972,7 +1293,7 @@ define_instructions! {[
     },
     /// Branch to an offset if greater than or equal
     /// Continues onwards if the condition fails
-    IfICmpGe: {
+    IfIntCmpGe: {
         opcode: 0xA2,
         args: [
             /// Branches to this offset from current position
@@ -985,7 +1306,7 @@ define_instructions! {[
     },
     /// Branch to an offset if greater than
     /// Continues onwards if the condition fails
-    IfICmpGt: {
+    IfIntCmpGt: {
         opcode: 0xA3,
         args: [
             /// Branches to this offset from current position
@@ -998,7 +1319,7 @@ define_instructions! {[
     },
     /// Branch to an offset if less than or equal
     /// Continues onwards if the condition fails
-    IfICmpLe: {
+    IfIntCmpLe: {
         opcode: 0xA4,
         args: [
             /// Branches to this offset from current position
@@ -1018,8 +1339,8 @@ define_instructions! {[
             branch_offset: Short,
         ],
         pop: [
-            value1: ComplexType::ReferenceAny,
-            value2: ComplexType::ReferenceAny,
+            value1: PopComplexType::ReferenceAny,
+            value2: PopComplexType::ReferenceAny,
         ],
         push: [],
         exceptions: [],
@@ -1034,8 +1355,8 @@ define_instructions! {[
             branch_offset: Short,
         ],
         pop: [
-            value1: ComplexType::ReferenceAny,
-            value2: ComplexType::ReferenceAny,
+            value1: PopComplexType::ReferenceAny,
+            value2: PopComplexType::ReferenceAny,
         ],
         push: [],
         exceptions: [],
@@ -1113,7 +1434,7 @@ define_instructions! {[
         args: [
             branch_offset: Short,
         ],
-        pop: [val: ComplexType::ReferenceAny],
+        pop: [val: PopComplexType::ReferenceAny],
         push: [],
         exceptions: [],
         init: [inst; RequireValidCodeOffset(inst.branch_offset)],
@@ -1124,7 +1445,7 @@ define_instructions! {[
         args: [
             branch_offset: Short,
         ],
-        pop: [val: ComplexType::ReferenceAny],
+        pop: [val: PopComplexType::ReferenceAny],
         push: [],
         exceptions: [],
         init: [inst; RequireValidCodeOffset(inst.branch_offset)],
@@ -1134,8 +1455,8 @@ define_instructions! {[
     Dup: {
         opcode: 0x59,
         args: [],
-        pop: [val: ComplexType::Category1],
-        push: [val: ComplexType::Category1, val_dup: ComplexType::Category1],
+        pop: [val: PopType::Category1],
+        push: [val: WithType::Type(0), val_dup: WithType::Type(0)],
         exceptions: [],
     },
     /// Duplicate the top two or one stack values
@@ -1144,47 +1465,57 @@ define_instructions! {[
     Dup2: {
         opcode: 0x5C,
         args: [],
-        // TODO: being able to better represent this would be nice
-        pop: [val1: ComplexType::Category1Sized, val2: ComplexType::Category1Sized],
-        push:[r1: ComplexType::Category1Sized, r2: ComplexType::Category1Sized, r3: ComplexType::Category1Sized, r4: ComplexType::Category1Sized],
+        pop: [{extern}],
+        push:[{extern}],
         exceptions: [],
+        stack_info: extern,
     },
     /// Duplicate top stack value and inset the duplicate two values down
     /// pop v2
     /// pop v1
     /// push v1
     /// push v2
-    /// push 1
+    /// push v1
     DupX1: {
         opcode: 0x5A,
         args: [],
-        pop: [val2: ComplexType::Category1, val1: ComplexType::Category1],
-        push: [val1_dup: ComplexType::Category1, val2_n: ComplexType::Category1, val1_n: ComplexType::Category1],
+        pop: [val1: PopType::Category1, val2: PopType::Category1],
+        push: [val1_dup: WithType::Type(0), val2_n: WithType::Type(1), val1_n: WithType::Type(0)],
         exceptions: [],
     },
     DupX2: {
         opcode: 0x5B,
         args: [],
-        pop: [val3: ComplexType::Category1, val2: ComplexType::Category1, val1: ComplexType::Category1],
-        push: [val1_dup: ComplexType::Category1, val3_dup: ComplexType::Category1, val2_dup: ComplexType::Category1, val1_dup2: ComplexType::Category1],
+        pop: [{extern}],
+        push: [{extern}],
         exceptions: [],
+        stack_info: extern,
     },
     Dup2X1: {
         opcode: 0x5D,
         args: [],
         // TODO: There is a second form of this that does operates on less stack args
-        pop: [val3: ComplexType::Category1, val2: ComplexType::Category1, val1: ComplexType::Category1],
-        push: [r1val2: ComplexType::Category1, r1val1: ComplexType::Category1, r1val3: ComplexType::Category1, r2val2: ComplexType::Category1, r2val1: ComplexType::Category1],
+        pop: [{extern}],
+        push: [{extern}],
         exceptions: [],
+        stack_info: extern,
+    },
+    Dup2X2: {
+        opcode: 0x5E,
+        args: [],
+        pop: [{extern}],
+        push: [{extern}],
+        exceptions: [],
+        stack_info: extern,
     },
 
     FloatArrayStore: {
         opcode: 0x51,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Float),
-            index: Int,
             value: Float,
+            index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Float),
         ],
         push: [],
         exceptions: [
@@ -1198,8 +1529,8 @@ define_instructions! {[
         opcode: 0x30,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Float),
             index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Float),
         ],
         push: [val: Float],
         exceptions: [
@@ -1214,9 +1545,9 @@ define_instructions! {[
         opcode: 0x52,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Double),
-            index: Int,
             value: Double,
+            index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Double),
         ],
         push: [],
         exceptions: [
@@ -1230,8 +1561,8 @@ define_instructions! {[
         opcode: 0x31,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Double),
             index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Double),
         ],
         push: [val: Double],
         exceptions: [
@@ -1246,9 +1577,9 @@ define_instructions! {[
         opcode: 0x56,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Short),
-            index: Int,
             value: Short,
+            index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Short),
         ],
         push: [],
         exceptions: [
@@ -1262,8 +1593,8 @@ define_instructions! {[
         opcode: 0x35,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Short),
             index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Short),
         ],
         push: [value: Short],
         exceptions: [
@@ -1335,21 +1666,23 @@ define_instructions! {[
         opcode: 0x15,
         args: [
             /// Index into local variable array
-            index: UnsignedByte
+            index: LocalVariableIndexByteType
         ],
         pop: [],
         push: [val: Int],
         exceptions: [],
+        locals_in: [{extern}],
     },
     IntStore: {
         opcode: 0x36,
         args: [
             /// Index into local variable array
-            index: UnsignedByte,
+            index: LocalVariableIndexByteType,
         ],
         pop: [value: Int],
         push: [],
         exceptions: [],
+        locals_out: [{extern}],
     },
     /// Store val to local variable at index 0
     IntStore0: {
@@ -1358,6 +1691,9 @@ define_instructions! {[
         pop: [val: Int],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (0): PrimitiveType::Int,
+        ],
     },
     /// Store val to local variable at index 1
     IntStore1: {
@@ -1366,6 +1702,9 @@ define_instructions! {[
         pop: [val: Int],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (1): PrimitiveType::Int,
+        ],
     },
     /// Store val to local variable at index 2
     IntStore2: {
@@ -1374,6 +1713,9 @@ define_instructions! {[
         pop: [val: Int],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (2): PrimitiveType::Int,
+        ],
     },
     /// Store val to local variable at index 3
     IntStore3: {
@@ -1382,19 +1724,23 @@ define_instructions! {[
         pop: [val: Int],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (3): PrimitiveType::Int,
+        ],
     },
 
     IntIncrement: {
         opcode: 0x84,
         args: [
             /// Index into local variable array
-            index: UnsignedByte,
+            index: LocalVariableIndexByteType,
             /// The amount to increment by
             increment_amount: Byte,
         ],
         pop: [],
         push: [],
         exceptions: [],
+        locals_in: [{extern}],
     },
 
     /// val1 + val2
@@ -1418,7 +1764,10 @@ define_instructions! {[
     IntALoad: {
         opcode: 0x2E,
         args: [],
-        pop: [arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Int), index: Int],
+        pop: [
+            index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Int),
+        ],
         push: [val: Int],
         exceptions: [
             /// arrayref is null
@@ -1435,6 +1784,7 @@ define_instructions! {[
         pop: [],
         push: [val: Int],
         exceptions: [],
+        locals_in: [(0, PrimitiveType::Int)],
     },
     /// Loads local-var at index 1 as int
     IntLoad1: {
@@ -1443,6 +1793,7 @@ define_instructions! {[
         pop: [],
         push: [val: Int],
         exceptions: [],
+        locals_in: [(1, PrimitiveType::Int)],
     },
     /// Loads local-var at index 2 as int
     IntLoad2: {
@@ -1451,6 +1802,7 @@ define_instructions! {[
         pop: [],
         push: [val: Int],
         exceptions: [],
+        locals_in: [(2, PrimitiveType::Int)],
     },
     /// Loads local-var at index 3 as int
     IntLoad3: {
@@ -1459,15 +1811,17 @@ define_instructions! {[
         pop: [],
         push: [val: Int],
         exceptions: [],
+        locals_in: [(3, PrimitiveType::Int)],
     },
 
     /// Load long from local variable at index, index+1
-    LondLoad: {
+    LongLoad: {
         opcode: 0x16,
-        args: [index: UnsignedByte],
+        args: [index: LocalVariableIndexByteType],
         pop: [],
         push: [val: Long],
         exceptions: [],
+        locals_in: [{extern}],
     },
     /// Loads local-var at index 0 and 0+1 as a long
     LongLoad0: {
@@ -1476,6 +1830,7 @@ define_instructions! {[
         pop: [],
         push: [val: Long],
         exceptions: [],
+        locals_in: [(0, PrimitiveType::Long)],
     },
     /// Loads local-var at index 1 and 1+1 as a long
     LongLoad1: {
@@ -1484,6 +1839,7 @@ define_instructions! {[
         pop: [],
         push: [val: Long],
         exceptions: [],
+        locals_in: [(1, PrimitiveType::Long)],
     },
     /// Loads local-var at index 2 and 2+1 as a long
     LongLoad2: {
@@ -1492,6 +1848,7 @@ define_instructions! {[
         pop: [],
         push: [val: Long],
         exceptions: [],
+        locals_in: [(2, PrimitiveType::Long)],
     },
     /// Loads local-var at index 3 and 3+1 as a long
     LongLoad3: {
@@ -1500,6 +1857,7 @@ define_instructions! {[
         pop: [],
         push: [val: Long],
         exceptions: [],
+        locals_in: [(3, PrimitiveType::Long)],
     },
     /// Push 0 long
     LongConst0: {
@@ -1524,6 +1882,7 @@ define_instructions! {[
         pop: [],
         push: [res: Double],
         exceptions: [],
+        locals_in: [{extern}],
     },
     /// Load double from local variable at 0
     DoubleLoad0: {
@@ -1532,6 +1891,7 @@ define_instructions! {[
         pop: [],
         push: [val: Double],
         exceptions: [],
+        locals_in: [(0, PrimitiveType::Double)],
     },
     /// Load double from local variable at 1
     DoubleLoad1: {
@@ -1540,6 +1900,7 @@ define_instructions! {[
         pop: [],
         push: [val: Double],
         exceptions: [],
+        locals_in: [(1, PrimitiveType::Double)],
     },
     /// Load double from local variable at 2
     DoubleLoad2: {
@@ -1548,6 +1909,7 @@ define_instructions! {[
         pop: [],
         push: [val: Double],
         exceptions: [],
+        locals_in: [(2, PrimitiveType::Double)],
     },
     /// Load double from local variable at 3
     DoubleLoad3: {
@@ -1556,6 +1918,7 @@ define_instructions! {[
         pop: [],
         push: [val: Double],
         exceptions: [],
+        locals_in: [(3, PrimitiveType::Double)],
     },
     /// Store double into local variable at index
     DoubleStore: {
@@ -1564,6 +1927,7 @@ define_instructions! {[
         pop: [val: Double],
         push: [],
         exceptions: [],
+        locals_out: [{extern}],
     },
     /// Store double into local variable at 0
     DoubleStore0: {
@@ -1572,6 +1936,9 @@ define_instructions! {[
         pop: [val: Double],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (0): PrimitiveType::Double,
+        ],
     },
     /// Store double into local variable at 1
     DoubleStore1: {
@@ -1580,6 +1947,9 @@ define_instructions! {[
         pop: [val: Double],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (1): PrimitiveType::Double,
+        ],
     },
     /// Store double into local variable at 2
     DoubleStore2: {
@@ -1588,6 +1958,9 @@ define_instructions! {[
         pop: [val: Double],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (2): PrimitiveType::Double,
+        ],
     },
     /// Store double into local variable at 3
     DoubleStore3: {
@@ -1596,6 +1969,9 @@ define_instructions! {[
         pop: [val: Double],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (3): PrimitiveType::Double,
+        ],
     },
 
     DoubleConst0: {
@@ -1616,21 +1992,21 @@ define_instructions! {[
     DoubleMultiply: {
         opcode: 0x6B,
         args: [],
-        pop: [val1: Double, val2: Double],
+        pop: [val2: Double, val1: Double],
         push: [res: Double],
         exceptions: [],
     },
     DoubleAdd: {
         opcode: 0x63,
         args: [],
-        pop: [val1: Double, val2: Double],
+        pop: [val2: Double, val1: Double],
         push: [res: Double],
         exceptions: [],
     },
     DoubleSubtract: {
         opcode: 0x67,
         args: [],
-        pop: [val1: Double, val2: Double],
+        pop: [val2: Double, val1: Double],
         push: [res: Double],
         exceptions: [],
     },
@@ -1644,7 +2020,14 @@ define_instructions! {[
     DoubleDivide: {
         opcode: 0x6F,
         args: [],
-        pop: [val1: Double, val2: Double],
+        pop: [val2: Double, val1: Double],
+        push: [res: Double],
+        exceptions: [],
+    },
+    DoubleRemainder: {
+        opcode: 0x73,
+        args: [],
+        pop: [val2: Double, val1: Double],
         push: [res: Double],
         exceptions: [],
     },
@@ -1677,7 +2060,7 @@ define_instructions! {[
     LongCmp: {
         opcode: 0x94,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Long, val1: Long],
         push: [res: Int],
         exceptions: [],
     },
@@ -1692,28 +2075,35 @@ define_instructions! {[
     FloatAdd: {
         opcode: 0x62,
         args: [],
-        pop: [val1: Float, val2: Float],
+        pop: [val2: Float, val1: Float],
         push: [res: Float],
         exceptions: [],
     },
     FloatSub: {
         opcode: 0x66,
         args: [],
-        pop: [val1: Float, val2: Float],
+        pop: [val2: Float, val1: Float],
         push: [res: Float],
         exceptions: [],
     },
     FloatDivide: {
         opcode: 0x6E,
         args: [],
-        pop: [val1: Float, val2: Float],
+        pop: [val2: Float, val1: Float],
+        push: [res: Float],
+        exceptions: [],
+    },
+    FloatRemainder: {
+        opcode: 0x72,
+        args: [],
+        pop: [val2: Float, val1: Float],
         push: [res: Float],
         exceptions: [],
     },
     FloatMultiply: {
         opcode: 0x6A,
         args: [],
-        pop: [val1: Float, val2: Float],
+        pop: [val2: Float, val1: Float],
         push: [res: Float],
         exceptions: [],
     },
@@ -1723,6 +2113,7 @@ define_instructions! {[
         pop: [],
         push: [val: Float],
         exceptions: [],
+        locals_in: [{extern}],
     },
     /// Load float from local variable at 0
     FloatLoad0: {
@@ -1731,6 +2122,7 @@ define_instructions! {[
         pop: [],
         push: [res: Float],
         exceptions: [],
+        locals_in: [(0, PrimitiveType::Float)],
     },
     /// Load float from local variable at 1
     FloatLoad1: {
@@ -1739,6 +2131,7 @@ define_instructions! {[
         pop: [],
         push: [res: Float],
         exceptions: [],
+        locals_in: [(1, PrimitiveType::Float)],
     },
     /// Load float from local variable at 2
     FloatLoad2: {
@@ -1747,6 +2140,7 @@ define_instructions! {[
         pop: [],
         push: [res: Float],
         exceptions: [],
+        locals_in: [(2, PrimitiveType::Float)],
     },
     /// Load float from local variable at 3
     FloatLoad3: {
@@ -1755,14 +2149,7 @@ define_instructions! {[
         pop: [],
         push: [res: Float],
         exceptions: [],
-    },
-    /// Store float into local variable at 0
-    FloatStore0: {
-        opcode: 0x43,
-        args: [],
-        pop: [val: Float],
-        push: [],
-        exceptions: [],
+        locals_in: [(3, PrimitiveType::Float)],
     },
     /// Store float into local variable at index
     FloatStore: {
@@ -1771,6 +2158,18 @@ define_instructions! {[
         pop: [val: Float],
         push: [],
         exceptions: [],
+        locals_out: [{extern}],
+    },
+    /// Store float into local variable at 0
+    FloatStore0: {
+        opcode: 0x43,
+        args: [],
+        pop: [val: Float],
+        push: [],
+        exceptions: [],
+        locals_out: [
+            loc (0): PrimitiveType::Float,
+        ],
     },
     /// Store float into local variable at 1
     FloatStore1: {
@@ -1779,6 +2178,9 @@ define_instructions! {[
         pop: [val: Float],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (1): PrimitiveType::Float,
+        ],
     },
     /// Store float into local variable at 2
     FloatStore2: {
@@ -1787,6 +2189,9 @@ define_instructions! {[
         pop: [val: Float],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (2): PrimitiveType::Float,
+        ],
     },
     /// Store float into local variable at 3
     FloatStore3: {
@@ -1795,6 +2200,9 @@ define_instructions! {[
         pop: [val: Float],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (3): PrimitiveType::Float,
+        ],
     },
     /// Push 0.0f
     FloatConst0: {
@@ -1830,7 +2238,7 @@ define_instructions! {[
     FloatCmpL: {
         opcode: 0x95,
         args: [],
-        pop: [val1: Float, val2: Float],
+        pop: [val2: Float, val1: Float],
         push: [res: Int],
         exceptions: [],
     },
@@ -1844,7 +2252,7 @@ define_instructions! {[
     FloatCmpG: {
         opcode: 0x96,
         args: [],
-        pop: [val1: Float, val2: Float],
+        pop: [val2: Float, val1: Float],
         push: [res: Int],
         exceptions: [],
     },
@@ -1873,14 +2281,14 @@ define_instructions! {[
     DoubleCmpL: {
         opcode: 0x97,
         args: [],
-        pop: [val1: Double, val2: Double],
+        pop: [val2: Double, val1: Double],
         push: [res: Int],
         exceptions: [],
     },
     DoubleCmpG: {
         opcode: 0x98,
         args: [],
-        pop: [val1: Double, val2: Double],
+        pop: [val2: Double, val1: Double],
         push: [res: Int],
         exceptions: [],
     },
@@ -1888,11 +2296,20 @@ define_instructions! {[
     LongAdd: {
         opcode: 0x61,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Long, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
 
+    /// Store long into local variable at index, index+1
+    LongStore: {
+        opcode: 0x37,
+        args: [index: UnsignedByte],
+        pop: [val: Long],
+        push: [],
+        exceptions: [],
+        locals_out: [{extern}],
+    },
     /// Store a long into local-var at index 0
     LongStore0: {
         opcode: 0x3F,
@@ -1900,6 +2317,9 @@ define_instructions! {[
         pop: [val: Long],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (0): PrimitiveType::Long,
+        ],
     },
     /// Store a long into local-var at index 1
     LongStore1: {
@@ -1908,6 +2328,9 @@ define_instructions! {[
         pop: [val: Long],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (1): PrimitiveType::Long,
+        ],
     },
     /// Store a long into local-var at index 2
     LongStore2: {
@@ -1916,6 +2339,9 @@ define_instructions! {[
         pop: [val: Long],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (2): PrimitiveType::Long,
+        ],
     },
     /// Store a long into local-var at index 3
     LongStore3: {
@@ -1924,6 +2350,9 @@ define_instructions! {[
         pop: [val: Long],
         push: [],
         exceptions: [],
+        locals_out: [
+            loc (3): PrimitiveType::Long,
+        ],
     },
 
     LongToFloat: {
@@ -1947,13 +2376,8 @@ define_instructions! {[
         args: [
             index: ConstantPoolIndexRaw<FieldRefConstant>,
         ],
-        pop: [
-            /// Must not be an array
-            objectref: ComplexType::ReferenceAny,
-            // TODO: Depends upon method descriptor type
-            value: ComplexType::Any,
-        ],
-        push: [],
+        pop: [{extern}],
+        push: [{extern}],
         exceptions: [
             // TODO:
             /// If the resolved field is static
@@ -1964,16 +2388,15 @@ define_instructions! {[
             /// objectref was null
             NullPointerException,
         ],
+        stack_info: extern,
     },
     GetField: {
         opcode: 0xB4,
         args: [
             index: ConstantPoolIndexRaw<FieldRefConstant>,
         ],
-        pop: [
-            objectref: ComplexType::ReferenceAny,
-        ],
-        push: [value: ComplexType::Any],
+        pop: [{extern}],
+        push: [{extern}],
         exceptions: [
             // TODO:
             /// If resolved field is static
@@ -1981,6 +2404,7 @@ define_instructions! {[
             /// If objectref is null
             NullPointerException,
         ],
+        stack_info: extern,
     },
 
     PutStaticField: {
@@ -1988,8 +2412,8 @@ define_instructions! {[
         args: [
             index: ConstantPoolIndexRaw<FieldRefConstant>,
         ],
-        pop: [value: ComplexType::Any],
-        push: [],
+        pop: [{extern}],
+        push: [{extern}],
         exceptions: [
             // TODO
             // Resolved field is not static field
@@ -1998,6 +2422,7 @@ define_instructions! {[
             /// the clinit method. Otherwise:
             IllegalAccessError,
         ],
+        stack_info: extern,
     },
 
     IntToDouble: {
@@ -2057,8 +2482,8 @@ define_instructions! {[
         opcode: 0x33,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitiveOr(PrimitiveType::Byte, PrimitiveType::Boolean),
             index: Int,
+            arrayref: PopComplexType::RefArrayPrimitiveOr(PrimitiveType::Byte, PrimitiveType::Boolean),
         ],
         push: [
             value: Byte,
@@ -2074,10 +2499,10 @@ define_instructions! {[
         opcode: 0x54,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayAnyPrimitive,
-            index: Int,
-            // TODO: more specific type
             value: Byte,
+            index: Int,
+            arrayref: PopComplexType::RefArrayPrimitiveOr(PrimitiveType::Byte, PrimitiveType::Boolean),
+            // TODO: more specific type
         ],
         push: [],
         exceptions: [
@@ -2091,9 +2516,9 @@ define_instructions! {[
         opcode: 0x55,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Char),
+            value: Char,
             index: Int,
-            value: Char
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Char),
         ],
         push: [],
         exceptions: [
@@ -2107,8 +2532,8 @@ define_instructions! {[
         opcode: 0x34,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Char),
             index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Char),
         ],
         push: [val: Char],
         exceptions: [
@@ -2122,17 +2547,17 @@ define_instructions! {[
     Pop: {
         opcode: 0x57,
         args: [],
-        pop: [value: ComplexType::Category1],
+        pop: [value: PopType::Category1],
         push: [],
         exceptions: [],
     },
     Pop2: {
         opcode: 0x58,
         args: [],
-        // TODO: It could also just pop a single value if there is only one value
-        pop: [val2: ComplexType::Category1, val1: ComplexType::Category1],
+        pop: [{extern}],
         push: [],
         exceptions: [],
+        stack_info: extern,
     },
 
     /// Pushes sign extended byte to stack
@@ -2155,21 +2580,21 @@ define_instructions! {[
     IntMultiply: {
         opcode: 0x68,
         args: [],
-        pop: [val1: Int, val2: Int],
+        pop: [val2: Int, val1: Int],
         push: [val: Int],
         exceptions: [],
     },
     IntDivide: {
         opcode: 0x6C,
         args: [],
-        pop: [val1: Int, val2: Int],
+        pop: [val2: Int, val1: Int],
         push: [val: Int],
         exceptions: [],
     },
     IntRemainder: {
         opcode: 0x70,
         args: [],
-        pop: [val1: Int, val2: Int],
+        pop: [val2: Int, val1: Int],
         push: [res: Int],
         exceptions: [],
     },
@@ -2183,7 +2608,7 @@ define_instructions! {[
     IntAnd: {
         opcode: 0x7E,
         args: [],
-        pop: [val1: Int, val2: Int],
+        pop: [val2: Int, val1: Int],
         push: [
             /// val1 & val2
             res: Int,
@@ -2193,7 +2618,7 @@ define_instructions! {[
     IntOr: {
         opcode: 0x80,
         args: [],
-        pop: [val1: Int, val2: Int],
+        pop: [val2: Int, val1: Int],
         push: [
             /// val1 | val2
             res: Int,
@@ -2203,14 +2628,14 @@ define_instructions! {[
     IntXor: {
         opcode: 0x82,
         args: [],
-        pop: [val1: Int, val2: Int],
+        pop: [val2: Int, val1: Int],
         push: [res: Int],
         exceptions: [],
     },
     IntShiftLeft: {
         opcode: 0x78,
         args: [],
-        pop: [val1: Int, val2: Int],
+        pop: [val2: Int, val1: Int],
         push: [
             /// val1 << (val2 & 0b11111)
             res: Int,
@@ -2220,14 +2645,14 @@ define_instructions! {[
     IntArithmeticShiftRight: {
         opcode: 0x7A,
         args: [],
-        pop: [val1: Int, val2: Int],
+        pop: [val2: Int, val1: Int],
         push: [res: Int],
         exceptions: [],
     },
     IntLogicalShiftRight: {
         opcode: 0x7C,
         args: [],
-        pop: [val1: Int, val2: Int],
+        pop: [val2: Int, val1: Int],
         push: [res: Int],
         exceptions: [],
     },
@@ -2235,9 +2660,9 @@ define_instructions! {[
         opcode: 0x4F,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Int),
-            index: Int,
             value: Int,
+            index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Int),
         ],
         push: [],
         exceptions: [
@@ -2251,28 +2676,28 @@ define_instructions! {[
     LongSubtract: {
         opcode: 0x65,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Long, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
     LongDivide: {
         opcode: 0x6D,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Long, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
     LongMultiply: {
         opcode: 0x69,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Long, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
     LongRemainder: {
         opcode: 0x71,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Long, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
@@ -2286,60 +2711,52 @@ define_instructions! {[
     LongAnd: {
         opcode: 0x7F,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Long, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
     LongOr: {
         opcode: 0x81,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Long, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
     LongLogicalShiftRight: {
         opcode: 0x7D,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Int, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
     LongArithmeticShiftRight: {
         opcode: 0x7B,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Int, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
     LongShiftLeft: {
         opcode: 0x79,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Int, val1: Long],
         push: [res: Long],
         exceptions: [],
     },
     LongXor: {
         opcode: 0x83,
         args: [],
-        pop: [val1: Long, val2: Long],
+        pop: [val2: Long, val1: Long],
         push: [res: Long],
-        exceptions: [],
-    },
-    /// Store long into local variable at index, index+1
-    LongStore: {
-        opcode: 0x37,
-        args: [index: UnsignedByte],
-        pop: [val: Long],
-        push: [],
         exceptions: [],
     },
     LongArrayStore: {
         opcode: 0x50,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Long),
-            index: Int,
             value: Long,
+            index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Long),
         ],
         push: [],
         exceptions: [
@@ -2353,8 +2770,8 @@ define_instructions! {[
         opcode: 0x2F,
         args: [],
         pop: [
-            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Long),
             index: Int,
+            arrayref: ComplexType::RefArrayPrimitive(PrimitiveType::Long),
         ],
         push: [res: Long],
         exceptions: [
@@ -2368,7 +2785,7 @@ define_instructions! {[
     MonitorEnter: {
         opcode: 0xC2,
         args: [],
-        pop: [objectref: ComplexType::ReferenceAny],
+        pop: [objectref: PopComplexType::ReferenceAny],
         push: [],
         exceptions: [
             /// objectref is null
@@ -2378,7 +2795,7 @@ define_instructions! {[
     MonitorExit: {
         opcode: 0xC3,
         args: [],
-        pop: [Objectref: ComplexType::ReferenceAny],
+        pop: [objectref: PopComplexType::ReferenceAny],
         push: [],
         exceptions: [
             /// objectref is null
@@ -2398,12 +2815,9 @@ define_instructions! {[
             index: ConstantPoolIndexRaw<ClassConstant>,
         ],
         pop: [
-            objectref: ComplexType::ReferenceAny,
+            objectref: PopComplexType::ReferenceAny,
         ],
-        push: [
-            /// The same ref that was popped
-            res_objectref: WithType::RefType(0),
-        ],
+        push: [{extern}],
         exceptions: [
             // TODO:
             /// If objectref can't cast
@@ -2417,7 +2831,7 @@ define_instructions! {[
             index: ConstantPoolIndexRaw<ClassConstant>,
         ],
         pop: [
-            objectref: ComplexType::ReferenceAny,
+            objectref: PopComplexType::ReferenceAny,
         ],
         push: [
             /// 0 if objectref is null
@@ -2436,25 +2850,45 @@ WIDE_INSTR: [
     WideIntLoad: {
         opcode: IntLoad::OPCODE,
         args: [
-            index: UnsignedShort,
+            index: LocalVariableIndexType,
         ],
         pop: [],
         push: [val: Int],
         exceptions: [],
+        locals_in: [{extern}],
     },
     WideIntIncrement: {
         opcode: IntIncrement::OPCODE,
         args: [
             /// Index into local variable array
-            index: UnsignedShort,
+            index: LocalVariableIndexType,
             /// The amount to increment by
             increment_amount: UnsignedShort,
         ],
         pop: [],
         push: [],
         exceptions: [],
+        locals_in: [{extern}],
     },
 ]}
+
+macro_rules! self_sinfo {
+    ($for:ty) => {
+        impl StackInfo for $for {}
+        impl HasStackInfo for $for {
+            type Output = Self;
+            fn stack_info(
+                &self,
+                _prog: &mut crate::ProgramInfo,
+                _class_id: $crate::id::ClassFileId,
+                _method_id: $crate::id::MethodId,
+                _stack_sizes: StackSizes,
+            ) -> Result<Self::Output, $crate::StepError> {
+                Ok(self.clone())
+            }
+        }
+    };
+}
 
 // Redeclaration so Rust analyzer picks up on it properly
 pub type Inst = InstM;
@@ -2507,8 +2941,12 @@ impl LookupSwitch {
         })
     }
 
-    #[must_use]
-    pub fn pop_type_at(&self, i: usize) -> Option<Type> {
+    pub fn name(&self) -> &'static str {
+        "LookupSwitch"
+    }
+}
+impl PopTypeAt for LookupSwitch {
+    fn pop_type_at(&self, i: usize) -> Option<PopType> {
         if i == 0 {
             // key
             Some(PrimitiveType::Int.into())
@@ -2517,11 +2955,22 @@ impl LookupSwitch {
         }
     }
 
-    #[must_use]
-    pub fn push_type_at(&self, _: usize) -> Option<Type> {
-        None
+    fn pop_count(&self) -> usize {
+        1
     }
 }
+impl PushTypeAt for LookupSwitch {
+    fn push_type_at(&self, _: usize) -> Option<PushType> {
+        None
+    }
+
+    fn push_count(&self) -> usize {
+        0
+    }
+}
+define_locals_out!(LookupSwitch, []);
+define_locals_in!(LookupSwitch, []);
+self_sinfo!(LookupSwitch);
 impl MemorySize for LookupSwitch {
     fn memory_size(&self) -> usize {
         1 + self.padding as usize
@@ -2599,8 +3048,12 @@ impl TableSwitch {
         })
     }
 
-    #[must_use]
-    pub fn pop_type_at(&self, i: usize) -> Option<Type> {
+    pub fn name(&self) -> &'static str {
+        "TableSwitch"
+    }
+}
+impl PopTypeAt for TableSwitch {
+    fn pop_type_at(&self, i: PopIndex) -> Option<PopType> {
         if i == 0 {
             Some(PrimitiveType::Int.into())
         } else {
@@ -2608,11 +3061,22 @@ impl TableSwitch {
         }
     }
 
-    #[must_use]
-    pub fn push_type_at(&self, _i: usize) -> Option<Type> {
-        None
+    fn pop_count(&self) -> usize {
+        1
     }
 }
+impl PushTypeAt for TableSwitch {
+    fn push_type_at(&self, _i: PushIndex) -> Option<PushType> {
+        None
+    }
+
+    fn push_count(&self) -> usize {
+        0
+    }
+}
+define_locals_out!(TableSwitch, []);
+define_locals_in!(TableSwitch, []);
+self_sinfo!(TableSwitch);
 impl MemorySize for TableSwitch {
     fn memory_size(&self) -> usize {
         1 + self.padding as usize
@@ -2637,15 +3101,21 @@ impl Wide {
         Ok(Self(WideInstM::parse(data, idx)?))
     }
 
-    // TODO: This is a bit ehh
-    #[must_use]
-    pub fn pop_type_at(&self, i: usize) -> Option<Type> {
-        self.0.pop_type_at(i)
+    pub fn name(&self) -> &'static str {
+        self.0.name()
     }
+}
+impl HasStackInfo for Wide {
+    type Output = WideStackInfosM;
 
-    #[must_use]
-    pub fn push_type_at(&self, i: usize) -> Option<Type> {
-        self.0.push_type_at(i)
+    fn stack_info(
+        &self,
+        prog: &mut crate::ProgramInfo,
+        class_id: crate::id::ClassFileId,
+        method_id: crate::id::MethodId,
+        stack_sizes: StackSizes,
+    ) -> Result<WideStackInfosM, crate::StepError> {
+        self.0.stack_info(prog, class_id, method_id, stack_sizes)
     }
 }
 impl MemorySize for Wide {

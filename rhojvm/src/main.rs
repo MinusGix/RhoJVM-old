@@ -5,13 +5,17 @@ use rhojvm_base::{
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         op::InstM,
-        stack_map::{StackMapError, VerifyStackMapError},
+        stack_map::StackMapError,
     },
     id::{ClassFileId, ClassId, MethodId},
     Config, ProgramInfo, StepError,
 };
+use stack_map::VerifyStackMapError;
 use tracing::info;
-use tracing_subscriber::fmt::writer::MakeWriterExt;
+use tracing_subscriber::{
+    fmt::writer::{BoxMakeWriter, EitherWriter, MakeWriterExt},
+    prelude::__tracing_subscriber_SubscriberExt,
+};
 
 mod formatter;
 mod stack_map;
@@ -56,8 +60,38 @@ impl Default for MaxStackSize {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct StackMapVerificationLogging {
+    /// Whether to log the name of the method and class as we start verifying it
+    pub log_method_name: bool,
+    /// Whether to log each frame received from the class file.
+    /// Should be paired with `log_instruction` to know which instruction it was located at
+    pub log_received_frame: bool,
+    /// Whether to log each instruction as they are processed
+    pub log_instruction: bool,
+    /// Whether to log each PUSH/POP
+    /// intended to be used with `log_instruction` but can be standalone
+    pub log_stack_modifications: bool,
+    /// Whether to log each READ/WRITE to local variables
+    /// intended to be used with `log_instruction` but can be standalone
+    pub log_local_variable_modifications: bool,
+    // TODO: Option to log individual frame parts
+}
+impl Default for StackMapVerificationLogging {
+    fn default() -> Self {
+        Self {
+            log_method_name: false,
+            log_received_frame: false,
+            log_instruction: false,
+            log_stack_modifications: false,
+            log_local_variable_modifications: false,
+        }
+    }
+}
+
 struct StateConfig {
     tracing_level: tracing::Level,
+    pub stackmap_verification_logging: StackMapVerificationLogging,
     /// The maximum amount of 4 bytes that a stack can occupy
     /// `None`: No limit on stack size. Though, limits caused by implementation
     /// mean that this may not result in all available memory being used.
@@ -69,6 +103,7 @@ impl StateConfig {
         let tracing_level = StateConfig::compute_tracing_level();
         StateConfig {
             tracing_level,
+            stackmap_verification_logging: StackMapVerificationLogging::default(),
             max_stack_size: Some(MaxStackSize::default()),
         }
     }
@@ -119,6 +154,8 @@ pub(crate) struct State {
     conf: StateConfig,
 
     pub warnings: Warnings,
+    pre_init_classes: Vec<ClassId>,
+    init_classes: Vec<ClassId>,
 }
 impl State {
     fn new(conf: StateConfig, prog: &mut ProgramInfo) -> Self {
@@ -131,34 +168,104 @@ impl State {
             entry_point_method: None,
             conf,
             warnings: Warnings(Vec::new()),
+
+            pre_init_classes: Vec::new(),
+            init_classes: Vec::new(),
         }
+    }
+
+    fn conf(&self) -> &StateConfig {
+        &self.conf
     }
 }
 
-fn main() {
-    let conf = StateConfig::new();
+struct EmptyWriter;
+impl std::io::Write for EmptyWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        Ok(buf.len())
+    }
 
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn make_log_file() -> std::sync::Arc<std::fs::File> {
     let log_file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open("./rho.log")
         .expect("Expected to be able to open log file");
-    let log_file = std::sync::Arc::new(log_file);
+    std::sync::Arc::new(log_file)
+}
+
+fn init_logging(conf: &StateConfig) {
+    let should_log_console = std::env::var("RHO_LOG_CONSOLE")
+        .map(|x| x != "0")
+        .unwrap_or(true);
+    let should_log_file = std::env::var("RHO_LOG_FILE")
+        .map(|x| x != "0")
+        .unwrap_or(true);
+
+    let console_layer = if should_log_console {
+        Some(
+            tracing_subscriber::fmt::Layer::default()
+                .with_writer(std::io::stderr)
+                .without_time()
+                .event_format(formatter::Formatter),
+        )
+    } else {
+        None
+    };
+    let file_layer = if should_log_file {
+        Some(
+            tracing_subscriber::fmt::Layer::default()
+                .with_writer(make_log_file())
+                .without_time()
+                .event_format(formatter::Formatter),
+        )
+    } else {
+        None
+    };
 
     let t_subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(conf.tracing_level)
         .without_time()
         .event_format(formatter::Formatter)
-        .with_writer(std::io::stderr.and(log_file))
-        .finish();
+        .with_writer(|| EmptyWriter)
+        .finish()
+        .with(console_layer)
+        .with(file_layer);
+
     // TODO: We may make this jvm a library so this should not be done
     tracing::subscriber::set_global_default(t_subscriber)
         .expect("failed to set global default tracing subscriber");
+}
+
+fn main() {
+    let mut conf = StateConfig::new();
+    conf.stackmap_verification_logging = StackMapVerificationLogging {
+        log_method_name: true,
+        log_received_frame: false,
+        log_instruction: false,
+        log_stack_modifications: false,
+        log_local_variable_modifications: false,
+    };
+
+    init_logging(&conf);
 
     info!("RhoJVM Initializing");
 
     let entry_point_cp = ["HelloWorld"];
-    let class_dirs = ["./rhojvm/ex/rt/", "./rhojvm/ex/jce/", "./rhojvm/ex/"];
+    let class_dirs = [
+        "./rhojvm/ex/lib/rt/",
+        "./rhojvm/ex/lib/jce/",
+        "./rhojvm/ex/lib/charsets/",
+        "./rhojvm/ex/lib/jfr",
+        "./rhojvm/ex/lib/jsse",
+        "./rhojvm/ex/",
+    ];
 
     // Initialize ProgramInfo
     let mut prog = ProgramInfo::new(Config {
@@ -194,21 +301,24 @@ fn main() {
         .unwrap();
     state.entry_point_class = Some(entrypoint_id);
 
-    initialize_class(&mut prog, &mut state, entrypoint_id).unwrap();
+    if let Err(err) = initialize_class(&mut prog, &mut state, entrypoint_id) {
+        tracing::error!("There was an error in initializing a class: {:?}", err);
+        return;
+    }
 
     // Run the main method
-    let string_id = prog
-        .class_names
-        .gcid_from_slice(&["java", "lang", "String"]);
-    let main_name = "main";
-    let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
-        DescriptorTypeBasic::Class(string_id),
-    )]);
-    let main_method_id = prog
-        .load_method_from_desc(entrypoint_id, Cow::Borrowed(main_name), &main_descriptor)
-        .unwrap();
+    // let string_id = prog
+    //     .class_names
+    //     .gcid_from_slice(&["java", "lang", "String"]);
+    // let main_name = "main";
+    // let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
+    //     DescriptorTypeBasic::Class(string_id),
+    // )]);
+    // let main_method_id = prog
+    //     .load_method_from_desc(entrypoint_id, Cow::Borrowed(main_name), &main_descriptor)
+    //     .unwrap();
 
-    state.entry_point_method = Some(main_method_id);
+    // state.entry_point_method = Some(main_method_id);
 }
 
 #[derive(Debug)]
@@ -238,11 +348,16 @@ impl From<StackMapError> for GeneralError {
         Self::Verification(VerificationError::StackMap(err))
     }
 }
+impl From<VerifyStackMapError> for GeneralError {
+    fn from(err: VerifyStackMapError) -> Self {
+        Self::Verification(VerificationError::VerifyStackMap(err))
+    }
+}
 
 #[derive(Debug)]
 pub enum VerificationError {
     StackMap(StackMapError),
-    VerifyStackMapError(VerifyStackMapError),
+    VerifyStackMap(VerifyStackMapError),
     /// Crawling up the chain of a class tree, the topmost class was not `Object`.
     MostSuperClassNonObject {
         /// The class which we were looking at
@@ -285,6 +400,11 @@ fn pre_initialize_class(
     // for class files < version 50.0
     // and, if the type checking fails for version == 50.0, then we can choose to
     // do verification through type inference
+
+    if state.pre_init_classes.contains(&class_id) {
+        return Ok(());
+    }
+    state.pre_init_classes.push(class_id);
 
     // - classIsTypeSafe
     // Load super classes
@@ -370,6 +490,7 @@ fn verify_type_safe_method(
 ) -> Result<(), GeneralError> {
     prog.load_method_from_id(method_id)?;
     prog.verify_method_access_flags(method_id)?;
+    prog.load_method_descriptor_types(method_id)?;
     // TODO: Document that this assures that it isn't overriding a final method
     prog.init_method_overrides(method_id)?;
 
@@ -394,18 +515,38 @@ fn initialize_class(
     state: &mut State,
     class_id: ClassId,
 ) -> Result<(), GeneralError> {
+    if state.init_classes.contains(&class_id) {
+        return Ok(());
+    }
+    state.init_classes.push(class_id);
+
     pre_initialize_class(prog, state, class_id)?;
 
     let class = prog.classes.get(&class_id).unwrap().as_class().unwrap();
-    for method_id in class.iter_method_ids() {
+    // TODO: It would be nice if we could somehow avoid collecting to a vec
+    let method_ids = class.iter_method_ids().collect::<Vec<_>>();
+    for method_id in method_ids {
         prog.load_method_from_id(method_id)?;
         prog.load_method_descriptor_types(method_id)?;
-        //     let method = prog.methods.get(&method_id).unwrap();
-        //     let param_len = method.descriptor().parameters().len();
-        //     for param_i in 0..param_len {
-        //         let method = prog.methods.get(&method_id).unwrap();
-        //         let param = &method.descriptor().parameters()[param_i];
-        //     }
+
+        // It would have already been loaded
+        let method = prog.methods.get(&method_id).unwrap();
+        let parameters = method.descriptor().parameters().to_owned();
+        let return_type = method.descriptor().return_type().map(Clone::clone);
+        for parameter in parameters {
+            if let DescriptorType::Basic(DescriptorTypeBasic::Class(id)) = parameter {
+                initialize_class(prog, state, id)?;
+            }
+        }
+
+        if let Some(DescriptorType::Basic(DescriptorTypeBasic::Class(id))) = return_type {
+            initialize_class(prog, state, id)?;
+        }
+    }
+
+    let class = prog.classes.get(&class_id).unwrap().as_class().unwrap();
+    if let Some(super_class) = class.super_id() {
+        initialize_class(prog, state, super_class)?;
     }
 
     Ok(())
@@ -430,7 +571,6 @@ fn run_method_code(
     Ok(())
 }
 
-/// Assumes that code already exists
 fn run_inst(
     prog: &mut ProgramInfo,
     state: &mut State,
