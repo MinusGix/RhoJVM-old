@@ -1257,26 +1257,30 @@ impl ProgramInfo {
         )?;
 
         let class_file = self.class_files.get(&class_id).unwrap();
-        let method = class_file
+        let methods = class_file
             .methods()
             .iter()
             .enumerate()
-            .filter(|(_, x)| class_file.get_text_t(x.name_index) == Some(name.as_ref()))
-            .find(|(_, x)| {
-                // FIXME: This is awfully inefficient and bad code anyway
-                // we could do a streaming-ish version of the method descriptor parser
-                // so then no allocations are needed if we aren't keeping it aroundpub t
-                let descriptor_text = class_file
-                    .get_text_t(x.descriptor_index)
-                    .ok_or(LoadMethodError::InvalidDescriptorIndex {
-                        index: x.descriptor_index,
-                    })
-                    .unwrap();
-                let x_desc = MethodDescriptor::from_text(descriptor_text, &mut self.class_names)
-                    .map_err(LoadMethodError::MethodDescriptorError)
-                    .unwrap();
-                desc == &x_desc
-            });
+            .filter(|(_, x)| class_file.get_text_t(x.name_index) == Some(name.as_ref()));
+
+        let mut method = None;
+        for (i, method_info) in methods {
+            let descriptor_index = method_info.descriptor_index;
+            let descriptor_text = class_file.get_text_t(descriptor_index).ok_or(
+                LoadMethodError::InvalidDescriptorIndex {
+                    index: descriptor_index,
+                },
+            )?;
+
+            if desc
+                .is_equal_to_descriptor(&mut self.class_names, descriptor_text)
+                .map_err(LoadMethodError::MethodDescriptorError)?
+            {
+                method = Some((i, method_info));
+                break;
+            }
+        }
+
         if let Some((method_index, method)) = method {
             let method_id = MethodId::unchecked_compose(class_file.id, method_index);
 
@@ -1285,7 +1289,6 @@ impl ProgramInfo {
                 return Ok(method_id);
             }
 
-            // TODO: We could move the descriptor since we know it is correct
             let method = Method::new_from_info_with_name(
                 method_id,
                 class_file,

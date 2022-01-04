@@ -19,3 +19,10 @@ tracing-subscriber = { version = "0.2.0", default-features = false, features = [
     "registry",
     "smallvec",
 ] }
+
+#[target.x86_64-unknown-linux-gnu]
+#linker = "/usr/bin/clang"
+#rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
+
+#[profile.release]
+#debug = true

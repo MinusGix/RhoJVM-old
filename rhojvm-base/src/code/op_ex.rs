@@ -4,7 +4,9 @@ use classfile_parser::attribute_info::InstructionIndex;
 use classfile_parser::constant_info::{ConstantInfo, FieldRefConstant, NameAndTypeConstant};
 use classfile_parser::constant_pool::ConstantPoolIndexRaw;
 
+use classfile_parser::descriptor::method::MethodDescriptorError;
 use classfile_parser::descriptor::DescriptorType as DescriptorTypeCF;
+use smallvec::SmallVec;
 
 use super::method::DescriptorType;
 use super::op::{
@@ -278,10 +280,29 @@ impl LocalsOutAt for LongStore {
     }
 }
 
+fn descriptor_into_parameters_ret<const N: usize>(
+    class_names: &mut ClassNames,
+    descriptor: &str,
+) -> Result<(SmallVec<[Type; N]>, Option<Type>), MethodDescriptorError> {
+    let mut desc_iter = MethodDescriptor::from_text_iter(descriptor, class_names)?;
+
+    let mut parameters = SmallVec::new();
+    while let Some(parameter) = desc_iter.next() {
+        let parameter = parameter?;
+        let parameter = Type::from_descriptor_type(parameter);
+        parameters.push(parameter);
+    }
+
+    let return_type = desc_iter
+        .finish_return_type()?
+        .map(Type::from_descriptor_type);
+    Ok((parameters, return_type))
+}
+
 /// Not *exactly* static, more for methods that have all their popped args in their descriptor
 /// such that this can just use the parameters as the pop type at info
 pub struct StaticMethodInfo {
-    parameters: Vec<Type>,
+    parameters: SmallVec<[Type; 8]>,
     return_type: Option<Type>,
 }
 impl StaticMethodInfo {
@@ -298,15 +319,9 @@ impl StaticMethodInfo {
         let descriptor = class_file.get_text_t(nat.descriptor_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
         )?;
-        let descriptor = MethodDescriptor::from_text(descriptor, class_names)
-            .map_err(LoadMethodError::MethodDescriptorError)?;
 
-        let (parameters, return_type) = descriptor.into_parameters_ret();
-        let parameters = parameters
-            .into_iter()
-            .map(Type::from_descriptor_type)
-            .collect();
-        let return_type = return_type.map(Type::from_descriptor_type);
+        let (parameters, return_type) = descriptor_into_parameters_ret(class_names, descriptor)
+            .map_err(LoadMethodError::MethodDescriptorError)?;
 
         Ok(StaticMethodInfo {
             parameters,
@@ -349,7 +364,7 @@ empty_locals_in!(StaticMethodInfo);
 pub struct RefMethodInfo {
     /// The target class id
     class_id: Option<ClassFileId>,
-    parameters: Vec<Type>,
+    parameters: SmallVec<[Type; 8]>,
     return_type: Option<Type>,
 }
 impl RefMethodInfo {
@@ -367,15 +382,8 @@ impl RefMethodInfo {
         let descriptor = class_file.get_text_t(nat.descriptor_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
         )?;
-        let descriptor = MethodDescriptor::from_text(descriptor, class_names)
+        let (parameters, return_type) = descriptor_into_parameters_ret(class_names, descriptor)
             .map_err(LoadMethodError::MethodDescriptorError)?;
-
-        let (parameters, return_type) = descriptor.into_parameters_ret();
-        let parameters = parameters
-            .into_iter()
-            .map(Type::from_descriptor_type)
-            .collect();
-        let return_type = return_type.map(Type::from_descriptor_type);
 
         Ok(RefMethodInfo {
             class_id: rec_class_id,

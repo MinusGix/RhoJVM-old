@@ -9,7 +9,7 @@ use classfile_parser::{
 use crate::{class::ClassFileData, id::ClassId, BadIdError, ClassNames};
 
 use super::{
-    method::{DescriptorType, DescriptorTypeBasic, Method, MethodDescriptor},
+    method::{DescriptorType, DescriptorTypeBasic, Method},
     CodeInfo,
 };
 

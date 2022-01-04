@@ -26,6 +26,7 @@ use rhojvm_base::{
     package::Packages,
     ClassDirectories, ClassFiles, ClassNames, Classes, ProgramInfo, StepError,
 };
+use smallvec::SmallVec;
 
 #[derive(Debug)]
 pub enum VerifyStackMapGeneralError {
@@ -258,7 +259,14 @@ impl From<FrameType> for Local {
 
 #[derive(Debug)]
 struct Locals {
-    locals: Vec<Local>,
+    locals: SmallVec<[Local; 16]>,
+}
+impl Default for Locals {
+    fn default() -> Locals {
+        Locals {
+            locals: SmallVec::new(),
+        }
+    }
 }
 impl Locals {
     fn push(&mut self, v: impl Into<Local>) {
@@ -427,7 +435,7 @@ impl Locals {
 #[derive(Debug)]
 struct Frame {
     at: InstructionIndex,
-    stack: Vec<FrameType>,
+    stack: SmallVec<[FrameType; 20]>,
     locals: Locals,
 }
 
@@ -516,8 +524,8 @@ pub fn verify_type_safe_method_stack_map(
     // if an instruction requries an int at the top of the stack and it isn't there, then that's
     // an error
     let mut act_frame = Frame {
-        stack: Vec::new(),
-        locals: Locals { locals: Vec::new() },
+        stack: SmallVec::new(),
+        locals: Locals::default(),
         at: InstructionIndex(0),
     };
 
@@ -555,11 +563,13 @@ pub fn verify_type_safe_method_stack_map(
                 tracing::info!("\t Received Frame: {:#?}", frame);
             }
 
-            act_frame.stack = FrameType::from_stack_map_types(
+            act_frame.stack.clear();
+            FrameType::from_stack_map_types(
                 &mut prog.class_names,
                 class_file,
                 &code,
                 &frame.stack,
+                &mut act_frame.stack,
             )?;
             act_frame.locals.from_stack_map_types(
                 &mut prog.class_names,
@@ -578,29 +588,6 @@ pub fn verify_type_safe_method_stack_map(
             // Fill in the rest of the allowed locals with `None`
             act_frame.locals.resize_to(usize::from(code.max_locals()));
             act_frame.at = frame.at;
-
-            // Register any arrays found in the locals of the stack frame
-            for local in act_frame.locals.locals.iter() {
-                if let Local::FrameType(FrameType::Complex(
-                    ComplexFrameType::ReferenceClass(id)
-                    | ComplexFrameType::UninitializedReferenceClass(id),
-                )) = local
-                {
-                    let id = *id;
-                    let name = match prog.class_names.name_from_gcid(id) {
-                        Ok(name) => name,
-                        Err(err) => {
-                            // TODO: Internal bug function to call so that there can be policies for what to do on things like this?
-                            tracing::warn!("Failed to convert the id from a received stack map frame back into a name. This is indicative of an internal bug in the JVM");
-                            return Err(StepError::BadId(err).into());
-                        }
-                    };
-
-                    if name.is_array() {
-                        // Since it was an array, we need to register it so that other code can rely on it existing
-                    }
-                }
-            }
         }
 
         let stack_sizes: StackSizes = {
@@ -858,9 +845,6 @@ pub fn verify_type_safe_method_stack_map(
                 .set(inst_name, local_index, Local::FrameType(local_type))?;
         }
 
-        // TODO: Be able to log reads of local variables, probably have to pass in conf to the from
-        // opcode functions
-
         for i in 0..push_count {
             // TODO: make push_types an iterator?
             let push_type = stack_info.push_type_at(i);
@@ -899,23 +883,18 @@ pub fn verify_type_safe_method_stack_map(
     Ok(())
 }
 
-// TODO: use some form of stack frame type since we really only use like a max of 4 each
-// on the most extreme instructions
 struct InstTypes {
-    pop: Vec<Option<FrameType>>,
-    push: Vec<Option<FrameType>>,
+    pop: SmallVec<[Option<FrameType>; 6]>,
 }
 impl InstTypes {
     fn new() -> InstTypes {
         InstTypes {
-            pop: Vec::new(),
-            push: Vec::new(),
+            pop: SmallVec::new(),
         }
     }
 
     fn clear(&mut self) {
         self.pop.clear();
-        self.push.clear();
     }
 
     fn get_pop(&self, index: usize) -> Option<&FrameType> {
@@ -1076,17 +1055,13 @@ impl FrameType {
         })
     }
 
-    fn from_stack_map_types(
+    fn from_stack_map_types<const N: usize>(
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
         code: &CodeInfo,
         types: &[StackMapType],
-    ) -> Result<Vec<FrameType>, VerifyStackMapGeneralError> {
-        // Overallocates a little, technically could quickly grab the number of
-        // expected types with one iteration, but this is probably fine
-        // since there will never be that many alive frames
-        let mut result = Vec::with_capacity(types.len());
-
+        result: &mut SmallVec<[FrameType; N]>,
+    ) -> Result<(), VerifyStackMapGeneralError> {
         let mut types_iter = types.iter();
         while let Some(typ) = types_iter.next() {
             let output = match typ {
@@ -1141,7 +1116,7 @@ impl FrameType {
             result.push(output);
         }
 
-        Ok(result)
+        Ok(())
     }
 
     fn from_opcode_primitive_type(primitive: &PrimitiveType) -> FrameType {

@@ -1,9 +1,9 @@
-use std::{num::NonZeroUsize, path::Path};
+use std::{borrow::Cow, num::NonZeroUsize, path::Path};
 
 use rhojvm_base::{
     class::{ClassAccessFlags, ClassVariant},
     code::{
-        method::{DescriptorType, DescriptorTypeBasic},
+        method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         op::InstM,
         stack_map::StackMapError,
     },
@@ -274,18 +274,18 @@ fn main() {
     }
 
     // Run the main method
-    // let string_id = prog
-    //     .class_names
-    //     .gcid_from_slice(&["java", "lang", "String"]);
-    // let main_name = "main";
-    // let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
-    //     DescriptorTypeBasic::Class(string_id),
-    // )]);
-    // let main_method_id = prog
-    //     .load_method_from_desc(entrypoint_id, Cow::Borrowed(main_name), &main_descriptor)
-    //     .unwrap();
+    let string_id = prog
+        .class_names
+        .gcid_from_slice(&["java", "lang", "String"]);
+    let main_name = "main";
+    let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
+        DescriptorTypeBasic::Class(string_id),
+    )]);
+    let main_method_id = prog
+        .load_method_from_desc(entrypoint_id, Cow::Borrowed(main_name), &main_descriptor)
+        .unwrap();
 
-    // state.entry_point_method = Some(main_method_id);
+    state.entry_point_method = Some(main_method_id);
 }
 
 #[derive(Debug)]

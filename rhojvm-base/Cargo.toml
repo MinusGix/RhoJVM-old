@@ -8,3 +8,4 @@ classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
 siphasher = "0.3.7"
 # TODO: Optional logging?
 tracing = "0.1"
+smallvec = { version = "1.7", features = ["const_generics"] }

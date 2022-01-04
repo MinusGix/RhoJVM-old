@@ -3,7 +3,10 @@ use std::num::NonZeroUsize;
 use classfile_parser::{
     attribute_info::AttributeInfo,
     descriptor::{
-        method::{MethodDescriptor as MethodDescriptorCF, MethodDescriptorError},
+        method::{
+            MethodDescriptor as MethodDescriptorCF, MethodDescriptorError,
+            MethodDescriptorParserIterator as MethodDescriptorParserIteratorCF,
+        },
         DescriptorType as DescriptorTypeCF, DescriptorTypeBasic as DescriptorTypeBasicCF,
     },
     method_info::{MethodAccessFlags, MethodInfo},
@@ -390,6 +393,13 @@ impl MethodDescriptor {
         (self.parameters, self.return_type)
     }
 
+    pub(crate) fn from_text_iter<'desc, 'names>(
+        desc: &'desc str,
+        class_names: &'names mut ClassNames,
+    ) -> Result<MethodDescriptorParserIterator<'desc, 'names>, MethodDescriptorError> {
+        MethodDescriptorParserIterator::new(desc, class_names)
+    }
+
     pub(crate) fn from_text(
         desc: &str,
         class_names: &mut ClassNames,
@@ -435,6 +445,67 @@ impl MethodDescriptor {
         }
 
         result
+    }
+
+    pub fn is_equal_to_descriptor(
+        &self,
+        class_names: &mut ClassNames,
+        desc: &str,
+    ) -> Result<bool, MethodDescriptorError> {
+        let mut iter = MethodDescriptor::from_text_iter(desc, class_names)?;
+        // We can't use enumerate because we need the original iterator and there's no way to get it back out
+        let mut i = 0;
+        while let Some(parameter) = iter.next() {
+            let parameter = parameter?;
+
+            if let Some(self_parameter) = self.parameters.get(i) {
+                if self_parameter != &parameter {
+                    // One of the parameters was not equal, so it isn't the same
+                    return Ok(false);
+                }
+            } else {
+                // There was no entry at that index, so the descriptor had more parameters than self
+                return Ok(false);
+            }
+
+            i += 1;
+        }
+
+        let return_type = iter.finish_return_type()?;
+        if return_type != self.return_type {
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+}
+
+pub struct MethodDescriptorParserIterator<'desc, 'names> {
+    class_names: &'names mut ClassNames,
+    iter: MethodDescriptorParserIteratorCF<'desc>,
+}
+impl<'desc, 'names> MethodDescriptorParserIterator<'desc, 'names> {
+    fn new(
+        desc: &'desc str,
+        class_names: &'names mut ClassNames,
+    ) -> Result<MethodDescriptorParserIterator<'desc, 'names>, MethodDescriptorError> {
+        let iter = MethodDescriptorCF::parse_iter(desc)?;
+        Ok(MethodDescriptorParserIterator { class_names, iter })
+    }
+
+    pub fn finish_return_type(self) -> Result<Option<DescriptorType>, MethodDescriptorError> {
+        self.iter
+            .finish_return_type()
+            .map(|x| x.map(|x| DescriptorType::from_class_file_desc(self.class_names, x)))
+    }
+}
+impl<'desc, 'names> Iterator for MethodDescriptorParserIterator<'desc, 'names> {
+    type Item = Result<DescriptorType, MethodDescriptorError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next()
+            .map(|x| x.map(|x| DescriptorType::from_class_file_desc(self.class_names, x)))
     }
 }
 

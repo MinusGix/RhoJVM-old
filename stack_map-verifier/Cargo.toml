@@ -8,3 +8,4 @@ rhojvm-base = { path = "../rhojvm-base/" }
 # TODO: It would be nice to not have to depend on this directly at all.
 classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
 tracing = "0.1"
+smallvec = { version = "1.7", features = ["const_generics"] }
