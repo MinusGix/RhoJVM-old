@@ -10,8 +10,9 @@ use rhojvm_base::code::types::{
     Category, LocalVariableInType, LocalVariableIndex, LocalVariableType, LocalsIn, LocalsOutAt,
     PopComplexType, StackSizes,
 };
+use rhojvm_base::Methods;
 use rhojvm_base::{
-    class::{ArrayComponentType, ClassFileData},
+    class::ClassFileData,
     code::{
         method::{DescriptorType, DescriptorTypeBasic},
         op::Inst,
@@ -24,7 +25,7 @@ use rhojvm_base::{
     },
     id::{ClassId, MethodId},
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, ProgramInfo, StepError,
+    ClassDirectories, ClassFiles, ClassNames, Classes, StepError,
 };
 use smallvec::SmallVec;
 
@@ -440,30 +441,33 @@ struct Frame {
 }
 
 pub fn verify_type_safe_method_stack_map(
-    prog: &mut ProgramInfo,
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
     conf: StackMapVerificationLogging,
     method_id: MethodId,
 ) -> Result<(), VerifyStackMapGeneralError> {
     let _span = tracing::span!(tracing::Level::TRACE, "stackmap verification").entered();
 
     let (class_id, _) = method_id.decompose();
-    prog.class_files
-        .load_by_class_path_id(&prog.class_directories, &mut prog.class_names, class_id)
-        .map_err(StepError::from)?;
-    prog.load_method_from_id(method_id)?;
-    prog.load_method_code(method_id)?;
+    methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;
+    let method = methods.get_mut(&method_id).unwrap();
+    method.load_code(class_files)?;
 
-    let class_file = prog.class_files.get(&class_id).unwrap();
-    let method = prog.methods.get(&method_id).unwrap();
+    let class_file = class_files.get(&class_id).unwrap();
+    let method = methods.get(&method_id).unwrap();
 
     if conf.log_method_name {
         tracing::info!(
             "! Checking {} :: {}{}",
-            prog.class_names
+            class_names
                 .display_path_from_gcid(class_id)
                 .unwrap_or_else(|_| "[BadIdError]".to_owned()),
             method.name(),
-            method.descriptor().as_pretty_string(&prog.class_names),
+            method.descriptor().as_pretty_string(class_names),
         );
     }
 
@@ -480,7 +484,7 @@ pub fn verify_type_safe_method_stack_map(
     }
 
     let stack_frames = if let Some(stack_frames) =
-        StackMapFrames::parse_frames(&mut prog.class_names, class_file, method, code)
+        StackMapFrames::parse_frames(class_names, class_file, method, code)
             .map_err(VerifyStackMapGeneralError::StackMapError)?
     {
         stack_frames
@@ -544,10 +548,7 @@ pub fn verify_type_safe_method_stack_map(
             tracing::info!(
                 "# ({}) {}",
                 idx.0,
-                inst.as_pretty_string(
-                    &mut prog.class_names,
-                    prog.class_files.get(&class_id).unwrap(),
-                )
+                inst.as_pretty_string(class_names, class_files.get(&class_id).unwrap(),)
             );
         }
 
@@ -557,7 +558,7 @@ pub fn verify_type_safe_method_stack_map(
             // them by now, such as if instructions request a bunch of classes
             // to be fully loaded and so the code gets rid of the class we're in
             // to preserve memory.
-            let class_file = prog.class_files.get(&class_id).unwrap();
+            let class_file = class_files.get(&class_id).unwrap();
 
             if conf.log_received_frame {
                 tracing::info!("\t Received Frame: {:#?}", frame);
@@ -565,18 +566,15 @@ pub fn verify_type_safe_method_stack_map(
 
             act_frame.stack.clear();
             FrameType::from_stack_map_types(
-                &mut prog.class_names,
+                class_names,
                 class_file,
                 &code,
                 &frame.stack,
                 &mut act_frame.stack,
             )?;
-            act_frame.locals.from_stack_map_types(
-                &mut prog.class_names,
-                class_file,
-                &code,
-                &frame.locals,
-            )?;
+            act_frame
+                .locals
+                .from_stack_map_types(class_names, class_file, &code, &frame.locals)?;
             if act_frame.locals.len() > usize::from(code.max_locals()) {
                 return Err(VerifyStackMapError::ReceivedFrameTooManyLocals {
                     inst_name,
@@ -602,7 +600,17 @@ pub fn verify_type_safe_method_stack_map(
             res
         };
 
-        let stack_info = inst.stack_info(prog, class_id, method_id, stack_sizes)?;
+        let stack_info = inst.stack_info(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            class_id,
+            method_id,
+            stack_sizes,
+        )?;
         let pop_count = stack_info.pop_count();
         let push_count = stack_info.push_count();
 
@@ -656,19 +664,19 @@ pub fn verify_type_safe_method_stack_map(
                     Some(last_frame_type.clone())
                 }
                 PopType::Type(typ) => FrameType::from_opcode_type_no_with(
-                    &mut prog.classes,
-                    &mut prog.class_directories,
-                    &mut prog.class_names,
-                    &mut prog.class_files,
-                    &mut prog.packages,
+                    classes,
+                    class_directories,
+                    class_names,
+                    class_files,
+                    packages,
                     typ,
                 )?,
                 PopType::Complex(complex) => Some(FrameType::from_opcode_pop_complex_type(
-                    &mut prog.classes,
-                    &mut prog.class_directories,
-                    &mut prog.class_names,
-                    &mut prog.class_files,
-                    &mut prog.packages,
+                    classes,
+                    class_directories,
+                    class_names,
+                    class_files,
+                    packages,
                     complex,
                     last_frame_type,
                     inst_name,
@@ -698,11 +706,11 @@ pub fn verify_type_safe_method_stack_map(
 
             let with_t = if let PopType::Type(Type::With(pop_type_o)) = pop_type_o {
                 FrameType::from_opcode_with_type(
-                    &mut prog.classes,
-                    &mut prog.class_directories,
-                    &mut prog.class_names,
-                    &mut prog.class_files,
-                    &mut prog.packages,
+                    classes,
+                    class_directories,
+                    class_names,
+                    class_files,
+                    packages,
                     &pop_type_o,
                     &inst_types,
                     &mut act_frame.locals,
@@ -743,17 +751,17 @@ pub fn verify_type_safe_method_stack_map(
             // even though smaller types are expanded to an int on the stack.
             // As well, there are several reference types which are interconvertible
             if pop_type.is_stack_same_of_frame_type(
-                &mut prog.classes,
-                &mut prog.class_directories,
-                &mut prog.class_names,
-                &mut prog.class_files,
-                &mut prog.packages,
+                classes,
+                class_directories,
+                class_names,
+                class_files,
+                packages,
                 last_frame_type,
             )? {
                 if conf.log_stack_modifications {
                     tracing::info!(
                         "\t\tPOP {}    -- {:?}",
-                        last_frame_type.as_pretty_string(&prog.class_names),
+                        last_frame_type.as_pretty_string(class_names),
                         last_frame_type
                     );
                 }
@@ -804,7 +812,7 @@ pub fn verify_type_safe_method_stack_map(
                 tracing::info!(
                     "\t\tLLOAD [{}] = {}    -- {:?}",
                     local_index,
-                    local.as_pretty_string(&prog.class_names),
+                    local.as_pretty_string(class_names),
                     local
                 );
             }
@@ -820,11 +828,11 @@ pub fn verify_type_safe_method_stack_map(
             }
 
             let local_type = FrameType::from_opcode_local_out_type(
-                &mut prog.classes,
-                &mut prog.class_directories,
-                &mut prog.class_names,
-                &mut prog.class_files,
-                &mut prog.packages,
+                classes,
+                class_directories,
+                class_names,
+                class_files,
+                packages,
                 &local_type,
                 &inst_types,
                 &mut act_frame.locals,
@@ -835,7 +843,7 @@ pub fn verify_type_safe_method_stack_map(
                 tracing::info!(
                     "\t\tLSTORE [{}] = {}    -- {:?}",
                     local_index,
-                    local_type.as_pretty_string(&prog.class_names),
+                    local_type.as_pretty_string(class_names),
                     local_type
                 );
             }
@@ -857,11 +865,11 @@ pub fn verify_type_safe_method_stack_map(
             };
 
             let push_type = FrameType::from_opcode_push_type(
-                &mut prog.classes,
-                &mut prog.class_directories,
-                &mut prog.class_names,
-                &mut prog.class_files,
-                &mut prog.packages,
+                classes,
+                class_directories,
+                class_names,
+                class_files,
+                packages,
                 &push_type,
                 &inst_types,
                 &mut act_frame.locals,
@@ -872,7 +880,7 @@ pub fn verify_type_safe_method_stack_map(
             if conf.log_stack_modifications {
                 tracing::info!(
                     "\t\tPUSH {}    -- {:?}",
-                    push_type.as_pretty_string(&prog.class_names),
+                    push_type.as_pretty_string(class_names),
                     push_type
                 );
             }
@@ -1698,20 +1706,6 @@ impl FrameType {
             DescriptorTypeBasic::Class(id) => ComplexFrameType::ReferenceClass(id).into(),
             DescriptorTypeBasic::Short => PrimitiveType::Short.into(),
             DescriptorTypeBasic::Boolean => PrimitiveType::Boolean.into(),
-        }
-    }
-
-    fn from_array_component_type(typ: ArrayComponentType) -> FrameType {
-        match typ {
-            ArrayComponentType::Boolean => PrimitiveType::Boolean.into(),
-            ArrayComponentType::Char => PrimitiveType::Char.into(),
-            ArrayComponentType::Byte => PrimitiveType::Byte.into(),
-            ArrayComponentType::Short => PrimitiveType::Short.into(),
-            ArrayComponentType::Int => PrimitiveType::Int.into(),
-            ArrayComponentType::Long => PrimitiveType::Long.into(),
-            ArrayComponentType::Float => PrimitiveType::Float.into(),
-            ArrayComponentType::Double => PrimitiveType::Double.into(),
-            ArrayComponentType::Class(id) => ComplexFrameType::ReferenceClass(id).into(),
         }
     }
 

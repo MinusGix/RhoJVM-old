@@ -31,11 +31,10 @@ use class::{
     ArrayClass, ArrayComponentType, Class, ClassFileData, ClassFileIndexError, ClassVariant,
 };
 use classfile_parser::{
-    attribute_info::code_attribute_parser,
     class_parser,
     constant_info::{ClassConstant, Utf8Constant},
     constant_pool::ConstantPoolIndexRaw,
-    method_info::MethodAccessFlags,
+    method_info::{MethodAccessFlags, MethodInfo},
     ClassAccessFlags,
 };
 use code::{
@@ -44,7 +43,7 @@ use code::{
     stack_map::StackMapError,
     types::{PrimitiveType, StackInfoError},
 };
-use id::{ClassFileId, ClassId, GeneralClassId, MethodId, PackageId};
+use id::{ClassFileId, ClassId, GeneralClassId, MethodId, MethodIndex, PackageId};
 use package::Packages;
 use tracing::{info, span, Level};
 
@@ -289,10 +288,10 @@ impl Classes {
         class_files: &mut ClassFiles,
         packages: &mut Packages,
         class_file_id: ClassFileId,
-    ) -> Result<ClassId, StepError> {
+    ) -> Result<(), StepError> {
         if self.contains_key(&class_file_id) {
             // It was already loaded
-            return Ok(class_file_id);
+            return Ok(());
         }
 
         let class_name = class_names
@@ -310,7 +309,7 @@ impl Classes {
                 packages,
                 class_file_id,
             )?;
-            return Ok(class_file_id);
+            return Ok(());
         }
 
         // Requires the class file to be loaded
@@ -357,7 +356,7 @@ impl Classes {
 
         self.set_at(class_file_id, ClassVariant::Class(class));
 
-        Ok(class_file_id)
+        Ok(())
     }
 
     // TODO: We could maybe generate the id for these various arrays without string
@@ -866,6 +865,77 @@ impl Classes {
     }
 }
 __make_map!(pub Methods<MethodId, Method>; access);
+impl Methods {
+    // TODO: Version that gets the class directly and the method's index
+
+    /// If this returns `Ok(())` then it it assured to exist on this with the same id
+    pub fn load_method_from_id(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        method_id: MethodId,
+    ) -> Result<(), StepError> {
+        if self.contains_key(&method_id) {
+            return Ok(());
+        }
+
+        let (class_id, method_index) = method_id.decompose();
+        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+        let class_file = class_files.get(&class_id).unwrap();
+
+        let method = direct_load_method_from_index(class_names, class_file, method_index)?;
+        self.set_at(method_id, method);
+        Ok(())
+    }
+
+    pub fn load_method_from_index(
+        &mut self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+        method_index: MethodIndex,
+    ) -> Result<(), StepError> {
+        let method_id = MethodId::unchecked_compose(class_file.id(), method_index);
+        if self.contains_key(&method_id) {
+            return Ok(());
+        }
+
+        let method = direct_load_method_from_index(class_names, class_file, method_index)?;
+        self.set_at(method_id, method);
+        Ok(())
+    }
+
+    pub fn load_method_from_desc(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        class_id: ClassId,
+        name: Cow<'static, str>,
+        desc: &MethodDescriptor,
+    ) -> Result<MethodId, StepError> {
+        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+        let class_file = class_files.get(&class_id).unwrap();
+
+        let (method_id, method_info) =
+            method_id_from_desc(class_names, class_file, name.as_ref(), desc)?;
+
+        if self.contains_key(&method_id) {
+            return Ok(method_id);
+        }
+
+        let method = Method::new_from_info_with_name(
+            method_id,
+            class_file,
+            class_names,
+            method_info,
+            name.into_owned(),
+        )?;
+
+        self.set_at(method_id, method);
+        Ok(method_id)
+    }
+}
 
 #[derive(Debug, Clone)]
 enum InternalKind {
@@ -1164,632 +1234,487 @@ impl ClassFiles {
     }
 }
 
-pub struct ProgramInfo {
-    pub class_directories: ClassDirectories,
-    conf: Config,
-    // == Data ==
-    /// Stores a mapping of the general class id to the class access path
-    pub class_names: ClassNames,
-    pub class_files: ClassFiles,
-    pub packages: Packages,
-    pub classes: Classes,
-    pub methods: Methods,
-}
-impl ProgramInfo {
-    #[must_use]
-    pub fn new(conf: Config) -> Self {
-        Self {
-            class_directories: ClassDirectories::default(),
-            conf,
-            class_names: ClassNames::new(),
-            class_files: ClassFiles::new(),
-            packages: Packages::default(),
-            classes: Classes::new(),
-            methods: Methods::new(),
-        }
+pub fn load_super_classes_iter(class_id: ClassId) -> SuperClassIterator {
+    SuperClassIterator {
+        scfi: SuperClassFileIterator::new(class_id),
     }
 }
 
-// === Processing ===
-impl ProgramInfo {
-    // TODO: These recursive load super class functions have the potential for cycles
-    // there should be some way to not have that. Iteration limit is most likely the simplest
-    // way, and it avoids allocation.
-    // Theoretically, with cb versions, the user could return an error if they notice
-    // a cycle, but that is unpleasant and there should at least be simple ways to do it.
+pub fn load_super_class_files_iter(class_file_id: ClassFileId) -> SuperClassFileIterator {
+    SuperClassFileIterator::new(class_file_id)
+}
 
-    /// Note: not really an iterator
-    /// Includes the class passed in.
-    pub fn load_super_classes_iter(&mut self, class_id: ClassId) -> SuperClassIterator {
-        SuperClassIterator {
-            scfi: SuperClassFileIterator::new(class_id),
+pub fn direct_load_method_from_index(
+    class_names: &mut ClassNames,
+    class_file: &ClassFileData,
+    method_index: MethodIndex,
+) -> Result<Method, StepError> {
+    let method_id = MethodId::unchecked_compose(class_file.id(), method_index);
+    let method = class_file
+        .get_method(method_index)
+        .ok_or(LoadMethodError::NonexistentMethod { id: method_id })?;
+    let method = Method::new_from_info(method_id, class_file, class_names, method)?;
+
+    Ok(method)
+}
+
+fn method_id_from_desc<'a>(
+    class_names: &mut ClassNames,
+    class_file: &'a ClassFileData,
+    name: &str,
+    desc: &MethodDescriptor,
+) -> Result<(MethodId, &'a MethodInfo), StepError> {
+    let methods = class_file
+        .methods()
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| class_file.get_text_t(x.name_index) == Some(name));
+
+    for (i, method_info) in methods {
+        let descriptor_index = method_info.descriptor_index;
+        let descriptor_text = class_file.get_text_t(descriptor_index).ok_or(
+            LoadMethodError::InvalidDescriptorIndex {
+                index: descriptor_index,
+            },
+        )?;
+
+        if desc
+            .is_equal_to_descriptor(class_names, descriptor_text)
+            .map_err(LoadMethodError::MethodDescriptorError)?
+        {
+            let method_id = MethodId::unchecked_compose(class_file.id(), i);
+
+            return Ok((method_id, method_info));
         }
     }
 
-    /// Note: not really an iterator
-    /// Includes the class passed in.
-    pub fn load_super_class_files_iter(
-        &mut self,
-        class_file_id: ClassFileId,
-    ) -> SuperClassFileIterator {
-        SuperClassFileIterator::new(class_file_id)
+    Err(LoadMethodError::NonexistentMethodName {
+        class_id: class_file.id(),
+        name: name.to_owned().into(),
+    }
+    .into())
+}
+
+pub fn direct_load_method_from_desc(
+    class_names: &mut ClassNames,
+    class_file: &ClassFileData,
+    name: Cow<'static, str>,
+    desc: &MethodDescriptor,
+) -> Result<Method, StepError> {
+    let (method_id, method_info) =
+        method_id_from_desc(class_names, class_file, name.as_ref(), desc)?;
+
+    Ok(Method::new_from_info_with_name(
+        method_id,
+        class_file,
+        class_names,
+        method_info,
+        name.into_owned(),
+    )?)
+}
+
+pub fn load_method_descriptor_types(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    method: &Method,
+) -> Result<(), StepError> {
+    for parameter_type in method.descriptor().parameters().iter().cloned() {
+        load_descriptor_type(
+            classes,
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            parameter_type,
+        )?;
     }
 
-    pub fn load_method_from_id(&mut self, method_id: MethodId) -> Result<(), StepError> {
-        if self.methods.contains_key(&method_id) {
-            // It is already loaded
-            return Ok(());
-        }
-
-        let (class_id, index) = method_id.decompose();
-        self.classes.load_class(
-            &self.class_directories,
-            &mut self.class_names,
-            &mut self.class_files,
-            &mut self.packages,
-            class_id,
+    if let Some(return_type) = method.descriptor().return_type().cloned() {
+        load_descriptor_type(
+            classes,
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            return_type,
         )?;
-
-        // Since we have the class, we should also have the class file
-        let class_file = self.class_files.get(&class_id).unwrap();
-        let method = class_file
-            .get_method(index)
-            .ok_or(LoadMethodError::NonexistentMethod { id: method_id })?;
-
-        let method = Method::new_from_info(method_id, class_file, &mut self.class_names, method)?;
-
-        self.methods.set_at(method_id, method);
-        Ok(())
     }
 
-    pub fn load_method_from_desc(
-        &mut self,
-        class_id: ClassId,
-        name: Cow<'static, str>,
-        desc: &MethodDescriptor,
-    ) -> Result<MethodId, StepError> {
-        self.classes.load_class(
-            &self.class_directories,
-            &mut self.class_names,
-            &mut self.class_files,
-            &mut self.packages,
-            class_id,
-        )?;
+    Ok(())
+}
 
-        let class_file = self.class_files.get(&class_id).unwrap();
-        let methods = class_file
-            .methods()
-            .iter()
-            .enumerate()
-            .filter(|(_, x)| class_file.get_text_t(x.name_index) == Some(name.as_ref()));
+fn helper_get_overrided_method(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
+    super_class_file_id: ClassFileId,
+    over_package: Option<PackageId>,
+    over_method_id: MethodId,
+) -> Result<Option<MethodId>, StepError> {
+    classes.load_class(
+        class_directories,
+        class_names,
+        class_files,
+        packages,
+        super_class_file_id,
+    )?;
+    // We reget it, so that it does not believe we have `self` borrowed mutably
+    let super_class = classes
+        .get(&super_class_file_id)
+        .ok_or(StepError::MissingLoadedValue(
+            "helper_get_overrided_method : super_class",
+        ))?;
+    let super_class = if let ClassVariant::Class(super_class) = super_class {
+        super_class
+    } else {
+        // TODO:
+        eprintln!("Skipped trying to find overrides on an extended array class");
+        return Ok(None);
+    };
 
-        let mut method = None;
-        for (i, method_info) in methods {
-            let descriptor_index = method_info.descriptor_index;
-            let descriptor_text = class_file.get_text_t(descriptor_index).ok_or(
+    // We don't need to parse every method for finding the override., at least not right now
+    let super_class_file =
+        class_files
+            .get(&super_class_file_id)
+            .ok_or(StepError::MissingLoadedValue(
+                "helper_get_overrided_method : super_class_file",
+            ))?;
+    let over_method = methods
+        .get(&over_method_id)
+        .ok_or(StepError::MissingLoadedValue(
+            "helper_get_overrided_method : over_method",
+        ))?;
+    for (i, method) in super_class_file.methods().iter().enumerate() {
+        let flags = method.access_flags;
+        let is_public = flags.contains(MethodAccessFlags::PUBLIC);
+        let is_protected = flags.contains(MethodAccessFlags::PROTECTED);
+        let is_private = flags.contains(MethodAccessFlags::PRIVATE);
+        let is_final = flags.contains(MethodAccessFlags::FINAL);
+
+        // TODO: https://docs.oracle.com/javase/specs/jls/se8/html/jls-8.html#jls-8.4.3
+        // if the signature is a subsignature of the super class method
+        // https://docs.oracle.com/javase/specs/jls/se8/html/jls-8.html#jls-8.4.2
+        // which requires type erasure
+        //  https://docs.oracle.com/javase/specs/jls/se8/html/jls-4.html#jls-4.6
+        // might be able to avoid parsing their types since type erasure seems
+        // more limited than casting to a base class, and so only need to know
+        // if types are equivalent which can be done with package paths and typenames
+
+        // We can access it because it is public and/or it is protected (and we are
+        // inheriting from it), and it isn't private.
+        let is_inherited_accessible = (is_public || is_protected) && !is_private;
+
+        // Whether we are in the same package
+        // TODO: I find this line confusing:
+        // 'is marked neither ACC_PUBLIC nor ACC_PROTECTED nor ACC_PRIVATE and A
+        // belongs to the same run-time package as C'
+        // For now, I'll just ignore that and assume it is package accessible for any
+        // access flags, but this might imply that it is a function with none of them
+        // TODO: What is the definition of a package? We're being quite inexact
+        // A class might be a package around a sub-class (defined inside of it)
+        // and then there's subclasses for normal
+        // TODO: is our assumption that no-package is not the same as no-package, right?
+        let is_package_accessible = super_class
+            .package
+            .zip(over_package)
+            .map_or(false, |(l, r)| l == r);
+
+        let is_overridable = !is_final;
+
+        if is_inherited_accessible || is_package_accessible {
+            // TODO:
+            // 'An instance method mC declared in class C overrides another instance method mA
+            // declared in class A iff either mC is the same as mA, or all of the following are
+            // true:' The part mentioning 'iff either mC is the same as mA' is confusing.
+            // Does this mean if they are _literally_ the same, as in codewise too?
+            // or does it mean if they are the same method (aka A == C)? That technically would
+            // mean that a method overrides itself.
+            // Or is there some in-depth equality of methods defined somewhere?
+
+            let method_name = super_class_file.get_text_t(method.name_index).ok_or(
                 LoadMethodError::InvalidDescriptorIndex {
-                    index: descriptor_index,
+                    index: method.name_index,
                 },
             )?;
-
-            if desc
-                .is_equal_to_descriptor(&mut self.class_names, descriptor_text)
-                .map_err(LoadMethodError::MethodDescriptorError)?
-            {
-                method = Some((i, method_info));
-                break;
-            }
-        }
-
-        if let Some((method_index, method)) = method {
-            let method_id = MethodId::unchecked_compose(class_file.id, method_index);
-
-            if self.methods.contains_key(&method_id) {
-                // It was already loaded
-                return Ok(method_id);
-            }
-
-            let method = Method::new_from_info_with_name(
-                method_id,
-                class_file,
-                &mut self.class_names,
-                method,
-                name.into_owned(),
-            )?;
-
-            self.methods.set_at(method_id, method);
-            Ok(method_id)
-        } else {
-            Err(LoadMethodError::NonexistentMethodName { class_id, name }.into())
-        }
-    }
-
-    pub fn load_method_descriptor_types(&mut self, method_id: MethodId) -> Result<(), StepError> {
-        // Pre-ordering: Method
-        self.load_method_from_id(method_id)?;
-        let method = self.methods.get(&method_id).unwrap();
-
-        for parameter_type in method.descriptor().parameters().iter().cloned() {
-            load_descriptor_type(
-                &mut self.classes,
-                &self.class_directories,
-                &mut self.class_names,
-                &mut self.class_files,
-                &mut self.packages,
-                parameter_type,
-            )?;
-        }
-
-        if let Some(return_type) = method.descriptor().return_type().cloned() {
-            load_descriptor_type(
-                &mut self.classes,
-                &self.class_directories,
-                &mut self.class_names,
-                &mut self.class_files,
-                &mut self.packages,
-                return_type,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    pub fn init_method_overrides(&mut self, method_id: MethodId) -> Result<(), StepError> {
-        self.load_method_from_id(method_id)?;
-
-        let (class_id, _) = method_id.decompose();
-        // It should have both the class and method
-        let class = self.classes.get(&class_id).unwrap();
-        let class = if let ClassVariant::Class(class) = class {
-            class
-        } else {
-            // TODO: There might be one override on them? But if we implement this well,
-            // we probably don't need to compute overrides for them anyway.
-            eprintln!("Skipped trying to find overrides for an array class");
-            return Ok(());
-        };
-        let package = class.package;
-
-        let method = self.methods.get(&method_id).unwrap();
-
-        // We have already collected the overrides.
-        if method.overrides.is_some() {
-            return Ok(());
-        }
-
-        let access_flags = method.access_flags;
-        // Only some methods can override at all.
-        if !method::can_method_override(access_flags) {
-            return Ok(());
-        }
-
-        let overrides = {
-            if let Some(super_class_file_id) = class.super_class {
-                if let Some(overridden) =
-                    self.helper_get_overrided_method(super_class_file_id, package, method_id)?
-                {
-                    vec![MethodOverride::new(overridden)]
-                } else {
-                    Vec::new()
-                }
-            } else {
-                // There is no super class (so, in standard we must be Object), and so we don't have
-                // to worry about a method overriding a super-class, since we don't have one and/or
-                // we are the penultimate super-class.
-                Vec::new()
-            }
-        };
-
-        let method = self
-            .methods
-            .get_mut(&method_id)
-            .ok_or(StepError::MissingLoadedValue(
-                "init_method_overrides : method (post)",
-            ))?;
-        method.overrides = Some(overrides);
-
-        Ok(())
-    }
-
-    fn helper_get_overrided_method(
-        &mut self,
-        super_class_file_id: ClassFileId,
-        over_package: Option<PackageId>,
-        over_method_id: MethodId,
-    ) -> Result<Option<MethodId>, StepError> {
-        let _ = self.load_class_variant_from_id(super_class_file_id)?;
-        // We reget it, so that it does not believe we have `self` borrowed mutably
-        let super_class =
-            self.classes
-                .get(&super_class_file_id)
-                .ok_or(StepError::MissingLoadedValue(
-                    "helper_get_overrided_method : super_class",
-                ))?;
-        let super_class = if let ClassVariant::Class(super_class) = super_class {
-            super_class
-        } else {
-            // TODO:
-            eprintln!("Skipped trying to find overrides on an extended array class");
-            return Ok(None);
-        };
-
-        // We don't need to parse every method for finding the override., at least not right now
-        let super_class_file =
-            self.class_files
-                .get(&super_class_file_id)
-                .ok_or(StepError::MissingLoadedValue(
-                    "helper_get_overrided_method : super_class_file",
-                ))?;
-        let over_method =
-            self.methods
-                .get(&over_method_id)
-                .ok_or(StepError::MissingLoadedValue(
-                    "helper_get_overrided_method : over_method",
-                ))?;
-        for (i, method) in super_class_file.methods().iter().enumerate() {
-            let flags = method.access_flags;
-            let is_public = flags.contains(MethodAccessFlags::PUBLIC);
-            let is_protected = flags.contains(MethodAccessFlags::PROTECTED);
-            let is_private = flags.contains(MethodAccessFlags::PRIVATE);
-            let is_final = flags.contains(MethodAccessFlags::FINAL);
-
-            // TODO: https://docs.oracle.com/javase/specs/jls/se8/html/jls-8.html#jls-8.4.3
-            // if the signature is a subsignature of the super class method
-            // https://docs.oracle.com/javase/specs/jls/se8/html/jls-8.html#jls-8.4.2
-            // which requires type erasure
-            //  https://docs.oracle.com/javase/specs/jls/se8/html/jls-4.html#jls-4.6
-            // might be able to avoid parsing their types since type erasure seems
-            // more limited than casting to a base class, and so only need to know
-            // if types are equivalent which can be done with package paths and typenames
-
-            // We can access it because it is public and/or it is protected (and we are
-            // inheriting from it), and it isn't private.
-            let is_inherited_accessible = (is_public || is_protected) && !is_private;
-
-            // Whether we are in the same package
-            // TODO: I find this line confusing:
-            // 'is marked neither ACC_PUBLIC nor ACC_PROTECTED nor ACC_PRIVATE and A
-            // belongs to the same run-time package as C'
-            // For now, I'll just ignore that and assume it is package accessible for any
-            // access flags, but this might imply that it is a function with none of them
-            // TODO: What is the definition of a package? We're being quite inexact
-            // A class might be a package around a sub-class (defined inside of it)
-            // and then there's subclasses for normal
-            // TODO: is our assumption that no-package is not the same as no-package, right?
-            let is_package_accessible = super_class
-                .package
-                .zip(over_package)
-                .map_or(false, |(l, r)| l == r);
-
-            let is_overridable = !is_final;
-
-            if is_inherited_accessible || is_package_accessible {
-                // TODO:
-                // 'An instance method mC declared in class C overrides another instance method mA
-                // declared in class A iff either mC is the same as mA, or all of the following are
-                // true:' The part mentioning 'iff either mC is the same as mA' is confusing.
-                // Does this mean if they are _literally_ the same, as in codewise too?
-                // or does it mean if they are the same method (aka A == C)? That technically would
-                // mean that a method overrides itself.
-                // Or is there some in-depth equality of methods defined somewhere?
-
-                let method_name = super_class_file.get_text_t(method.name_index).ok_or(
+            if method_name == over_method.name {
+                // TODO: Don't do allocation for comparison. Either have a way to just directly
+                // compare method descriptors with the parsed versions, or a streaming parser
+                // for comparison without alloc
+                let method_desc = super_class_file.get_text_t(method.descriptor_index).ok_or(
                     LoadMethodError::InvalidDescriptorIndex {
-                        index: method.name_index,
+                        index: method.descriptor_index,
                     },
                 )?;
-                if method_name == over_method.name {
-                    // TODO: Don't do allocation for comparison. Either have a way to just directly
-                    // compare method descriptors with the parsed versions, or a streaming parser
-                    // for comparison without alloc
-                    let method_desc = super_class_file.get_text_t(method.descriptor_index).ok_or(
-                        LoadMethodError::InvalidDescriptorIndex {
-                            index: method.descriptor_index,
-                        },
-                    )?;
-                    let method_desc =
-                        MethodDescriptor::from_text(method_desc, &mut self.class_names)
-                            .map_err(LoadMethodError::MethodDescriptorError)?;
+                let method_desc = MethodDescriptor::from_text(method_desc, class_names)
+                    .map_err(LoadMethodError::MethodDescriptorError)?;
 
-                    // TODO: Is there more complex rules for equivalent descriptors?
-                    if method_desc == over_method.descriptor {
-                        // We wait to check if the method is overridable (!final) until here because
-                        // if it _is_ final then we can't override *past* it to some super class
-                        // that had a non-final version since we're extending the class with the
-                        // final version.
-                        if is_overridable {
-                            return Ok(Some(MethodId::unchecked_compose(super_class.id, i)));
-                        }
+                // TODO: Is there more complex rules for equivalent descriptors?
+                if method_desc == over_method.descriptor {
+                    // We wait to check if the method is overridable (!final) until here because
+                    // if it _is_ final then we can't override *past* it to some super class
+                    // that had a non-final version since we're extending the class with the
+                    // final version.
+                    if is_overridable {
+                        return Ok(Some(MethodId::unchecked_compose(super_class.id, i)));
                     }
                 }
             }
-
-            // Otherwise, ignore the method
         }
 
-        // Now, just because we failed to find a method that matched doesn't mean we can stop now.
-        // We have to check the *next* super class method, all the way up the chain to no super.
+        // Otherwise, ignore the method
+    }
 
-        if let Some(super_super_class_file_id) = super_class.super_class {
-            // We could actually support this, but it is rough, and probably unneeded.
-            debug_assert_ne!(
-                super_super_class_file_id, super_class.id,
-                "A class had its own super class be itself"
-            );
-            self.helper_get_overrided_method(
-                super_super_class_file_id,
-                over_package,
-                over_method_id,
-            )
+    // Now, just because we failed to find a method that matched doesn't mean we can stop now.
+    // We have to check the *next* super class method, all the way up the chain to no super.
+
+    if let Some(super_super_class_file_id) = super_class.super_class {
+        // We could actually support this, but it is rough, and probably unneeded.
+        debug_assert_ne!(
+            super_super_class_file_id, super_class.id,
+            "A class had its own super class be itself"
+        );
+        helper_get_overrided_method(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            super_super_class_file_id,
+            over_package,
+            over_method_id,
+        )
+    } else {
+        // There was no method.
+        Ok(None)
+    }
+}
+
+pub fn init_method_overrides(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
+    method_id: MethodId,
+) -> Result<(), StepError> {
+    methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;
+
+    let (class_id, _) = method_id.decompose();
+    // It should have both the class and method
+    let class = classes.get(&class_id).unwrap();
+    let class = if let ClassVariant::Class(class) = class {
+        class
+    } else {
+        // TODO: There might be one override on them? But if we implement this well,
+        // we probably don't need to compute overrides for them anyway.
+        eprintln!("Skipped trying to find overrides for an array class");
+        return Ok(());
+    };
+    let package = class.package;
+
+    let method = methods.get(&method_id).unwrap();
+
+    // We have already collected the overrides.
+    if method.overrides.is_some() {
+        return Ok(());
+    }
+
+    let access_flags = method.access_flags;
+    // Only some methods can override at all.
+    if !method::can_method_override(access_flags) {
+        return Ok(());
+    }
+
+    let overrides = {
+        if let Some(super_class_file_id) = class.super_class {
+            if let Some(overridden) = helper_get_overrided_method(
+                class_directories,
+                class_names,
+                class_files,
+                classes,
+                packages,
+                methods,
+                super_class_file_id,
+                package,
+                method_id,
+            )? {
+                vec![MethodOverride::new(overridden)]
+            } else {
+                Vec::new()
+            }
         } else {
-            // There was no method.
-            Ok(None)
+            // There is no super class (so, in standard we must be Object), and so we don't have
+            // to worry about a method overriding a super-class, since we don't have one and/or
+            // we are the penultimate super-class.
+            Vec::new()
         }
-    }
+    };
 
-    pub fn verify_method_access_flags(&mut self, method_id: MethodId) -> Result<(), StepError> {
-        self.load_method_from_id(method_id)?;
+    let method = methods
+        .get_mut(&method_id)
+        .ok_or(StepError::MissingLoadedValue(
+            "init_method_overrides : method (post)",
+        ))?;
+    method.overrides = Some(overrides);
 
-        let method = self.methods.get(&method_id).unwrap();
-        method::verify_method_access_flags(method.access_flags)?;
-        Ok(())
-    }
+    Ok(())
+}
 
-    pub fn load_method_code(&mut self, method_id: MethodId) -> Result<(), StepError> {
-        self.load_method_from_id(method_id)?;
+// TODO: These recursive load super class functions have the potential for cycles
+// there should be some way to not have that. Iteration limit is most likely the simplest
+// way, and it avoids allocation.
+// Theoretically, with cb versions, the user could return an error if they notice
+// a cycle, but that is unpleasant and there should at least be simple ways to do it.
 
+pub fn verify_code_exceptions(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    method: &mut Method,
+) -> Result<(), StepError> {
+    fn get_class<'cf, 'm>(
+        class_files: &'cf ClassFiles,
+        method_id: MethodId,
+    ) -> Result<&'cf ClassFileData, StepError> {
         let (class_id, _) = method_id.decompose();
-
-        let class_file = self
-            .class_files
+        let class_file = class_files
             .get(&class_id)
             .ok_or(StepError::MissingLoadedValue(
-                "load_method_code : class_file",
+                "verify_code_exceptions : class_file",
             ))?;
-        let method = self.methods.get(&method_id).unwrap();
-
-        // TODO: Check for code for native/abstract methods to allow malformed
-        // versions of them?
-        if !method.should_have_code() {
-            return Ok(());
-        }
-
-        if method.code().is_some() {
-            // It already loaded
-            return Ok(());
-        }
-
-        let code_attr_idx = method
-            .attributes()
-            .iter()
-            .enumerate()
-            .find(|(_, x)| {
-                class_file
-                    .get_text_t(x.attribute_name_index)
-                    .map_or(false, |x| x == "Code")
-            })
-            .map(|(i, _)| i);
-
-        if let Some(attr_idx) = code_attr_idx {
-            let code_attr = &method.attributes()[attr_idx];
-            let (data_rem, code_attr) = code_attribute_parser(&code_attr.info)
-                .map_err(|_| LoadCodeError::InvalidCodeAttribute)?;
-            debug_assert!(data_rem.is_empty(), "The remaining data after parsing the code attribute was non-empty. This indicates a bug.");
-
-            // TODO: A config for code parsing that includes information like the class file
-            // version?
-            // or we could _try_ making it not care and make that a verification step?
-            let code = code::parse_code(code_attr).map_err(LoadCodeError::InstructionParse)?;
-
-            self.methods.get_mut(&method_id).unwrap().code = Some(code);
-        }
-
-        Ok(())
+        Ok(class_file)
+    }
+    fn get_code(method: &Method) -> Result<&CodeInfo, StepError> {
+        let code = method.code().ok_or(StepError::MissingLoadedValue(
+            "verify_code_exceptions : method.code",
+        ))?;
+        Ok(code)
     }
 
-    pub fn verify_code_exceptions(&mut self, method_id: MethodId) -> Result<(), StepError> {
-        fn get_class_method<'cf, 'm>(
-            class_files: &'cf ClassFiles,
-            methods: &'m Methods,
-            method_id: MethodId,
-        ) -> Result<(&'cf ClassFileData, &'m Method), StepError> {
-            let (class_id, _) = method_id.decompose();
-            let class_file = class_files
-                .get(&class_id)
-                .ok_or(StepError::MissingLoadedValue(
-                    "verify_code_exceptions : class_file",
-                ))?;
-            let method = methods
-                .get(&method_id)
-                .ok_or(StepError::MissingLoadedValue(
-                    "verify_code_exceptions : method",
-                ))?;
-            Ok((class_file, method))
-        }
-        fn get_code(method: &Method) -> Result<&CodeInfo, StepError> {
-            let code = method.code().ok_or(StepError::MissingLoadedValue(
-                "verify_code_exceptions : method.code",
-            ))?;
-            Ok(code)
-        }
+    // TODO: What if it has code despite this
+    if !method.should_have_code() {
+        return Ok(());
+    }
 
-        self.load_method_from_id(method_id)?;
+    method.load_code(class_files)?;
 
-        let (_, method) = get_class_method(&self.class_files, &self.methods, method_id)?;
-        // TODO: What if it has code despite this
-        if !method.should_have_code() {
-            return Ok(());
-        }
+    let code = get_code(method)?;
 
-        if method.code.is_none() {
-            self.load_method_code(method_id)?;
-        }
+    if code.exception_table().is_empty() {
+        // There are no exceptions to verify
+        return Ok(());
+    }
 
-        let (_, method) = get_class_method(&self.class_files, &self.methods, method_id)?;
-        let code = get_code(method)?;
+    let throwable_id = class_names.gcid_from_slice(&["java", "lang", "Throwable"]);
 
-        if code.exception_table().is_empty() {
-            // There are no exceptions to verify
-            return Ok(());
-        }
+    let exception_table_len = code.exception_table().len();
+    for exc_i in 0..exception_table_len {
+        {
+            let class_file = get_class(class_files, method.id())?;
+            let code = get_code(method)?;
+            debug_assert_eq!(code.exception_table().len(), exception_table_len);
 
-        let throwable_id = self
-            .class_names
-            .gcid_from_slice(&["java", "lang", "Throwable"]);
+            let exc = &code.exception_table()[exc_i];
 
-        let exception_table_len = code.exception_table().len();
-        for exc_i in 0..exception_table_len {
-            {
-                let (class_file, method) =
-                    get_class_method(&self.class_files, &self.methods, method_id)?;
-                let code = get_code(method)?;
-                debug_assert_eq!(code.exception_table().len(), exception_table_len);
+            // TODO: option for whether this should be checked
+            // If there is a catch type, then we check it
+            // If there isn't, then it represents any exception and automatically passes
+            // these checks
+            if !exc.catch_type.is_zero() {
+                let catch_type = class_file
+                    .get_t(exc.catch_type)
+                    .ok_or(VerifyCodeExceptionError::InvalidCatchTypeIndex)?;
+                let catch_type_name = class_file
+                    .get_text_t(catch_type.name_index)
+                    .ok_or(VerifyCodeExceptionError::InvalidCatchTypeNameIndex)?;
+                let catch_type_id = class_names.gcid_from_str(catch_type_name);
 
-                let exc = &code.exception_table()[exc_i];
-
-                // TODO: option for whether this should be checked
-                // If there is a catch type, then we check it
-                // If there isn't, then it represents any exception and automatically passes
-                // these checks
-                if !exc.catch_type.is_zero() {
-                    let catch_type = class_file
-                        .get_t(exc.catch_type)
-                        .ok_or(VerifyCodeExceptionError::InvalidCatchTypeIndex)?;
-                    let catch_type_name = class_file
-                        .get_text_t(catch_type.name_index)
-                        .ok_or(VerifyCodeExceptionError::InvalidCatchTypeNameIndex)?;
-                    let catch_type_id = self.class_names.gcid_from_str(catch_type_name);
-
-                    if !self.does_extend_class(catch_type_id, throwable_id)? {
-                        return Err(VerifyCodeExceptionError::NonThrowableCatchType.into());
-                    }
+                if !does_extend_class(
+                    class_directories,
+                    class_names,
+                    class_files,
+                    classes,
+                    catch_type_id,
+                    throwable_id,
+                )? {
+                    return Err(VerifyCodeExceptionError::NonThrowableCatchType.into());
                 }
             }
-            {
-                // The above check for the class may have invalidated the references
-                let (class_file, method) =
-                    get_class_method(&self.class_files, &self.methods, method_id)?;
-                let code = get_code(method)?;
-                let exc = &code.exception_table()[exc_i];
-                debug_assert_eq!(code.exception_table().len(), exception_table_len);
-
-                code.check_exception(class_file, method, exc)?;
-            }
         }
+        {
+            // The above check for the class may have invalidated the references
+            let class_file = get_class(class_files, method.id())?;
+            let code = get_code(method)?;
+            let exc = &code.exception_table()[exc_i];
+            debug_assert_eq!(code.exception_table().len(), exception_table_len);
 
-        Ok(())
+            code.check_exception(class_file, method, exc)?;
+        }
     }
+
+    Ok(())
 }
 
-// === Helper ===
-impl ProgramInfo {
-    /// Note: includes itself
-    pub fn does_extend_class(
-        &mut self,
-        class_id: ClassId,
-        desired_super_class_id: ClassId,
-    ) -> Result<bool, StepError> {
-        if class_id == desired_super_class_id {
-            return Ok(true);
-        }
+/// Note: includes itself
+pub fn does_extend_class(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &Classes,
+    class_id: ClassId,
+    desired_super_class_id: ClassId,
+) -> Result<bool, StepError> {
+    if class_id == desired_super_class_id {
+        return Ok(true);
+    }
 
-        let super_class_id = if let Some(class) = self.classes.get(&class_id) {
-            class.super_id()
-        } else if let Some(class_file) = self.class_files.get(&class_id) {
-            class_file
-                .get_super_class_id(&mut self.class_names)
-                .map_err(StepError::ClassFileIndex)?
+    let super_class_id = if let Some(class) = classes.get(&class_id) {
+        class.super_id()
+    } else if let Some(class_file) = class_files.get(&class_id) {
+        class_file
+            .get_super_class_id(class_names)
+            .map_err(StepError::ClassFileIndex)?
+    } else {
+        // The id should have already been registered by now
+        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+        let class_file = class_files
+            .get(&class_id)
+            .ok_or(StepError::MissingLoadedValue(
+                "helper_does_extend_class : class_file",
+            ))?;
+        class_file
+            .get_super_class_id(class_names)
+            .map_err(StepError::ClassFileIndex)?
+    };
+
+    if let Some(super_class_id) = super_class_id {
+        if super_class_id == desired_super_class_id {
+            // It does extend it
+            Ok(true)
         } else {
-            // The id should have already been registered by now
-            self.class_files.load_by_class_path_id(
-                &self.class_directories,
-                &mut self.class_names,
-                class_id,
-            )?;
-            let class_file =
-                self.class_files
-                    .get(&class_id)
-                    .ok_or(StepError::MissingLoadedValue(
-                        "helper_does_extend_class : class_file",
-                    ))?;
-            class_file
-                .get_super_class_id(&mut self.class_names)
-                .map_err(StepError::ClassFileIndex)?
-        };
-
-        if let Some(super_class_id) = super_class_id {
-            if super_class_id == desired_super_class_id {
-                // It does extend it
-                Ok(true)
-            } else {
-                // Crawl further up the tree to see if it extends it
-                // Trees should be relatively small so doing recursion probably doesn't matter
-                self.does_extend_class(super_class_id, desired_super_class_id)
-            }
-        } else {
-            // There was no super class id so we're done here
-            Ok(false)
+            // Crawl further up the tree to see if it extends it
+            // Trees should be relatively small so doing recursion probably doesn't matter
+            does_extend_class(
+                class_directories,
+                class_names,
+                class_files,
+                classes,
+                super_class_id,
+                desired_super_class_id,
+            )
         }
-    }
-
-    pub fn load_class_variant_from_id(
-        &mut self,
-        class_file_id: ClassFileId,
-    ) -> Result<&ClassVariant, StepError> {
-        self.classes.load_class(
-            &self.class_directories,
-            &mut self.class_names,
-            &mut self.class_files,
-            &mut self.packages,
-            class_file_id,
-        )?;
-
-        self.get_class_variant(class_file_id)
-            .ok_or(StepError::MissingLoadedValue("load_class_variant_from_id"))
-    }
-
-    pub fn load_class_file_by_class_path_iter<'a>(
-        &mut self,
-        class_path: impl Iterator<Item = &'a str> + Clone,
-    ) -> Result<ClassFileId, LoadClassFileError> {
-        self.class_files.load_by_class_path_iter(
-            &self.class_directories,
-            &mut self.class_names,
-            class_path,
-        )
-    }
-
-    pub fn load_class_file_by_class_path_slice<T: AsRef<str>>(
-        &mut self,
-        class_path: &[T],
-    ) -> Result<ClassFileId, LoadClassFileError> {
-        self.class_files.load_by_class_path_slice(
-            &self.class_directories,
-            &mut self.class_names,
-            class_path,
-        )
-    }
-
-    /// Note: You may prefer to use `load_class_variant_from_id`, since this method errors
-    /// if the class was an array-class.
-    pub fn load_class_from_id(&mut self, class_file_id: ClassFileId) -> Result<&Class, StepError> {
-        self.load_class_variant_from_id(class_file_id)
-            .map(ClassVariant::as_class)
-            .transpose()
-            .ok_or(StepError::ExpectedNonArrayClass)?
-    }
-}
-
-// === Getters ===
-impl ProgramInfo {
-    #[must_use]
-    pub fn get_class_variant(&self, class_id: ClassId) -> Option<&ClassVariant> {
-        self.classes.get(&class_id)
-    }
-
-    #[must_use]
-    pub fn get_method(&self, method_id: MethodId) -> Option<&Method> {
-        self.methods.get(&method_id)
+    } else {
+        // There was no super class id so we're done here
+        Ok(false)
     }
 }
 
@@ -1813,9 +1738,11 @@ impl SuperClassIterator {
             .scfi
             .next_item(class_directories, class_names, class_files)
         {
-            Some(Ok(id)) => {
-                Some(classes.load_class(class_directories, class_names, class_files, packages, id))
-            }
+            Some(Ok(id)) => Some(
+                classes
+                    .load_class(class_directories, class_names, class_files, packages, id)
+                    .map(|_| id),
+            ),
             Some(Err(err)) => Some(Err(err)),
             None => None,
         }

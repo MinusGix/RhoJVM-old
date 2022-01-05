@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 
 use classfile_parser::{
-    attribute_info::AttributeInfo,
+    attribute_info::{code_attribute_parser, AttributeInfo},
     descriptor::{
         method::{
             MethodDescriptor as MethodDescriptorCF, MethodDescriptorError,
@@ -15,8 +15,10 @@ use classfile_parser::{
 
 use crate::{
     class::{ArrayComponentType, ClassFileData},
+    code,
     id::{ClassId, MethodId},
-    BadIdError, ClassNames, LoadMethodError, VerifyMethodError,
+    BadIdError, ClassFiles, ClassNames, LoadCodeError, LoadMethodError, StepError,
+    VerifyMethodError,
 };
 
 use super::CodeInfo;
@@ -165,6 +167,70 @@ impl Method {
         // native and abstract methods do not have code
         !self.access_flags.contains(MethodAccessFlags::NATIVE)
             && !self.access_flags.contains(MethodAccessFlags::ABSTRACT)
+    }
+
+    pub fn verify_access_flags(&self) -> Result<(), VerifyMethodError> {
+        verify_method_access_flags(self.access_flags)
+    }
+
+    /// The class file must be the class file that contains this method
+    pub fn load_code_with_unchecked(
+        &mut self,
+        class_file: &ClassFileData,
+    ) -> Result<(), StepError> {
+        debug_assert_eq!(self.id().decompose().0, class_file.id());
+
+        // TODO: Check for code for native/abstract methods to allow malformed
+        // versions of them?
+        if !self.should_have_code() {
+            return Ok(());
+        }
+
+        if self.code().is_some() {
+            // It already loaded
+            return Ok(());
+        }
+
+        let code_attr_idx = self
+            .attributes()
+            .iter()
+            .enumerate()
+            .find(|(_, x)| {
+                class_file
+                    .get_text_t(x.attribute_name_index)
+                    .map_or(false, |x| x == "Code")
+            })
+            .map(|(i, _)| i);
+
+        if let Some(attr_idx) = code_attr_idx {
+            let code_attr = &self.attributes()[attr_idx];
+            let (data_rem, code_attr) = code_attribute_parser(&code_attr.info)
+                .map_err(|_| LoadCodeError::InvalidCodeAttribute)?;
+            debug_assert!(data_rem.is_empty(), "The remaining data after parsing the code attribute was non-empty. This indicates a bug.");
+
+            // TODO: A config for code parsing that includes information like the class file
+            // version?
+            // or we could _try_ making it not care and make that a verification step?
+            let code = code::parse_code(code_attr).map_err(LoadCodeError::InstructionParse)?;
+
+            self.code = Some(code);
+        }
+
+        Ok(())
+    }
+
+    /// Loads code if it isn't already loaded and exists
+    /// The class that contains the method should already be loaded
+    pub fn load_code(&mut self, class_files: &mut ClassFiles) -> Result<(), StepError> {
+        let (class_id, _) = self.id().decompose();
+
+        let class_file = class_files
+            .get(&class_id)
+            .ok_or(StepError::MissingLoadedValue(
+                "load_method_code : class_file",
+            ))?;
+
+        self.load_code_with_unchecked(class_file)
     }
 }
 

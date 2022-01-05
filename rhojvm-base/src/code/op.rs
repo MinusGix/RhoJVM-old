@@ -14,6 +14,7 @@ use crate::code::types::{
     UnsignedByte, UnsignedShort, WithType,
 };
 use crate::util::{MemorySize, StaticMemorySize};
+use crate::{ClassDirectories, ClassFiles, ClassNames, Classes, Methods, Packages};
 
 use super::types::ConstantPoolIndexRawU8;
 
@@ -121,7 +122,12 @@ macro_rules! define_stack_info {
             type Output = Self;
             fn stack_info(
                 &self,
-                _: &mut $crate::ProgramInfo,
+                _: &ClassDirectories,
+                _: &mut ClassNames,
+                _: &mut ClassFiles,
+                _: &mut Classes,
+                _: &mut Packages,
+                _: &mut Methods,
                 _: $crate::id::ClassFileId,
                 _: $crate::id::MethodId,
                 _: StackSizes,
@@ -432,10 +438,15 @@ macro_rules! define_instructions {
         impl HasStackInfo for InstM {
             type Output = StackInfosM;
 
-            fn stack_info(&self, prog: &mut $crate::ProgramInfo, class_id: $crate::id::ClassFileId, method_id: $crate::id::MethodId, stack_sizes: StackSizes,) -> Result<StackInfosM, $crate::StepError> {
+            fn stack_info(&self, class_directories: &ClassDirectories,
+                class_names: &mut ClassNames,
+                class_files: &mut ClassFiles,
+                classes: &mut Classes,
+                packages: &mut Packages,
+                methods: &mut Methods, class_id: $crate::id::ClassFileId, method_id: $crate::id::MethodId, stack_sizes: StackSizes,) -> Result<StackInfosM, $crate::StepError> {
                 Ok(match self {
                     $(
-                        InstM::$name(inst) => StackInfosM::$name(inst.stack_info(prog, class_id, method_id, stack_sizes)?),
+                        InstM::$name(inst) => StackInfosM::$name(inst.stack_info(class_directories, class_names, class_files, classes, packages, methods, class_id, method_id, stack_sizes)?),
                     )*
                     #[allow(unreachable_patterns)]
                     _ => unimplemented!(),
@@ -616,10 +627,15 @@ macro_rules! define_instructions {
         impl HasStackInfo for WideInstM {
             type Output = WideStackInfosM;
 
-            fn stack_info(&self, prog: &mut $crate::ProgramInfo, class_id: $crate::id::ClassFileId, method_id: $crate::id::MethodId, stack_sizes: StackSizes) -> Result<WideStackInfosM, $crate::StepError> {
+            fn stack_info(&self, class_directories: &ClassDirectories,
+                class_names: &mut ClassNames,
+                class_files: &mut ClassFiles,
+                classes: &mut Classes,
+                packages: &mut Packages,
+                methods: &mut Methods, class_id: $crate::id::ClassFileId, method_id: $crate::id::MethodId, stack_sizes: StackSizes) -> Result<WideStackInfosM, $crate::StepError> {
                 Ok(match self {
                     $(
-                        WideInstM::$wide_name(inst) => WideStackInfosM::$wide_name(inst.stack_info(prog, class_id, method_id, stack_sizes)?),
+                        WideInstM::$wide_name(inst) => WideStackInfosM::$wide_name(inst.stack_info(class_directories, class_names, class_files, classes, packages, methods, class_id, method_id, stack_sizes)?),
                     )*
                     #[allow(unreachable_patterns)]
                     _ => unimplemented!(),
@@ -2879,10 +2895,15 @@ macro_rules! self_sinfo {
             type Output = Self;
             fn stack_info(
                 &self,
-                _prog: &mut crate::ProgramInfo,
-                _class_id: $crate::id::ClassFileId,
-                _method_id: $crate::id::MethodId,
-                _stack_sizes: StackSizes,
+                _: &ClassDirectories,
+                _: &mut ClassNames,
+                _: &mut ClassFiles,
+                _: &mut Classes,
+                _: &mut Packages,
+                _: &mut Methods,
+                _: $crate::id::ClassFileId,
+                _: $crate::id::MethodId,
+                _: StackSizes,
             ) -> Result<Self::Output, $crate::StepError> {
                 Ok(self.clone())
             }
@@ -3110,12 +3131,17 @@ impl HasStackInfo for Wide {
 
     fn stack_info(
         &self,
-        prog: &mut crate::ProgramInfo,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        classes: &mut Classes,
+        packages: &mut Packages,
+        methods: &mut Methods,
         class_id: crate::id::ClassFileId,
         method_id: crate::id::MethodId,
         stack_sizes: StackSizes,
     ) -> Result<WideStackInfosM, crate::StepError> {
-        self.0.stack_info(prog, class_id, method_id, stack_sizes)
+        self.0.stack_info(class_directories, class_names, class_files, classes, packages, methods, class_id, method_id, stack_sizes)
     }
 }
 impl MemorySize for Wide {

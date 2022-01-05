@@ -2,7 +2,7 @@
 //! These attempt to allow detailed specification of types and bheavior without
 //! overly complex logic.
 
-use std::{marker::PhantomData, num::NonZeroUsize, ops::Range};
+use std::{marker::PhantomData, num::NonZeroUsize};
 
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo, FieldRefConstant},
@@ -11,8 +11,9 @@ use classfile_parser::{
 
 use crate::{
     id::{ClassFileId, MethodId},
+    package::Packages,
     util::{MemorySize, StaticMemorySize},
-    ProgramInfo, StepError,
+    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
 };
 
 use super::method::{DescriptorType, DescriptorTypeBasic};
@@ -518,7 +519,12 @@ pub trait HasStackInfo {
     #[must_use]
     fn stack_info(
         &self,
-        prog: &mut ProgramInfo,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        classes: &mut Classes,
+        packages: &mut Packages,
+        methods: &mut Methods,
         class_id: ClassFileId,
         method_id: MethodId,
         stack_sizes: StackSizes,

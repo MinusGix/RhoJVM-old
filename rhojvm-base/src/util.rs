@@ -91,13 +91,14 @@ impl<T> StaticMemorySize for ConstantPoolIndex<T> {
 #[macro_export]
 macro_rules! __make_map {
     ($v:vis $name:ident < $key:ty, $val:ty > $(; $($tag:ident),*)?) => {
+        #[derive(Default, Clone)]
         $v struct $name {
             map: std::collections::BTreeMap<$key, $val>,
         }
         #[allow(dead_code)]
         impl $name {
             #[must_use]
-            pub(crate) fn new() -> Self {
+            pub fn new() -> Self {
                 Self {
                     map: BTreeMap::new(),
                 }
@@ -134,8 +135,11 @@ macro_rules! __make_map {
                 self.map.get(key)
             }
 
+            /// You MUST NOT swap an incorrect instance into the position.
+            /// Ex: Do not construct a class and then swap it with this one,
+            /// as that leads to an invalid mapping of class-id to class.
             #[must_use]
-            pub(crate) fn get_mut(&mut self, key: &$key) -> Option<&mut $val> {
+            pub fn get_mut(&mut self, key: &$key) -> Option<&mut $val> {
                 self.map.get_mut(key)
             }
 

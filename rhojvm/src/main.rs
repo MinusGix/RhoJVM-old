@@ -8,7 +8,8 @@ use rhojvm_base::{
         stack_map::StackMapError,
     },
     id::{ClassFileId, ClassId, MethodId},
-    Config, ProgramInfo, StepError,
+    package::Packages,
+    ClassDirectories, ClassFiles, ClassNames, Classes, Config, Methods, StepError,
 };
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use tracing::info;
@@ -95,18 +96,6 @@ impl StateConfig {
     }
 }
 
-/// Keeps track of the Warnings that are emitted
-pub struct Warnings(Vec<Warning>);
-impl Warnings {
-    pub fn push(&mut self, warning: Warning) {
-        self.0.push(warning)
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<'_, Warning> {
-        self.0.iter()
-    }
-}
-
 /// A warning
 /// These provide information that isn't a bug but might be indicative of weird
 /// decisions in the compiling code, or incorrect reasoning by this JVM implementation
@@ -120,21 +109,17 @@ pub(crate) struct State {
     entry_point_method: Option<MethodId>,
     conf: StateConfig,
 
-    pub warnings: Warnings,
     pre_init_classes: Vec<ClassId>,
     init_classes: Vec<ClassId>,
 }
 impl State {
-    fn new(conf: StateConfig, prog: &mut ProgramInfo) -> Self {
-        let object_id = prog
-            .class_names
-            .gcid_from_slice(&["java", "lang", "Object"]);
+    fn new(class_names: &mut ClassNames, conf: StateConfig) -> Self {
+        let object_id = class_names.object_id();
         Self {
             object_id,
             entry_point_class: None,
             entry_point_method: None,
             conf,
-            warnings: Warnings(Vec::new()),
 
             pre_init_classes: Vec::new(),
             init_classes: Vec::new(),
@@ -224,6 +209,13 @@ fn main() {
 
     info!("RhoJVM Initializing");
 
+    let mut class_directories: ClassDirectories = ClassDirectories::default();
+    let mut class_names: ClassNames = ClassNames::default();
+    let mut class_files: ClassFiles = ClassFiles::default();
+    let mut classes: Classes = Classes::default();
+    let mut packages: Packages = Packages::default();
+    let mut methods: Methods = Methods::default();
+
     let entry_point_cp = ["HelloWorld"];
     let class_dirs = [
         "./rhojvm/ex/lib/rt/",
@@ -234,55 +226,60 @@ fn main() {
         "./rhojvm/ex/",
     ];
 
-    // Initialize ProgramInfo
-    let mut prog = ProgramInfo::new(Config {
-        verify_method_access_flags: true,
-    });
     for path in class_dirs.into_iter() {
         let path = Path::new(path);
-        prog.class_directories
+        class_directories
             .add(path)
             .expect("for class directory to properly exist");
     }
 
     // Initialize State
-    let mut state = State::new(conf, &mut prog);
+    let mut state = State::new(&mut class_names, conf);
 
     // Load the entry point
-    let entrypoint_id: ClassFileId = prog
-        .class_files
-        .load_by_class_path_slice(
-            &prog.class_directories,
-            &mut prog.class_names,
-            &entry_point_cp,
-        )
+    let entrypoint_id: ClassFileId = class_files
+        .load_by_class_path_slice(&class_directories, &mut class_names, &entry_point_cp)
         .unwrap();
-    prog.classes
+    classes
         .load_class(
-            &prog.class_directories,
-            &mut prog.class_names,
-            &mut prog.class_files,
-            &mut prog.packages,
+            &class_directories,
+            &mut class_names,
+            &mut class_files,
+            &mut packages,
             entrypoint_id,
         )
         .unwrap();
     state.entry_point_class = Some(entrypoint_id);
 
-    if let Err(err) = initialize_class(&mut prog, &mut state, entrypoint_id) {
+    if let Err(err) = initialize_class(
+        &class_directories,
+        &mut class_names,
+        &mut class_files,
+        &mut classes,
+        &mut packages,
+        &mut methods,
+        &mut state,
+        entrypoint_id,
+    ) {
         tracing::error!("There was an error in initializing a class: {:?}", err);
         return;
     }
 
     // Run the main method
-    let string_id = prog
-        .class_names
-        .gcid_from_slice(&["java", "lang", "String"]);
+    let string_id = class_names.gcid_from_slice(&["java", "lang", "String"]);
     let main_name = "main";
     let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
         DescriptorTypeBasic::Class(string_id),
     )]);
-    let main_method_id = prog
-        .load_method_from_desc(entrypoint_id, Cow::Borrowed(main_name), &main_descriptor)
+    let main_method_id = methods
+        .load_method_from_desc(
+            &class_directories,
+            &mut class_names,
+            &mut class_files,
+            entrypoint_id,
+            Cow::Borrowed(main_name),
+            &main_descriptor,
+        )
         .unwrap();
 
     state.entry_point_method = Some(main_method_id);
@@ -359,7 +356,12 @@ pub enum RunInstError {
 // 5.5
 // must be verified, prepared, and optionally resolved
 fn pre_initialize_class(
-    prog: &mut ProgramInfo,
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
     state: &mut State,
     class_id: ClassId,
 ) -> Result<(), GeneralError> {
@@ -375,32 +377,32 @@ fn pre_initialize_class(
 
     // - classIsTypeSafe
     // Load super classes
-    let mut iter = prog.load_super_classes_iter(class_id);
+    let mut iter = rhojvm_base::load_super_classes_iter(class_id);
 
     // Skip the first class, since that is the base and so it is allowed to be final
     // We store the latest class so that we can update it and use it for errors
     // and checking if the topmost class is Object
     let mut latest_class = iter
         .next_item(
-            &prog.class_directories,
-            &mut prog.class_names,
-            &mut prog.class_files,
-            &mut prog.classes,
-            &mut prog.packages,
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
         )
         .expect("The base to be included in the processing")?;
 
     while let Some(res) = iter.next_item(
-        &prog.class_directories,
-        &mut prog.class_names,
-        &mut prog.class_files,
-        &mut prog.classes,
-        &mut prog.packages,
+        class_directories,
+        class_names,
+        class_files,
+        classes,
+        packages,
     ) {
         let super_class_id = res?;
 
         // TODO: Are we intended to preinitialize the entire super-chain?
-        let class = prog.classes.get(&super_class_id).unwrap();
+        let class = classes.get(&super_class_id).unwrap();
         let access_flags = class.access_flags();
         if access_flags.contains(ClassAccessFlags::FINAL) {
             return Err(VerificationError::SuperClassWasFinal {
@@ -423,19 +425,39 @@ fn pre_initialize_class(
         .into());
     }
 
-    verify_type_safe_methods(prog, state, class_id)?;
+    verify_type_safe_methods(
+        class_directories,
+        class_names,
+        class_files,
+        classes,
+        packages,
+        methods,
+        state,
+        class_id,
+    )?;
 
     Ok(())
 }
 
 fn verify_type_safe_methods(
-    prog: &mut ProgramInfo,
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
     state: &mut State,
     class_id: ClassId,
 ) -> Result<(), GeneralError> {
-    prog.load_class_from_id(class_id)?;
+    classes.load_class(
+        class_directories,
+        class_names,
+        class_files,
+        packages,
+        class_id,
+    )?;
 
-    let class = prog.classes.get(&class_id).unwrap();
+    let class = classes.get(&class_id).unwrap();
     let method_id_iter = match class {
         ClassVariant::Class(class) => class.iter_method_ids(),
         ClassVariant::Array(_) => {
@@ -445,32 +467,71 @@ fn verify_type_safe_methods(
     };
 
     for method_id in method_id_iter {
-        verify_type_safe_method(prog, state, method_id)?;
+        verify_type_safe_method(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            state,
+            method_id,
+        )?;
     }
     Ok(())
 }
 
 fn verify_type_safe_method(
-    prog: &mut ProgramInfo,
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
     state: &mut State,
     method_id: MethodId,
 ) -> Result<(), GeneralError> {
-    prog.load_method_from_id(method_id)?;
-    prog.verify_method_access_flags(method_id)?;
-    prog.load_method_descriptor_types(method_id)?;
+    methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;
+    let method = methods.get(&method_id).unwrap();
+    method
+        .verify_access_flags()
+        .map_err(StepError::VerifyMethod)?;
+
+    rhojvm_base::load_method_descriptor_types(
+        class_directories,
+        class_names,
+        class_files,
+        classes,
+        packages,
+        method,
+    )?;
     // TODO: Document that this assures that it isn't overriding a final method
-    prog.init_method_overrides(method_id)?;
+    rhojvm_base::init_method_overrides(
+        class_directories,
+        class_names,
+        class_files,
+        classes,
+        packages,
+        methods,
+        method_id,
+    )?;
 
-    prog.load_method_code(method_id)?;
+    let method = methods.get_mut(&method_id).unwrap();
+    method.load_code(class_files)?;
 
-    let method = prog.methods.get(&method_id).unwrap();
+    let method = methods.get(&method_id).unwrap();
     if method.should_have_code() {
         if method.code().is_none() {
             // We should have code but there was no code!
             return Err(VerificationError::NoMethodCode { method_id }.into());
         } else {
             stack_map_verifier::verify_type_safe_method_stack_map(
-                prog,
+                class_directories,
+                class_names,
+                class_files,
+                classes,
+                packages,
+                methods,
                 state.conf().stack_map_verification_logging.clone(),
                 method_id,
             )?;
@@ -482,7 +543,12 @@ fn verify_type_safe_method(
 
 // 5.5
 fn initialize_class(
-    prog: &mut ProgramInfo,
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
     state: &mut State,
     class_id: ClassId,
 ) -> Result<(), GeneralError> {
@@ -491,59 +557,124 @@ fn initialize_class(
     }
     state.init_classes.push(class_id);
 
-    pre_initialize_class(prog, state, class_id)?;
+    pre_initialize_class(
+        class_directories,
+        class_names,
+        class_files,
+        classes,
+        packages,
+        methods,
+        state,
+        class_id,
+    )?;
 
-    let class = prog.classes.get(&class_id).unwrap().as_class().unwrap();
+    let class = classes.get(&class_id).unwrap().as_class().unwrap();
     // TODO: It would be nice if we could somehow avoid collecting to a vec
     let method_ids = class.iter_method_ids().collect::<Vec<_>>();
     for method_id in method_ids {
-        prog.load_method_from_id(method_id)?;
-        prog.load_method_descriptor_types(method_id)?;
+        methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;
+        let method = methods.get(&method_id).unwrap();
+        rhojvm_base::load_method_descriptor_types(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            method,
+        )?;
 
         // It would have already been loaded
-        let method = prog.methods.get(&method_id).unwrap();
+        let method = methods.get(&method_id).unwrap();
         let parameters = method.descriptor().parameters().to_owned();
         let return_type = method.descriptor().return_type().map(Clone::clone);
         for parameter in parameters {
             if let DescriptorType::Basic(DescriptorTypeBasic::Class(id)) = parameter {
-                initialize_class(prog, state, id)?;
+                initialize_class(
+                    class_directories,
+                    class_names,
+                    class_files,
+                    classes,
+                    packages,
+                    methods,
+                    state,
+                    id,
+                )?;
             }
         }
 
         if let Some(DescriptorType::Basic(DescriptorTypeBasic::Class(id))) = return_type {
-            initialize_class(prog, state, id)?;
+            initialize_class(
+                class_directories,
+                class_names,
+                class_files,
+                classes,
+                packages,
+                methods,
+                state,
+                id,
+            )?;
         }
     }
 
-    let class = prog.classes.get(&class_id).unwrap().as_class().unwrap();
+    let class = classes.get(&class_id).unwrap().as_class().unwrap();
     if let Some(super_class) = class.super_id() {
-        initialize_class(prog, state, super_class)?;
+        initialize_class(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            state,
+            super_class,
+        )?;
     }
 
     Ok(())
 }
 
 fn run_method_code(
-    prog: &mut ProgramInfo,
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
     state: &mut State,
     method_id: MethodId,
 ) -> Result<(), GeneralError> {
-    prog.load_method_code(method_id)?;
+    let method = methods.get_mut(&method_id).unwrap();
+    method.load_code(class_files)?;
 
     let inst_count = {
-        let method = prog.methods.get(&method_id).unwrap();
+        let method = methods.get(&method_id).unwrap();
         let code = method.code().unwrap();
         code.instructions().len()
     };
     for index in 0..inst_count {
-        run_inst(prog, state, method_id, index)?;
+        run_inst(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            state,
+            method_id,
+            index,
+        )?;
     }
 
     Ok(())
 }
 
 fn run_inst(
-    prog: &mut ProgramInfo,
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
     state: &mut State,
     method_id: MethodId,
     inst_index: usize,
@@ -551,12 +682,10 @@ fn run_inst(
     use rhojvm_base::code::op::GetStatic;
     let (class_id, _) = method_id.decompose();
 
-    let class_file = prog
-        .class_files
+    let class_file = class_files
         .get(&class_id)
         .ok_or(RunInstError::NoClassFile(class_id))?;
-    let method = prog
-        .methods
+    let method = methods
         .get(&method_id)
         .ok_or(RunInstError::NoMethod(method_id))?;
     let code = method.code().ok_or(RunInstError::NoCode(method_id))?;

@@ -78,7 +78,7 @@ impl StackMapType {
                 DescriptorTypeBasic::Class(id) => Self::Object(*id),
             },
             // TODO: Do we need to register this?
-            DescriptorType::Array { level, component } => {
+            DescriptorType::Array { .. } => {
                 // Unwrap the option because we _know_ that it is an array
                 Self::Object(desc.as_class_id(class_names)?.unwrap())
             }
@@ -117,19 +117,6 @@ impl StackMapType {
             // while stack map type uses Top as 'other bits of cat2 type'
             VerificationTypeInfo::Top => StackMapType::Top,
         })
-    }
-
-    /// Skips the Top type, for cases where it shouldn't appear
-    fn from_verif_type_info_ignore_top(
-        v: VerificationTypeInfo,
-        class_names: &mut ClassNames,
-        class_file: &ClassFileData,
-    ) -> Option<StackMapType> {
-        if matches!(v, VerificationTypeInfo::Top) {
-            None
-        } else {
-            Self::from_verif_type_info(v, class_names, class_file)
-        }
     }
 }
 
@@ -288,9 +275,9 @@ impl StackMapFrames {
                 // This has the same local variables as the previous frame and the operand stack
                 // has 1 entry.
                 StackMapFrameCF::SameLocals1StackItemFrameExtended {
-                    frame_type,
                     offset_delta,
                     stack,
+                    ..
                 } => {
                     let stack = StackMapType::from_verif_type_info(stack, class_names, class_file)
                         .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)?;
@@ -336,10 +323,7 @@ impl StackMapFrames {
                 // Same local variables
                 // Empty operand stack
                 // This is like SameFrame, except that the offset delta is given directly
-                StackMapFrameCF::SameFrameExtended {
-                    frame_type,
-                    offset_delta,
-                } => {
+                StackMapFrameCF::SameFrameExtended { offset_delta, .. } => {
                     let frame = StackMapFrame {
                         at: stack_frames.get_new_index(offset_delta),
                         stack: Vec::new(),
