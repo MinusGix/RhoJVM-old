@@ -4,10 +4,7 @@
 
 use std::{marker::PhantomData, num::NonZeroUsize};
 
-use classfile_parser::{
-    constant_info::{ClassConstant, ConstantInfo, FieldRefConstant},
-    constant_pool::ConstantPoolIndexRaw,
-};
+use classfile_parser::{constant_info::ConstantInfo, constant_pool::ConstantPoolIndexRaw};
 
 use crate::{
     class::ClassFileData,
@@ -221,22 +218,9 @@ pub enum WithType {
     /// The type at the given pop index
     /// Obviously, this should not refer to itself
     Type(PopIndex),
-    /// A reference to the class at this index
-    ReferenceIndex(ConstantPoolIndexRaw<ClassConstant>),
     /// The type that is held in a reference to an array of references
     /// T in &[&T] (so for objects, this would still be a reference?)
     RefArrayRefType(PopIndex),
-
-    /// An array of instances of class at `index` for `len` elements
-    RefArrayRefFromIndexLen {
-        /// The index of the class that it holds references of
-        index: ConstantPoolIndexRaw<ClassConstant>,
-        /// The index to a specific pop value that decides the length of the array
-        len_idx: PopIndex,
-        // TODO: Should this be a separate variant?
-        /// Whether they are all null at first
-        is_all_null: bool,
-    },
 
     RefArrayPrimitiveLen {
         /// The type of elements that the array holds
@@ -256,27 +240,6 @@ pub enum WithType {
     RefClassOf {
         class_name: &'static [&'static str],
         can_be_null: bool,
-    },
-
-    /// int | float | ref-to-string-literal | symbolic-ref-to-class | symbol-ref-to-method-type
-    /// | method-handle
-    Category1Constant {
-        index: ConstantPoolIndexRaw<ConstantInfo>,
-    },
-
-    /// double | long
-    Category2Constant {
-        index: ConstantPoolIndexRaw<ConstantInfo>,
-    },
-
-    /// The type of the field
-    FieldType {
-        index: ConstantPoolIndexRaw<FieldRefConstant>,
-    },
-
-    /// An uninitialized object of the given class
-    UninitializedObject {
-        index: ConstantPoolIndexRaw<ClassConstant>,
     },
 
     /// This is an int that is an index into arrayref

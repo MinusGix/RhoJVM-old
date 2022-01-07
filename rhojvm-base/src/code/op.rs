@@ -816,10 +816,7 @@ define_instructions! {[
         args: [
             index: ConstantPoolIndexRaw<ClassConstant>,
         ],
-        pop: [
-            /// The number of entries in the array
-            count: Int,
-        ],
+        pop: [{extern}],
         push: [{extern}],
         exceptions: [
             // There's also the usual allocation failures
@@ -828,6 +825,7 @@ define_instructions! {[
             /// If count < 0
             NegativeArraySizeException,
         ],
+        stack_info: extern,
         init: [{extern}],
     },
     /// Create a new multidimensional array
@@ -848,6 +846,7 @@ define_instructions! {[
             /// If any of the count values are < 0
             NegativeArraySizeException,
         ],
+        stack_info: extern,
         init: [{extern}],
     },
     // TODO: Type that signifies tag of primitive values
@@ -1119,6 +1118,7 @@ define_instructions! {[
             IncompatibleClassChangeError,
             // TODO:
         ],
+        stack_info: extern,
         init: [{extern}],
     },
     /// ldc
@@ -1142,6 +1142,7 @@ define_instructions! {[
             /// If class is not accessible
             IllegalAccessError,
         ],
+        stack_info: extern,
         init: [{extern}],
     },
     LoadConstantWide: {
@@ -1155,6 +1156,7 @@ define_instructions! {[
         pop: [],
         push: [{extern}],
         exceptions: [],
+        stack_info: extern,
         init: [{extern}],
     },
     /// ldc2_w
@@ -1168,6 +1170,7 @@ define_instructions! {[
         pop: [],
         push: [{extern}],
         exceptions: [],
+        stack_info: extern,
     },
 
 
@@ -1182,13 +1185,14 @@ define_instructions! {[
             /// And the variables are initialized.
             index: ConstantPoolIndexRaw<ClassConstant>,
         ],
-        pop: [],
+        pop: [{extern}],
         push: [{extern}],
         exceptions: [
             // TODO: resolution errors
             /// Resolved to a interface or abstract class
             InstantiationError,
         ],
+        stack_info: extern,
         init: [{extern}],
     },
     /// Throw exception or error
@@ -2849,6 +2853,7 @@ define_instructions! {[
             /// If objectref can't cast
             ClassCastException,
         ],
+        stack_info: extern,
     },
     /// Check if object is of a type
     InstanceOf: {

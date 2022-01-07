@@ -761,7 +761,6 @@ fn process_pop_type_with_load(
     inst_types: &mut InstTypes,
     pop_type_o: Option<PopType>,
     pop_index: PopIndex,
-    class_id: ClassId,
     inst_name: &'static str,
 ) -> Result<(), VerifyStackMapGeneralError> {
     let pop_type_o = if let Some(pop_type) = pop_type_o {
@@ -786,7 +785,6 @@ fn process_pop_type_with_load(
             inst_types,
             &mut act_frame.locals,
             inst_name,
-            class_id,
         )?
     } else {
         return Ok(());
@@ -923,7 +921,6 @@ fn check_locals_out_type(
     conf: &StackMapVerificationLogging,
     act_frame: &mut Frame,
     inst_types: &mut InstTypes,
-    class_id: ClassId,
     local_index: LocalVariableIndex,
     local_type: LocalVariableType,
     inst_name: &'static str,
@@ -946,7 +943,6 @@ fn check_locals_out_type(
         inst_types,
         &mut act_frame.locals,
         inst_name,
-        class_id,
     )?;
     if conf.log_local_variable_modifications {
         tracing::info!(
@@ -972,7 +968,6 @@ fn check_push_type(
     conf: &StackMapVerificationLogging,
     act_frame: &mut Frame,
     inst_types: &mut InstTypes,
-    class_id: ClassId,
     push_index: usize,
     push_type: Option<PushType>,
     inst_name: &'static str,
@@ -998,7 +993,6 @@ fn check_push_type(
         inst_types,
         &mut act_frame.locals,
         inst_name,
-        class_id,
     )?;
 
     if conf.log_stack_modifications {
@@ -1030,8 +1024,6 @@ fn check_instruction<T: Instruction>(
     inst: &T,
 ) -> Result<(), VerifyStackMapGeneralError> {
     inst_types.clear();
-
-    let class_id = class_file.id();
 
     let inst_name = inst.name();
 
@@ -1092,7 +1084,6 @@ fn check_instruction<T: Instruction>(
                 inst_types,
                 pop_type_o,
                 i,
-                class_id,
                 inst_name,
             )?;
         }
@@ -1132,7 +1123,6 @@ fn check_instruction<T: Instruction>(
             &conf,
             act_frame,
             inst_types,
-            class_id,
             local_index,
             local_type,
             inst_name,
@@ -1152,7 +1142,6 @@ fn check_instruction<T: Instruction>(
             &conf,
             act_frame,
             inst_types,
-            class_id,
             i,
             push_type,
             inst_name,

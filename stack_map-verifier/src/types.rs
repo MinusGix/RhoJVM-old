@@ -1,12 +1,8 @@
-use classfile_parser::constant_info::ConstantInfo;
-use classfile_parser::descriptor::DescriptorType as DescriptorTypeCF;
-
 use rhojvm_base::code::types::{LocalVariableType, PopComplexType};
 
 use rhojvm_base::{
     class::ClassFileData,
     code::{
-        method::{DescriptorType, DescriptorTypeBasic},
         op::Inst,
         stack_map::StackMapType,
         types::{ComplexType, PopType, PrimitiveType, PushType, Type, WithType},
@@ -291,7 +287,6 @@ impl FrameType {
         inst_types: &InstTypes,
         locals: &mut Locals,
         inst_name: &'static str,
-        class_id: ClassId,
     ) -> Result<FrameType, VerifyStackMapGeneralError> {
         // TODO: Don't unwrap on accessing class id
         Ok(match with_t {
@@ -313,18 +308,6 @@ impl FrameType {
                 };
 
                 typ.clone()
-            }
-            WithType::ReferenceIndex(index) => {
-                let class_file = class_files.get(&class_id).unwrap();
-                let elem_class = class_file
-                    .get_t(index)
-                    .ok_or(VerifyStackMapError::BadClassIndex(*index))?;
-                let elem_name = class_file.get_text_t(elem_class.name_index).ok_or(
-                    VerifyStackMapError::BadClassNameIndex(elem_class.name_index),
-                )?;
-                let elem_id = class_names.gcid_from_str(elem_name);
-
-                ComplexFrameType::ReferenceClass(elem_id).into()
             }
             // Note: This is the type held by the array at the index.
             WithType::RefArrayRefType(pop_index) => {
@@ -373,26 +356,6 @@ impl FrameType {
                     },
                 }
             }
-            WithType::RefArrayRefFromIndexLen { index, .. } => {
-                let class_file = class_files.get(&class_id).unwrap();
-                let elem_class = class_file
-                    .get_t(index)
-                    .ok_or(VerifyStackMapError::BadClassIndex(*index))?;
-                let elem_name = class_file.get_text_t(elem_class.name_index).ok_or(
-                    VerifyStackMapError::BadClassNameIndex(elem_class.name_index),
-                )?;
-                let elem_id = class_names.gcid_from_str(elem_name);
-
-                let array_id = classes.load_array_of_instances(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    packages,
-                    elem_id,
-                )?;
-
-                ComplexFrameType::ReferenceClass(array_id).into()
-            }
             WithType::RefArrayPrimitiveLen { element_type, .. } => {
                 let array_id = classes.load_array_of_primitives(class_names, *element_type)?;
                 ComplexFrameType::ReferenceClass(array_id).into()
@@ -428,94 +391,6 @@ impl FrameType {
             WithType::RefClassOf { class_name, .. } => {
                 let id = class_names.gcid_from_slice(class_name);
                 ComplexFrameType::ReferenceClass(id).into()
-            }
-            WithType::Category1Constant { index } => {
-                let class_file = class_files.get(&class_id).unwrap();
-                let value = class_file
-                    .get_t(index)
-                    .ok_or(VerifyStackMapError::BadConstantIndex(*index))?;
-                match value {
-                    ConstantInfo::Integer(_) => PrimitiveType::Int.into(),
-                    ConstantInfo::Float(_) => PrimitiveType::Float.into(),
-                    ConstantInfo::Class(_class) => ComplexFrameType::ReferenceClass(
-                        class_names.gcid_from_slice(&["java", "lang", "Class"]),
-                    )
-                    .into(),
-                    ConstantInfo::String(_) => {
-                        let string_id = class_names.gcid_from_slice(&["java", "lang", "String"]);
-                        ComplexFrameType::ReferenceClass(string_id).into()
-                    }
-                    ConstantInfo::MethodHandle(_) => {
-                        ComplexFrameType::ReferenceClass(class_names.gcid_from_slice(&[
-                            "java",
-                            "lang",
-                            "invoke",
-                            "MethodHandle",
-                        ]))
-                        .into()
-                    }
-                    ConstantInfo::MethodType(_) => {
-                        ComplexFrameType::ReferenceClass(class_names.gcid_from_slice(&[
-                            "java",
-                            "lang",
-                            "invoke",
-                            "MethodType",
-                        ]))
-                        .into()
-                    }
-                    _ => return Err(VerifyStackMapError::BadConstantType.into()),
-                }
-            }
-            WithType::Category2Constant { index } => {
-                let class_file = class_files.get(&class_id).unwrap();
-                let value = class_file
-                    .get_t(index)
-                    .ok_or(VerifyStackMapError::BadConstantIndex(*index))?;
-                match value {
-                    ConstantInfo::Long(_) => PrimitiveType::Long.into(),
-                    ConstantInfo::Double(_) => PrimitiveType::Double.into(),
-                    _ => return Err(VerifyStackMapError::BadConstantType.into()),
-                }
-            }
-            WithType::FieldType { index } => {
-                let class_file = class_files.get(&class_id).unwrap();
-                let field = class_file
-                    .get_t(index)
-                    .ok_or(VerifyStackMapError::BadFieldIndex(*index))?;
-                let nat_index = field.name_and_type_index;
-                let nat = class_file
-                    .get_t(nat_index)
-                    .ok_or(VerifyStackMapError::BadFieldNatIndex(nat_index))?;
-
-                let field_descriptor = class_file.get_text_t(nat.descriptor_index).ok_or(
-                    VerifyStackMapError::BadFieldDescriptorIndex(nat.descriptor_index),
-                )?;
-                let (field_type, rem) = DescriptorTypeCF::parse(field_descriptor)
-                    .map_err(VerifyStackMapError::InvalidFieldDescriptor)?;
-                if !rem.is_empty() {
-                    return Err(VerifyStackMapError::UnparsedFieldType.into());
-                }
-
-                let field_type = DescriptorType::from_class_file_desc(class_names, field_type);
-                FrameType::from_descriptor_type(
-                    classes,
-                    class_directories,
-                    class_names,
-                    class_files,
-                    packages,
-                    field_type,
-                )?
-            }
-            WithType::UninitializedObject { index } => {
-                let class_file = class_files.get(&class_id).unwrap();
-                let class = class_file
-                    .get_t(index)
-                    .ok_or(VerifyStackMapError::BadClassIndex(*index))?;
-                let name = class_file
-                    .get_text_t(class.name_index)
-                    .ok_or(VerifyStackMapError::BadClassNameIndex(class.name_index))?;
-                let id = class_names.gcid_from_str(name);
-                ComplexFrameType::UninitializedReferenceClass(id).into()
             }
             WithType::IntArrayIndexInto(_idx) => PrimitiveType::Int.into(),
             WithType::LiteralInt(_val) => PrimitiveType::Int.into(),
@@ -674,7 +549,6 @@ impl FrameType {
         inst_types: &InstTypes,
         locals: &mut Locals,
         inst_name: &'static str,
-        class_id: ClassId,
     ) -> Result<FrameType, VerifyStackMapGeneralError> {
         match typ {
             Type::Primitive(primitive) => Ok(FrameType::from_opcode_primitive_type(*primitive)),
@@ -689,7 +563,6 @@ impl FrameType {
                 inst_types,
                 locals,
                 inst_name,
-                class_id,
             ),
         }
     }
@@ -719,7 +592,6 @@ impl FrameType {
         inst_types: &InstTypes,
         locals: &mut Locals,
         inst_name: &'static str,
-        class_id: ClassId,
     ) -> Result<FrameType, VerifyStackMapGeneralError> {
         match typ {
             LocalVariableType::Type(typ) => Self::from_opcode_type(
@@ -732,7 +604,6 @@ impl FrameType {
                 inst_types,
                 locals,
                 inst_name,
-                class_id,
             ),
         }
     }
@@ -747,7 +618,6 @@ impl FrameType {
         inst_types: &InstTypes,
         locals: &mut Locals,
         inst_name: &'static str,
-        class_id: ClassId,
     ) -> Result<FrameType, VerifyStackMapGeneralError> {
         match typ {
             PushType::Type(typ) => Self::from_opcode_type(
@@ -760,47 +630,7 @@ impl FrameType {
                 inst_types,
                 locals,
                 inst_name,
-                class_id,
             ),
-        }
-    }
-
-    pub(crate) fn from_descriptor_type(
-        classes: &mut Classes,
-        class_directories: &ClassDirectories,
-        class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        packages: &mut Packages,
-        typ: DescriptorType,
-    ) -> Result<FrameType, StepError> {
-        Ok(match typ {
-            DescriptorType::Basic(basic) => FrameType::from_basic_descriptor_type(basic),
-            DescriptorType::Array { level, component } => {
-                let array_id = classes.load_level_array_of_desc_type_basic(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    packages,
-                    level,
-                    component,
-                )?;
-
-                ComplexFrameType::ReferenceClass(array_id).into()
-            }
-        })
-    }
-
-    pub(crate) fn from_basic_descriptor_type(typ: DescriptorTypeBasic) -> FrameType {
-        match typ {
-            DescriptorTypeBasic::Byte => PrimitiveType::Byte.into(),
-            DescriptorTypeBasic::Char => PrimitiveType::Char.into(),
-            DescriptorTypeBasic::Double => PrimitiveType::Double.into(),
-            DescriptorTypeBasic::Float => PrimitiveType::Float.into(),
-            DescriptorTypeBasic::Int => PrimitiveType::Int.into(),
-            DescriptorTypeBasic::Long => PrimitiveType::Long.into(),
-            DescriptorTypeBasic::Class(id) => ComplexFrameType::ReferenceClass(id).into(),
-            DescriptorTypeBasic::Short => PrimitiveType::Short.into(),
-            DescriptorTypeBasic::Boolean => PrimitiveType::Boolean.into(),
         }
     }
 

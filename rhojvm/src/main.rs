@@ -9,7 +9,7 @@ use rhojvm_base::{
     class::{ClassAccessFlags, ClassVariant},
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
-        op::InstM,
+        op::{InstM, IntAdd},
         stack_map::StackMapError,
     },
     id::{ClassFileId, ClassId, MethodId},
@@ -706,6 +706,7 @@ fn run_inst(
         .ok_or(RunInstError::NoInst(method_id, inst_index))?
         .clone();
     match inst {
+        InstM::IntAdd(_) => {}
         InstM::GetStatic(GetStatic { index }) => {
             let field = class_file
                 .get_t(index)

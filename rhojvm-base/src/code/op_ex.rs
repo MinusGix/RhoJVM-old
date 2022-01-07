@@ -1,5 +1,7 @@
 //! This file is separate from op.rs, because op.rs is large enough to be unfortunately slow.
 
+use std::num::NonZeroUsize;
+
 use classfile_parser::attribute_info::InstructionIndex;
 use classfile_parser::constant_info::{ConstantInfo, FieldRefConstant, NameAndTypeConstant};
 use classfile_parser::constant_pool::ConstantPoolIndexRaw;
@@ -28,7 +30,7 @@ use super::{
 use crate::class::ClassFileData;
 use crate::code::method::MethodDescriptor;
 use crate::code::types::StackInfoError;
-use crate::id::{ClassFileId, MethodId};
+use crate::id::{ClassFileId, ClassId, MethodId};
 use crate::{ClassNames, LoadMethodError, StepError};
 
 #[derive(Debug)]
@@ -86,18 +88,15 @@ macro_rules! empty_locals_in {
 }
 
 // === Pop/Push implementations for various opcodes ===
-impl PushTypeAt for ANewArray {
+pub struct ANewArrayInfo {
+    array_id: ClassId,
+}
+impl StackInfo for ANewArrayInfo {}
+impl PushTypeAt for ANewArrayInfo {
     // TODO: This could be implemented in the macro if we had access to `self`
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         if i == 0 {
-            Some(
-                WithType::RefArrayRefFromIndexLen {
-                    index: self.index,
-                    len_idx: 0,
-                    is_all_null: true,
-                }
-                .into(),
-            )
+            Some(ComplexType::ReferenceClass(self.array_id).into())
         } else {
             None
         }
@@ -107,8 +106,57 @@ impl PushTypeAt for ANewArray {
         1
     }
 }
+impl PopTypeAt for ANewArrayInfo {
+    fn pop_type_at(&self, i: PopIndex) -> Option<PopType> {
+        if i == 0 {
+            // Count
+            Some(PrimitiveType::Int.into())
+        } else {
+            None
+        }
+    }
 
-impl PopTypeAt for MultiANewArray {
+    fn pop_count(&self) -> usize {
+        1
+    }
+}
+empty_locals_in!(ANewArrayInfo);
+empty_locals_out!(ANewArrayInfo);
+impl HasStackInfo for ANewArray {
+    type Output = ANewArrayInfo;
+
+    fn stack_info(
+        &self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+        _: MethodId,
+        _: StackSizes,
+    ) -> Result<Self::Output, StepError> {
+        let elem_class =
+            class_file
+                .get_t(self.index)
+                .ok_or(StackInfoError::InvalidConstantPoolIndex(
+                    self.index.into_generic(),
+                ))?;
+        let elem_name = class_file.get_text_t(elem_class.name_index).ok_or(
+            StackInfoError::InvalidConstantPoolIndex(elem_class.name_index.into_generic()),
+        )?;
+        let elem_id = class_names.gcid_from_str(elem_name);
+
+        let array_id = class_names
+            .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), elem_id)
+            .map_err(StepError::BadId)?;
+
+        Ok(ANewArrayInfo { array_id })
+    }
+}
+
+pub struct MultiANewArrayInfo {
+    array_id: ClassId,
+    dimensions: u8,
+}
+impl StackInfo for MultiANewArrayInfo {}
+impl PopTypeAt for MultiANewArrayInfo {
     fn pop_type_at(&self, i: PopIndex) -> Option<PopType> {
         if i < self.dimensions as usize {
             // count
@@ -122,10 +170,10 @@ impl PopTypeAt for MultiANewArray {
         self.dimensions as usize
     }
 }
-impl PushTypeAt for MultiANewArray {
+impl PushTypeAt for MultiANewArrayInfo {
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         if i == 0 {
-            Some(WithType::ReferenceIndex(self.index).into())
+            Some(ComplexType::ReferenceClass(self.array_id).into())
         } else {
             None
         }
@@ -133,6 +181,34 @@ impl PushTypeAt for MultiANewArray {
 
     fn push_count(&self) -> usize {
         1
+    }
+}
+empty_locals_in!(MultiANewArrayInfo);
+empty_locals_out!(MultiANewArrayInfo);
+impl HasStackInfo for MultiANewArray {
+    type Output = MultiANewArrayInfo;
+
+    fn stack_info(
+        &self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+        _: MethodId,
+        _: StackSizes,
+    ) -> Result<Self::Output, StepError> {
+        let array_class =
+            class_file
+                .get_t(self.index)
+                .ok_or(StackInfoError::InvalidConstantPoolIndex(
+                    self.index.into_generic(),
+                ))?;
+        let array_name = class_file.get_text_t(array_class.name_index).ok_or(
+            StackInfoError::InvalidConstantPoolIndex(array_class.name_index.into_generic()),
+        )?;
+        let array_id = class_names.gcid_from_str(array_name);
+        Ok(MultiANewArrayInfo {
+            array_id,
+            dimensions: self.dimensions,
+        })
     }
 }
 
@@ -169,10 +245,14 @@ impl PushTypeAt for NewArray {
     }
 }
 
-impl PushTypeAt for CheckCast {
+pub struct CheckCastInfo {
+    id: ClassId,
+}
+impl StackInfo for CheckCastInfo {}
+impl PushTypeAt for CheckCastInfo {
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         if i == 0 {
-            Some(WithType::ReferenceIndex(self.index).into())
+            Some(ComplexType::ReferenceClass(self.id).into())
         } else {
             None
         }
@@ -180,6 +260,41 @@ impl PushTypeAt for CheckCast {
 
     fn push_count(&self) -> usize {
         1
+    }
+}
+impl PopTypeAt for CheckCastInfo {
+    fn pop_type_at(&self, _: PopIndex) -> Option<PopType> {
+        None
+    }
+
+    fn pop_count(&self) -> usize {
+        0
+    }
+}
+
+empty_locals_in!(CheckCastInfo);
+empty_locals_out!(CheckCastInfo);
+impl HasStackInfo for CheckCast {
+    type Output = CheckCastInfo;
+
+    fn stack_info(
+        &self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+        _: MethodId,
+        _: StackSizes,
+    ) -> Result<Self::Output, StepError> {
+        let class =
+            class_file
+                .get_t(self.index)
+                .ok_or(StackInfoError::InvalidConstantPoolIndex(
+                    self.index.into_generic(),
+                ))?;
+        let name = class_file.get_text_t(class.name_index).ok_or(
+            StackInfoError::InvalidConstantPoolIndex(class.name_index.into_generic()),
+        )?;
+        let id = class_names.gcid_from_str(name);
+        Ok(CheckCastInfo { id })
     }
 }
 
@@ -786,10 +901,23 @@ fn get_field_type(
     ))
 }
 
-impl PushTypeAt for GetStatic {
+pub struct GetStaticStackInfo {
+    field_type: Type,
+}
+impl StackInfo for GetStaticStackInfo {}
+impl PopTypeAt for GetStaticStackInfo {
+    fn pop_type_at(&self, _: PopIndex) -> Option<PopType> {
+        None
+    }
+
+    fn pop_count(&self) -> usize {
+        0
+    }
+}
+impl PushTypeAt for GetStaticStackInfo {
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         if i == 0 {
-            Some(WithType::FieldType { index: self.index }.into())
+            Some(self.field_type.clone().into())
         } else {
             None
         }
@@ -799,10 +927,36 @@ impl PushTypeAt for GetStatic {
         1
     }
 }
-impl PushTypeAt for LoadConstant {
+empty_locals_out!(GetStaticStackInfo);
+empty_locals_in!(GetStaticStackInfo);
+impl HasStackInfo for GetStatic {
+    type Output = GetStaticStackInfo;
+
+    fn stack_info(
+        &self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+        _method_id: MethodId,
+        _stack_sizes: StackSizes,
+    ) -> Result<Self::Output, StepError> {
+        let index = self.index;
+
+        let field_type = get_field_type(class_names, class_file, index)?;
+        // Get the type version
+        let field_type = Type::from_descriptor_type(field_type);
+
+        Ok(GetStaticStackInfo { field_type })
+    }
+}
+
+pub struct LoadConstantInfo {
+    typ: Type,
+}
+impl StackInfo for LoadConstantInfo {}
+impl PushTypeAt for LoadConstantInfo {
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         if i == 0 {
-            Some(WithType::Category1Constant { index: self.index }.into())
+            Some(self.typ.clone().into())
         } else {
             None
         }
@@ -812,10 +966,94 @@ impl PushTypeAt for LoadConstant {
         1
     }
 }
-impl PushTypeAt for LoadConstantWide {
+impl PopTypeAt for LoadConstantInfo {
+    fn pop_type_at(&self, _: PopIndex) -> Option<PopType> {
+        None
+    }
+
+    fn pop_count(&self) -> usize {
+        0
+    }
+}
+empty_locals_in!(LoadConstantInfo);
+empty_locals_out!(LoadConstantInfo);
+fn load_constant_info(
+    class_names: &mut ClassNames,
+    class_file: &ClassFileData,
+    index: ConstantPoolIndexRaw<ConstantInfo>,
+) -> Result<Type, StepError> {
+    let value = class_file
+        .get_t(index)
+        .ok_or(StackInfoError::InvalidConstantPoolIndex(
+            index.into_generic(),
+        ))?;
+    Ok(match value {
+        ConstantInfo::Integer(_) => PrimitiveType::Int.into(),
+        ConstantInfo::Float(_) => PrimitiveType::Float.into(),
+        ConstantInfo::Class(_) => {
+            ComplexType::ReferenceClass(class_names.gcid_from_slice(&["java", "lang", "Class"]))
+                .into()
+        }
+        ConstantInfo::String(_) => {
+            ComplexType::ReferenceClass(class_names.gcid_from_slice(&["java", "lang", "String"]))
+                .into()
+        }
+        ConstantInfo::MethodHandle(_) => {
+            ComplexType::ReferenceClass(class_names.gcid_from_slice(&[
+                "java",
+                "lang",
+                "invoke",
+                "MethodHandle",
+            ]))
+            .into()
+        }
+        ConstantInfo::MethodType(_) => ComplexType::ReferenceClass(class_names.gcid_from_slice(&[
+            "java",
+            "lang",
+            "invoke",
+            "MethodType",
+        ]))
+        .into(),
+        _ => return Err(StackInfoError::InvalidConstantPoolIndex(index.into_generic()).into()),
+    })
+}
+impl HasStackInfo for LoadConstant {
+    type Output = LoadConstantInfo;
+
+    fn stack_info(
+        &self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+        _: MethodId,
+        _: StackSizes,
+    ) -> Result<Self::Output, StepError> {
+        let typ = load_constant_info(class_names, class_file, self.index)?;
+        Ok(LoadConstantInfo { typ })
+    }
+}
+impl HasStackInfo for LoadConstantWide {
+    type Output = LoadConstantInfo;
+
+    fn stack_info(
+        &self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+        _: MethodId,
+        _: StackSizes,
+    ) -> Result<Self::Output, StepError> {
+        let typ = load_constant_info(class_names, class_file, self.index)?;
+        Ok(LoadConstantInfo { typ })
+    }
+}
+
+pub struct LoadConstant2WideInfo {
+    typ: Type,
+}
+impl StackInfo for LoadConstant2WideInfo {}
+impl PushTypeAt for LoadConstant2WideInfo {
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         if i == 0 {
-            Some(WithType::Category1Constant { index: self.index }.into())
+            Some(self.typ.clone().into())
         } else {
             None
         }
@@ -825,10 +1063,64 @@ impl PushTypeAt for LoadConstantWide {
         1
     }
 }
-impl PushTypeAt for LoadConstant2Wide {
+impl PopTypeAt for LoadConstant2WideInfo {
+    fn pop_type_at(&self, _: PopIndex) -> Option<PopType> {
+        None
+    }
+
+    fn pop_count(&self) -> usize {
+        0
+    }
+}
+empty_locals_in!(LoadConstant2WideInfo);
+empty_locals_out!(LoadConstant2WideInfo);
+impl HasStackInfo for LoadConstant2Wide {
+    type Output = LoadConstant2WideInfo;
+
+    fn stack_info(
+        &self,
+        _: &mut ClassNames,
+        class_file: &ClassFileData,
+        _: MethodId,
+        _: StackSizes,
+    ) -> Result<Self::Output, StepError> {
+        let value =
+            class_file
+                .get_t(self.index)
+                .ok_or(StackInfoError::InvalidConstantPoolIndex(
+                    self.index.into_generic(),
+                ))?;
+        let typ = match value {
+            ConstantInfo::Long(_) => PrimitiveType::Long.into(),
+            ConstantInfo::Double(_) => PrimitiveType::Double.into(),
+            _ => {
+                return Err(
+                    StackInfoError::InvalidConstantPoolIndex(self.index.into_generic()).into(),
+                )
+            }
+        };
+        Ok(LoadConstant2WideInfo { typ })
+    }
+}
+
+pub struct NewInfo {
+    id: ClassId,
+}
+impl StackInfo for NewInfo {}
+impl PopTypeAt for NewInfo {
+    fn pop_type_at(&self, _: PopIndex) -> Option<PopType> {
+        None
+    }
+
+    fn pop_count(&self) -> usize {
+        0
+    }
+}
+impl PushTypeAt for NewInfo {
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         if i == 0 {
-            Some(WithType::Category2Constant { index: self.index }.into())
+            // TODO: Include the information that it is uninitialized?
+            Some(ComplexType::ReferenceClass(self.id).into())
         } else {
             None
         }
@@ -838,17 +1130,30 @@ impl PushTypeAt for LoadConstant2Wide {
         1
     }
 }
-impl PushTypeAt for New {
-    fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
-        if i == 0 {
-            Some(WithType::UninitializedObject { index: self.index }.into())
-        } else {
-            None
-        }
-    }
+empty_locals_in!(NewInfo);
+empty_locals_out!(NewInfo);
+impl HasStackInfo for New {
+    type Output = NewInfo;
 
-    fn push_count(&self) -> usize {
-        1
+    fn stack_info(
+        &self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+        _: MethodId,
+        _: StackSizes,
+    ) -> Result<Self::Output, StepError> {
+        let class =
+            class_file
+                .get_t(self.index)
+                .ok_or(StackInfoError::InvalidConstantPoolIndex(
+                    self.index.into_generic(),
+                ))?;
+        let name = class_file.get_text_t(class.name_index).ok_or(
+            StackInfoError::InvalidConstantPoolIndex(class.name_index.into_generic()),
+        )?;
+        let id = class_names.gcid_from_str(name);
+
+        Ok(NewInfo { id })
     }
 }
 impl PushTypeAt for ALoad {
