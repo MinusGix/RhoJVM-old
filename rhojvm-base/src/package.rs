@@ -68,7 +68,7 @@ impl Packages {
         if let Some(p) = self.get(id) {
             p.id()
         } else {
-            self.add(path.collect::<Vec<&'a str>>().join("."))
+            self.add(path.collect::<Vec<&'a str>>().join("/"))
         }
     }
 

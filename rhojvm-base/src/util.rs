@@ -36,8 +36,7 @@ pub(crate) fn class_path_iter_to_relative_path<'a>(
 /// Note: This will work fine for path to a class as well
 #[must_use]
 pub fn access_path_iter(package: &str) -> impl DoubleEndedIterator<Item = &str> + Clone {
-    // TODO: Currently we allow both . and / but it would be nice to stabilize on one.
-    package.split(|x| x == '.' || x == '/')
+    package.split('/')
 }
 
 pub trait MemorySize {
