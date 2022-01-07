@@ -86,11 +86,31 @@ impl<T> StaticMemorySize for ConstantPoolIndex<T> {
     const MEMORY_SIZE: usize = u16::MEMORY_SIZE;
 }
 
-/// A map that only publicly exposes immutable methods
+// We wrap this because the alternative hasher is not generic
+// and Rust doesn't allow unused generics.
+// But this allows us to have that.
+// TODO: Is there a better way to implement this?
+pub(crate) trait HashWrapperTrait<T> {
+    type HashMapHasher;
+
+    fn identity(v: T) -> T {
+        v
+    }
+}
+pub(crate) struct HashWrapper;
+impl<T> HashWrapperTrait<T> for HashWrapper {
+    #[cfg(feature = "implementation-cheaper-map-hashing")]
+    type HashMapHasher = nohash_hasher::BuildNoHashHasher<T>;
+    #[cfg(not(feature = "implementation-cheaper-map-hashing"))]
+    type HashMapHasher = std::collections::hash_map::RandomState;
+}
+
+/// A map that only publicly exposes basic methods
+/// Note that you should prefix it with `typical` if your id is not a simple integer.
 /// Private macro.
 #[macro_export]
 macro_rules! __make_map {
-    ($v:vis $name:ident < $key:ty, $val:ty > $(; $($tag:ident),*)?) => {
+    (typical $v:vis $name:ident < $key:ty, $val:ty > $(; $($tag:ident),*)?) => {
         #[derive(Default, Clone)]
         $v struct $name {
             map: std::collections::HashMap<$key, $val>,
@@ -101,6 +121,42 @@ macro_rules! __make_map {
             pub fn new() -> Self {
                 Self {
                     map: std::collections::HashMap::new(),
+                }
+            }
+
+            #[must_use]
+            pub fn len(&self) -> usize {
+                self.map.len()
+            }
+
+            #[must_use]
+            pub fn is_empty(&self) -> bool {
+                self.map.is_empty()
+            }
+
+            #[must_use]
+            pub fn contains_key(&self, key: &$key) -> bool {
+                self.map.contains_key(key)
+            }
+        }
+
+        $(
+            $(
+                __make_map!(I $tag $name < $key, $val >);
+            )*
+        )?
+    };
+    ($v:vis $name:ident < $key:ty, $val:ty > $(; $($tag:ident),*)?) => {
+        #[derive(Default, Clone)]
+        $v struct $name {
+            map: std::collections::HashMap<$key, $val, <$crate::util::HashWrapper as $crate::util::HashWrapperTrait<$key>>::HashMapHasher>,
+        }
+        #[allow(dead_code)]
+        impl $name {
+            #[must_use]
+            pub fn new() -> Self {
+                Self {
+                    map: std::collections::HashMap::with_hasher(<$crate::util::HashWrapper as $crate::util::HashWrapperTrait<$key>>::HashMapHasher::default()),
                 }
             }
 

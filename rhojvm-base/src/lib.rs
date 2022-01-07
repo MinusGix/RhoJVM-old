@@ -868,7 +868,7 @@ impl Classes {
         )?)
     }
 }
-__make_map!(pub Methods<MethodId, Method>; access);
+__make_map!(typical pub Methods<MethodId, Method>; access);
 impl Methods {
     // TODO: Version that gets the class directly and the method's index
 

@@ -3,6 +3,17 @@ name = "rhojvm-base"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["implementation-cheaper-map-hashing"]
+# Decides whether to enable the cheaper hashing for certain maps which already hash their key
+# (or have a unique id)
+# Note that the default HashMap hasher is randomly generated (see HashMap docs for more details)
+# and that replacing it with this will be deterministic. Determinism is nice, but this does open
+# up the possibility for it to be easier to produce malicious keys (that are excessively slow)
+# Note that this does not replace _all_ hashmaps, so by itself does not lead to proper determinism
+# TODO: Provide a way to seed the normal id hashing at runtime
+implementation-cheaper-map-hashing = ["nohash-hasher"]
+
 [dependencies]
 classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
 siphasher = "0.3.7"
@@ -11,3 +22,4 @@ tracing = "0.1"
 smallvec = { version = "1.7", features = ["const_generics"] }
 # TODO: Don't include this. Once intersperse is stabilized we can probably get rid of it.
 itertools = "0.10.3"
+nohash-hasher = { version = "0.2.0", optional = true }
