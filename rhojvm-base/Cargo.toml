@@ -17,8 +17,7 @@ implementation-cheaper-map-hashing = ["nohash-hasher"]
 [dependencies]
 classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
 siphasher = "0.3.7"
-# TODO: Optional logging?
-tracing = "0.1"
+tracing = { version = "0.1", default-features = false }
 smallvec = { version = "1.7", features = ["const_generics"] }
 # TODO: Don't include this. Once intersperse is stabilized we can probably get rid of it.
 itertools = "0.10.3"

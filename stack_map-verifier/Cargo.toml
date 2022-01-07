@@ -7,5 +7,5 @@ edition = "2021"
 rhojvm-base = { path = "../rhojvm-base/" }
 # TODO: It would be nice to not have to depend on this directly at all.
 classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
-tracing = "0.1"
+tracing = { version = "0.1", default-features = false }
 smallvec = { version = "1.7", features = ["const_generics"] }

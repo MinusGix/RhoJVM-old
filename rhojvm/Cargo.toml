@@ -8,7 +8,7 @@ rhojvm-base = { path = "../rhojvm-base/" }
 stack_map-verifier = { path = "../stack_map-verifier/" }
 # TODO: It would be nice to not have to depend on this directly at all.
 classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
-tracing = "0.1"
+tracing = { version = "0.1", default-features = false }
 # Disables:
 # env-filter (potentially useful but brings in a good bit, and can be enabled for debug)
 # json (we don't really need this)
