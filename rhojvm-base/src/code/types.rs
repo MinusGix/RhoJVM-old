@@ -12,9 +12,8 @@ use classfile_parser::{
 use crate::{
     class::ClassFileData,
     id::{ClassFileId, MethodId},
-    package::Packages,
     util::{MemorySize, StaticMemorySize},
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
+    ClassNames, StepError,
 };
 
 use super::method::{DescriptorType, DescriptorTypeBasic};
@@ -97,13 +96,15 @@ create_primitive_types!([
     Double = 8; d -> f64 { f64::from_be_bytes([d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]]) },
     // TODO: How large is char?
     Char = 1; d -> JavaChar { JavaChar([d[0], d[1], d[2], d[3]]) },
-    Boolean = 1; d -> bool { !(d[0] == 0) },
+    Boolean = 1; d -> bool { d[0] != 0 },
 ]);
 impl PrimitiveTypeM {
+    #[must_use]
     pub fn is_category_2(&self) -> bool {
         matches!(self, PrimitiveType::Double | PrimitiveType::Long)
     }
 
+    #[must_use]
     pub fn as_desc_prefix(&self) -> &'static str {
         match self {
             PrimitiveTypeM::Byte | PrimitiveTypeM::UnsignedByte => "B",
@@ -117,7 +118,9 @@ impl PrimitiveTypeM {
         }
     }
 
+    #[must_use]
     pub fn is_same_type_on_stack(&self, right: &PrimitiveType) -> bool {
+        #![allow(clippy::match_like_matches_macro)]
         match (self, right) {
             // TODO: is this correct?
             (
@@ -282,7 +285,7 @@ pub enum WithType {
     LiteralInt(i32),
 }
 
-/// PushType and PopType are separate to provide more guarantees about what
+/// [`PushType`] and [`PopType`] are separate to provide more guarantees about what
 /// info can appear.
 /// This has the Category-size types because they can be turned into solid
 /// types by glimpsing at the stack.
@@ -530,7 +533,6 @@ pub trait HasStackInfo {
     type Output: StackInfo;
 
     /// The class id and method id must exist
-    #[must_use]
     fn stack_info(
         &self,
         class_names: &mut ClassNames,

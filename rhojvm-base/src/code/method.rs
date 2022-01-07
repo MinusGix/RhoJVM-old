@@ -127,6 +127,7 @@ impl Method {
         self.name.as_str()
     }
 
+    #[must_use]
     /// Whether or not it is an <init> function
     pub fn is_init(&self) -> bool {
         self.name() == "<init>"
@@ -234,7 +235,7 @@ impl Method {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DescriptorTypeBasic {
     Byte,
     Char,
@@ -326,6 +327,7 @@ impl DescriptorTypeBasic {
         }
     }
 
+    #[must_use]
     pub fn as_class_id(&self) -> Option<ClassId> {
         if let DescriptorTypeBasic::Class(class_id) = self {
             Some(*class_id)
@@ -334,11 +336,12 @@ impl DescriptorTypeBasic {
         }
     }
 
+    #[must_use]
     pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
         match self {
             DescriptorTypeBasic::Class(id) => {
                 if let Ok(name) = class_names.display_path_from_gcid(*id) {
-                    format!("{}", name)
+                    name
                 } else {
                     format!("[BadClassId #{}]", *id)
                 }
@@ -348,7 +351,7 @@ impl DescriptorTypeBasic {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DescriptorType {
     Basic(DescriptorTypeBasic),
     Array {
@@ -396,6 +399,7 @@ impl DescriptorType {
         }
     }
 
+    #[must_use]
     pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
         match self {
             DescriptorType::Basic(basic) => basic.as_pretty_string(class_names),
@@ -455,6 +459,7 @@ impl MethodDescriptor {
         self.return_type.as_ref()
     }
 
+    #[must_use]
     pub fn into_parameters_ret(self) -> (Vec<DescriptorType>, Option<DescriptorType>) {
         (self.parameters, self.return_type)
     }
@@ -494,6 +499,7 @@ impl MethodDescriptor {
         }
     }
 
+    #[must_use]
     pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
         let mut result = "(".to_owned();
         for (i, parameter) in self.parameters.iter().enumerate() {
@@ -521,6 +527,8 @@ impl MethodDescriptor {
         let mut iter = MethodDescriptor::from_text_iter(desc, class_names)?;
         // We can't use enumerate because we need the original iterator and there's no way to get it back out
         let mut i = 0;
+        // A for loop would consume the iterator
+        #[allow(clippy::while_let_on_iterator)]
         while let Some(parameter) = iter.next() {
             let parameter = parameter?;
 

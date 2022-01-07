@@ -272,14 +272,9 @@ macro_rules! define_instructions {
                         continue;
                     }
 
-                    if rs == ls {
-                        // This should already be a compile error since they're declared as structs
-                        panic!("Duplicate opcode name!: '{}'", ls);
-                    }
+                    assert!(!(rs == ls), "Duplicate opcode name!: '{}'", ls);
 
-                    if lo == ro {
-                        panic!("Duplicate opcode!: '{}' and '{}' with {}", ls, rs, lo);
-                    }
+                    assert!(!(lo == ro), "Duplicate opcode!: '{}' and '{}' with {}", ls, rs, lo);
                 }
             }
         }
@@ -438,6 +433,7 @@ macro_rules! define_instructions {
             }
         // }
         // impl Instruction for InstM {
+            #[must_use]
             pub fn name(&self) -> &'static str {
                 match self {
                     $(

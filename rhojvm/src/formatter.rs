@@ -1,4 +1,4 @@
-use tracing::{Level, Subscriber};
+use tracing::Subscriber;
 use tracing_subscriber::{
     fmt::{FormatEvent, FormatFields, FormattedFields},
     registry::LookupSpan,

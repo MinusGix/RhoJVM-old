@@ -1,3 +1,8 @@
+#![warn(clippy::pedantic)]
+// The way this library is designed has many arguments. Grouping them together would be nice for
+// readability, but it makes it harder to minimize dependnecies which has other knock-on effects..
+#![allow(clippy::too_many_arguments)]
+
 use std::{borrow::Cow, num::NonZeroUsize, path::Path};
 
 use rhojvm_base::{
@@ -9,7 +14,7 @@ use rhojvm_base::{
     },
     id::{ClassFileId, ClassId, MethodId},
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Config, Methods, StepError,
+    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
 };
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use tracing::info;
@@ -26,12 +31,14 @@ const DEFAULT_TRACING_LEVEL: tracing::Level = tracing::Level::WARN;
 #[derive(Debug, Clone)]
 pub struct MaxStackSize(NonZeroUsize);
 impl MaxStackSize {
+    #[must_use]
     /// Construct a max stack size with the number of 4 bytes that a stack can occupy
     /// Note: If receiving bytes, then likely dividing by 4 and rounding down will work well.
     pub fn new(entries: NonZeroUsize) -> MaxStackSize {
         MaxStackSize(entries)
     }
 
+    #[must_use]
     /// The maximum amount of 4 bytes that a stack can occupy
     pub fn count(&self) -> NonZeroUsize {
         self.0
@@ -226,7 +233,7 @@ fn main() {
         "./rhojvm/ex/",
     ];
 
-    for path in class_dirs.into_iter() {
+    for path in class_dirs {
         let path = Path::new(path);
         class_directories
             .add(path)
@@ -527,19 +534,18 @@ fn verify_type_safe_method(
         if method.code().is_none() {
             // We should have code but there was no code!
             return Err(VerificationError::NoMethodCode { method_id }.into());
-        } else {
-            stack_map_verifier::verify_type_safe_method_stack_map(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state.conf().stack_map_verification_logging.clone(),
-                &class_file,
-                method_index,
-            )?;
         }
+        stack_map_verifier::verify_type_safe_method_stack_map(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            state.conf().stack_map_verification_logging.clone(),
+            &class_file,
+            method_index,
+        )?;
     }
 
     Ok(())

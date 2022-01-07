@@ -17,6 +17,11 @@
 #![allow(clippy::unused_self)]
 #![allow(clippy::enum_variant_names)]
 #![allow(clippy::too_many_lines)]
+// The way this library is designed has many arguments. Grouping them together would be nice for
+// readability, but it makes it harder to minimize dependnecies which has other knock-on effects..
+#![allow(clippy::too_many_arguments)]
+// This is nice to have, but it activates on cheaply constructible enumeration variants.
+#![allow(clippy::or_fun_call)]
 
 use std::{
     borrow::Cow,
@@ -569,7 +574,7 @@ impl Classes {
         )
     }
 
-    /// Returns the ArrayClass if it is an array
+    /// Returns the [`ArrayClass`] if it is an array
     /// This should be used rather than loading the class itself, because this
     /// avoids loading classes that it doesn't need to.
     pub fn get_array_class(
@@ -610,25 +615,24 @@ impl Classes {
             // TODO: We shouldn't have to potentially allocate.
             descriptor.to_owned()
         };
-        match descriptor {
-            DescriptorTypeCF::Array { level, component } => {
-                let component = DescriptorTypeBasic::from_class_file_desc(component, class_names);
-                let id = self.load_level_array_of_desc_type_basic(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    packages,
-                    level,
-                    component,
-                )?;
-                debug_assert_eq!(id, class_id);
+        if let DescriptorTypeCF::Array { level, component } = descriptor {
+            let component = DescriptorTypeBasic::from_class_file_desc(component, class_names);
+            let id = self.load_level_array_of_desc_type_basic(
+                class_directories,
+                class_names,
+                class_files,
+                packages,
+                level,
+                component,
+            )?;
+            debug_assert_eq!(id, class_id);
 
-                // TODO: Better error handling than unwrap
-                let array = self.get(&id).unwrap().as_array().unwrap();
-                Ok(Some(array))
-            }
+            // TODO: Better error handling than unwrap
+            let array = self.get(&id).unwrap().as_array().unwrap();
+            Ok(Some(array))
+        } else {
             // TODO: This is likely indicative of an internal error since name parsing thought this was an array!
-            _ => return Err(StepError::UnexpectedDescriptorType),
+            Err(StepError::UnexpectedDescriptorType)
         }
     }
 
@@ -722,7 +726,7 @@ impl Classes {
                 let interfaces = class_file.interfaces_indices_iter().collect::<Vec<_>>();
 
                 // Check all the topmost indices first
-                for interface_index in interfaces.iter().cloned() {
+                for interface_index in interfaces.iter().copied() {
                     let interface_constant = class_file
                         .get_t(interface_index)
                         .ok_or(LoadClassError::BadInterfaceIndex(interface_index))?;
@@ -742,7 +746,7 @@ impl Classes {
 
             // Check if any of the interfaces implement it
             // This is done after the topmost interfaces are checked so that it makes those calls cheaper
-            for interface_index in interfaces.iter().cloned() {
+            for interface_index in interfaces.iter().copied() {
                 // Sadly, code can autocast an interface down to an interface that it extends
                 // Ex: A extends B, B extends C
                 // we can cast A down to C
@@ -994,6 +998,7 @@ impl Name {
         }
     }
 
+    #[must_use]
     pub fn is_array(&self) -> bool {
         matches!(self.internal_kind, Some(InternalKind::Array))
     }
@@ -1099,7 +1104,7 @@ impl ClassNames {
         let path = self.path_from_gcid(id)?;
         let mut result = String::new();
         for (i, part) in path.iter().enumerate() {
-            result.push_str(&part);
+            result.push_str(part.as_str());
             if i + 1 < path.len() {
                 result.push('.');
             }
@@ -1403,12 +1408,14 @@ pub fn direct_load_class_file_from_rel_path(
     }
 }
 
+#[must_use]
 pub fn load_super_classes_iter(class_id: ClassId) -> SuperClassIterator {
     SuperClassIterator {
         scfi: SuperClassFileIterator::new(class_id),
     }
 }
 
+#[must_use]
 pub fn load_super_class_files_iter(class_file_id: ClassFileId) -> SuperClassFileIterator {
     SuperClassFileIterator::new(class_file_id)
 }
@@ -1490,7 +1497,7 @@ pub fn load_method_descriptor_types(
     packages: &mut Packages,
     method: &Method,
 ) -> Result<(), StepError> {
-    for parameter_type in method.descriptor().parameters().iter().cloned() {
+    for parameter_type in method.descriptor().parameters().iter().copied() {
         load_descriptor_type(
             classes,
             class_directories,
@@ -1501,7 +1508,7 @@ pub fn load_method_descriptor_types(
         )?;
     }
 
-    if let Some(return_type) = method.descriptor().return_type().cloned() {
+    if let Some(return_type) = method.descriptor().return_type().copied() {
         load_descriptor_type(
             classes,
             class_directories,
@@ -1750,10 +1757,10 @@ pub fn verify_code_exceptions(
     classes: &mut Classes,
     method: &mut Method,
 ) -> Result<(), StepError> {
-    fn get_class<'cf, 'm>(
-        class_files: &'cf ClassFiles,
+    fn get_class(
+        class_files: &ClassFiles,
         method_id: MethodId,
-    ) -> Result<&'cf ClassFileData, StepError> {
+    ) -> Result<&ClassFileData, StepError> {
         let (class_id, _) = method_id.decompose();
         let class_file = class_files
             .get(&class_id)

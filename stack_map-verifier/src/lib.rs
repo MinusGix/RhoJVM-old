@@ -1,3 +1,15 @@
+#![warn(clippy::pedantic)]
+// The design of this library tends towards this, and grouping them together makes it harder to
+// minimize dependencies on the data.
+#![allow(clippy::too_many_arguments)]
+// Clippy just isn't smart enough.
+#![allow(clippy::needless_pass_by_value)]
+// Not really useful.
+#![allow(clippy::struct_excessive_bools)]
+#![allow(clippy::similar_names)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::too_many_lines)]
+
 use classfile_parser::constant_info::ConstantInfo;
 use classfile_parser::descriptor::DescriptorType as DescriptorTypeCF;
 use classfile_parser::{
@@ -20,8 +32,8 @@ use rhojvm_base::{
         op::Inst,
         stack_map::StackMapType,
         types::{
-            ComplexType, HasStackInfo, PopIndex, PopType, PopTypeAt, PrimitiveType, PushType,
-            PushTypeAt, Type, WithType,
+            ComplexType, PopIndex, PopType, PopTypeAt, PrimitiveType, PushType, PushTypeAt, Type,
+            WithType,
         },
         CodeInfo,
     },
@@ -187,7 +199,7 @@ pub enum VerifyStackMapError {
 }
 
 /// Settings for logging in the stack map verification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StackMapVerificationLogging {
     /// Whether to log the name of the method and class as we start verifying it
     pub log_method_name: bool,
@@ -203,17 +215,6 @@ pub struct StackMapVerificationLogging {
     /// intended to be used with `log_instruction` but can be standalone
     pub log_local_variable_modifications: bool,
     // TODO: Option to log individual frame parts
-}
-impl Default for StackMapVerificationLogging {
-    fn default() -> Self {
-        Self {
-            log_method_name: false,
-            log_received_frame: false,
-            log_instruction: false,
-            log_stack_modifications: false,
-            log_local_variable_modifications: false,
-        }
-    }
 }
 
 /// Variants of this enumeration are unstable and should not be relied upon.
@@ -273,7 +274,7 @@ impl Default for Locals {
 }
 impl Locals {
     fn push(&mut self, v: impl Into<Local>) {
-        self.locals.push(v.into())
+        self.locals.push(v.into());
     }
 
     fn len(&self) -> usize {
@@ -315,7 +316,7 @@ impl Locals {
                     self.push(Local::Top);
                 }
                 StackMapType::UninitializedThis(id) => {
-                    self.push(ComplexFrameType::UninitializedReferenceClass(*id))
+                    self.push(ComplexFrameType::UninitializedReferenceClass(*id));
                 }
                 StackMapType::UninitializedVariable(idx) => {
                     // TODO(recover-faulty-stack-map): We could theoretically
@@ -346,7 +347,7 @@ impl Locals {
                     )?;
                     let class_id = class_names.gcid_from_str(class_name);
 
-                    self.push(ComplexFrameType::UninitializedReferenceClass(class_id))
+                    self.push(ComplexFrameType::UninitializedReferenceClass(class_id));
                 }
                 StackMapType::Object(id) => self.push(ComplexFrameType::ReferenceClass(*id)),
                 StackMapType::Null => self.push(ComplexFrameType::ReferenceNull),
@@ -424,8 +425,7 @@ impl Locals {
                     return Err(VerifyStackMapError::LocalSetCategory2NoSpaceForTop {
                         inst_name,
                         base_index: index,
-                    }
-                    .into())
+                    })
                 }
             }
         }
@@ -456,6 +456,7 @@ impl Frame {
 }
 
 /// Verify the type safety of a method's code using stack maps
+/// # Panics
 pub fn verify_type_safe_method_stack_map(
     class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
@@ -516,7 +517,7 @@ pub fn verify_type_safe_method_stack_map(
 
     // Assert that there is a first entry that starts at the very start of the method
     debug_assert_eq!(
-        stack_frames.iter().nth(0).map(|x| x.at),
+        stack_frames.iter().next().map(|x| x.at),
         Some(InstructionIndex(0))
     );
 
@@ -643,13 +644,13 @@ fn check_frame(
         FrameType::from_stack_map_types(
             class_names,
             class_file,
-            &code,
+            code,
             &frame.stack,
             &mut act_frame.stack,
         )?;
         act_frame
             .locals
-            .from_stack_map_types(class_names, class_file, &code, &frame.locals)?;
+            .from_stack_map_types(class_names, class_file, code, &frame.locals)?;
         if act_frame.locals.len() > usize::from(code.max_locals()) {
             return Err(VerifyStackMapError::ReceivedFrameTooManyLocals {
                 inst_name,
@@ -694,7 +695,7 @@ fn process_pop_type_early_load(
         last_frame_type
     } else {
         return Err(VerifyStackMapError::InstExpectedTypeInStack {
-            inst_name: inst_name,
+            inst_name,
             expected_type: pop_type_o,
         }
         .into());
@@ -777,7 +778,7 @@ fn process_pop_type_with_load(
             class_files,
             packages,
             &pop_type_o,
-            &inst_types,
+            inst_types,
             &mut act_frame.locals,
             inst_name,
             class_id,
@@ -818,7 +819,7 @@ fn check_pop_types(
             // If this didn't exist, then this would have already been returned by the previous
             // initialization
             return Err(VerifyStackMapError::InstExpectedFrameTypeInStack {
-                inst_name: inst_name,
+                inst_name,
                 expected_type: pop_type.clone(),
             }
             .into());
@@ -937,7 +938,7 @@ fn check_locals_out_type(
         class_files,
         packages,
         &local_type,
-        &inst_types,
+        inst_types,
         &mut act_frame.locals,
         inst_name,
         class_id,
@@ -989,7 +990,7 @@ fn check_push_type(
         class_files,
         packages,
         &push_type,
-        &inst_types,
+        inst_types,
         &mut act_frame.locals,
         inst_name,
         class_id,
@@ -1196,16 +1197,13 @@ pub enum FrameType {
 }
 impl FrameType {
     fn is_category_1(&self) -> bool {
-        match self {
-            FrameType::Primitive(prim) => match prim {
-                PrimitiveType::Long | PrimitiveType::Double => false,
-                // All other primitives are category 1
-                _ => true,
-            },
-            FrameType::Complex(_) => true,
-        }
+        !matches!(
+            self,
+            FrameType::Primitive(PrimitiveType::Long | PrimitiveType::Double)
+        )
     }
 
+    #[allow(clippy::match_same_arms)]
     /// Is the type on the right convertible into the type on the left on a stack
     fn is_stack_same_of_frame_type(
         &self,
@@ -1317,17 +1315,17 @@ impl FrameType {
                         )?
                 }
                 // null is a valid value for any class
-                (ComplexFrameType::ReferenceClass(_), ComplexFrameType::ReferenceNull)
-                | (ComplexFrameType::ReferenceNull, ComplexFrameType::ReferenceClass(_))
-                | (
-                    ComplexFrameType::UninitializedReferenceClass(_),
+                (
+                    ComplexFrameType::ReferenceClass(_)
+                    | ComplexFrameType::UninitializedReferenceClass(_)
+                    | ComplexFrameType::ReferenceNull,
                     ComplexFrameType::ReferenceNull,
                 )
                 | (
                     ComplexFrameType::ReferenceNull,
-                    ComplexFrameType::UninitializedReferenceClass(_),
-                )
-                | (ComplexFrameType::ReferenceNull, ComplexFrameType::ReferenceNull) => true,
+                    ComplexFrameType::ReferenceClass(_)
+                    | ComplexFrameType::UninitializedReferenceClass(_),
+                ) => true,
             },
             (FrameType::Primitive(_), FrameType::Complex(_))
             | (FrameType::Complex(_), FrameType::Primitive(_)) => false,
@@ -1341,8 +1339,7 @@ impl FrameType {
         types: &[StackMapType],
         result: &mut SmallVec<[FrameType; N]>,
     ) -> Result<(), VerifyStackMapGeneralError> {
-        let mut types_iter = types.iter();
-        while let Some(typ) = types_iter.next() {
+        for typ in types.iter() {
             let output = match typ {
                 StackMapType::Integer => PrimitiveType::Int.into(),
                 StackMapType::Float => PrimitiveType::Float.into(),
@@ -1398,8 +1395,8 @@ impl FrameType {
         Ok(())
     }
 
-    fn from_opcode_primitive_type(primitive: &PrimitiveType) -> FrameType {
-        FrameType::Primitive(primitive.clone())
+    fn from_opcode_primitive_type(primitive: PrimitiveType) -> FrameType {
+        FrameType::Primitive(primitive)
     }
 
     fn from_opcode_complex_type(
@@ -1512,10 +1509,8 @@ impl FrameType {
                                 .ok_or(VerifyStackMapError::RefArrayRefTypePrimitive)?;
                             ComplexFrameType::ReferenceClass(elem_id).into()
                         }
-                        ComplexFrameType::UninitializedReferenceClass(_) => {
-                            return Err(VerifyStackMapError::RefArrayRefTypeUncertainType.into())
-                        }
-                        ComplexFrameType::ReferenceNull => {
+                        ComplexFrameType::UninitializedReferenceClass(_)
+                        | ComplexFrameType::ReferenceNull => {
                             return Err(VerifyStackMapError::RefArrayRefTypeUncertainType.into())
                         }
                     },
@@ -1742,9 +1737,8 @@ impl FrameType {
                                     inst_name,
                                     got_class: *id,
                                 }.into());
-                            } else {
-                                complex.clone().into()
                             }
+                            complex.clone().into()
                         } else {
                             return Err(VerifyStackMapError::InstExpectedArrayGotClass {
                                 inst_name,
@@ -1826,7 +1820,7 @@ impl FrameType {
         class_id: ClassId,
     ) -> Result<FrameType, VerifyStackMapGeneralError> {
         match typ {
-            Type::Primitive(primitive) => Ok(FrameType::from_opcode_primitive_type(primitive)),
+            Type::Primitive(primitive) => Ok(FrameType::from_opcode_primitive_type(*primitive)),
             Type::Complex(complex) => FrameType::from_opcode_complex_type(class_names, complex),
             Type::With(with_t) => FrameType::from_opcode_with_type(
                 classes,
@@ -1849,7 +1843,7 @@ impl FrameType {
     ) -> Result<Option<FrameType>, VerifyStackMapGeneralError> {
         match typ {
             Type::Primitive(primitive) => {
-                Ok(Some(FrameType::from_opcode_primitive_type(primitive)))
+                Ok(Some(FrameType::from_opcode_primitive_type(*primitive)))
             }
             Type::Complex(complex) => {
                 FrameType::from_opcode_complex_type(class_names, complex).map(Some)

@@ -36,7 +36,7 @@ impl MethodId {
     }
 }
 
-/// Note: the returned hasher must consider write_bytes to be the equivalent
+/// Note: the returned hasher must consider `write_bytes` to be the equivalent
 /// to writing each byte one time
 /// so that writing strings behaves properly
 pub(crate) fn make_hasher() -> impl Hasher {
@@ -84,13 +84,8 @@ pub(crate) fn hash_access_path_iter<'a>(
     } else {
         // TODO: use hash_from_iter once intersperse is stabilized
 
-        for (i, part) in path.enumerate() {
-            state.write(part.as_bytes());
-            if i + 1 != count {
-                state.write("/".as_bytes());
-            }
-        }
-        state.write_u8(0xff);
+        let path = itertools::intersperse(path, "/");
+        hash_from_iter(&mut state, path);
     }
 
     state.finish()

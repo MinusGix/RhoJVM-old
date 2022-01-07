@@ -5,7 +5,7 @@ use classfile_parser::{
 
 use crate::{class::ClassFileData, code::method::MethodDescriptor, ClassNames};
 
-use super::{op::Inst, types::Instruction};
+use super::op::Inst;
 
 struct FormatInst<'a, 'b> {
     class_names: &'a mut ClassNames,
@@ -210,7 +210,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
                 );
                 format!("Bootstrap: {}; {}", inv.bootstrap_method_attr_index, meth)
             }
-            ConstantInfo::Unusable => format!("[Unusable Upper Bits]"),
+            ConstantInfo::Unusable => "[Unusable Upper Bits]".to_owned(),
         }
     } else {
         format!("[BAD POOL INDEX #{}]", index.0)

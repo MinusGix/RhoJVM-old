@@ -51,7 +51,7 @@ pub enum StackMapType {
     // type?
 }
 impl StackMapType {
-    /// Convert a descriptor type into a StackMapType
+    /// Convert a descriptor type into a [`StackMapType`]
     /// Can never return `Top`, `UninitializedThis`, `UninitializedVariable`, or `Null`
     fn from_desc(
         class_names: &mut ClassNames,
@@ -86,6 +86,7 @@ impl StackMapType {
         })
     }
 
+    #[must_use]
     pub fn is_category_2(&self) -> bool {
         matches!(self, Self::Double | Self::Long)
     }
@@ -130,28 +131,12 @@ pub struct StackMapFrame {
     pub locals: SmallVec<[StackMapType; 8]>,
 }
 impl StackMapFrame {
-    fn new_empty(at: InstructionIndex) -> StackMapFrame {
-        StackMapFrame {
-            at,
-            stack: SmallVec::new(),
-            locals: SmallVec::new(),
-        }
-    }
-
     fn new_locals(at: InstructionIndex, locals: SmallVec<[StackMapType; 8]>) -> StackMapFrame {
         StackMapFrame {
             at,
             stack: SmallVec::new(),
             locals,
         }
-    }
-
-    /// Whether this frame has an uninitialized this, which constrains behavior of methods that
-    /// have such.
-    fn has_uninit_this(&self) -> bool {
-        self.locals
-            .iter()
-            .any(|x| matches!(x, StackMapType::UninitializedThis(_)))
     }
 }
 /// This currently simply stores the stack map types at each needed indice
@@ -198,15 +183,12 @@ impl StackMapFrames {
                 let typ = StackMapType::from_desc(class_names, parameter)
                     .map_err(StackMapError::BadDescriptorTypeId)?;
                 match typ {
-                    StackMapType::Integer => locals.push(typ),
-                    StackMapType::Float => locals.push(typ),
-                    StackMapType::Long => {
-                        locals.push(typ);
-                    }
-                    StackMapType::Double => {
-                        locals.push(typ);
-                    }
-                    StackMapType::Object(_) => locals.push(typ),
+                    StackMapType::Integer
+                    | StackMapType::Float
+                    | StackMapType::Long
+                    | StackMapType::Double
+                    | StackMapType::Object(_) => locals.push(typ),
+
                     StackMapType::Top
                     | StackMapType::Null
                     | StackMapType::UninitializedVariable(_)
@@ -238,11 +220,11 @@ impl StackMapFrames {
                 .map_err(|_| StackMapError::ParseError)?;
             debug_assert!(rem_data.is_empty());
             smt
-        } else if class_file.version().map(|x| x.major <= 50).unwrap_or(false) {
+        } else if class_file.version().map_or(false, |x| x.major <= 50) {
             // TODO: Allow nonexistent stack map table for earlier versions of the bytecode
             // We will have to figure out how the type inference is meant to work
             tracing::warn!("Class File Version: {:?}", class_file.version());
-            return Err(StackMapError::NoStackMap.into());
+            return Err(StackMapError::NoStackMap);
         } else {
             // There is no entries
             StackMapTableAttribute {
@@ -406,8 +388,8 @@ impl StackMapFrames {
         // We expand category two types, since they don't have `Top` written explicitly.
         for frame in stack_frames.frames.iter_mut() {
             let mut output = SmallVec::new();
-            let mut locals_iter = std::mem::take(&mut frame.locals).into_iter().peekable();
-            while let Some(local) = locals_iter.next() {
+            let locals_iter = std::mem::take(&mut frame.locals).into_iter().peekable();
+            for local in locals_iter {
                 if matches!(local, StackMapType::Double | StackMapType::Long) {
                     output.push(local);
                     output.push(StackMapType::Top);
@@ -444,6 +426,7 @@ impl StackMapFrames {
         }
     }
 
+    #[must_use]
     pub fn iter(&self) -> std::slice::Iter<'_, StackMapFrame> {
         self.frames.iter()
     }

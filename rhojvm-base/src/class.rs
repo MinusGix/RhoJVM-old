@@ -26,15 +26,18 @@ pub enum ClassFileIndexError {
 #[derive(Debug, Clone)]
 pub struct ClassFileData {
     pub(crate) id: ClassFileId,
+    #[allow(dead_code)]
     /// The direct path to the file
     pub(crate) path: PathBuf,
     pub(crate) class_file: ClassFile,
 }
 impl ClassFileData {
+    #[must_use]
     pub fn id(&self) -> ClassFileId {
         self.id
     }
 
+    #[must_use]
     pub fn version(&self) -> Option<ClassFileVersion> {
         Some(self.class_file.version)
     }
@@ -109,10 +112,10 @@ impl ClassFileData {
             .map(|x| class_names.gcid_from_str(x)))
     }
 
-    pub fn interfaces_indices_iter<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = ConstantPoolIndexRaw<ClassConstant>> + 'a {
-        self.class_file.interfaces.iter().cloned()
+    pub fn interfaces_indices_iter(
+        &self,
+    ) -> impl Iterator<Item = ConstantPoolIndexRaw<ClassConstant>> + '_ {
+        self.class_file.interfaces.iter().copied()
     }
 }
 
@@ -225,6 +228,7 @@ pub struct ArrayClass {
 }
 impl ArrayClass {
     // TODO: provide more libsound ways of creating this
+    #[must_use]
     pub fn new_unchecked(
         id: ClassId,
         name: String,
@@ -241,6 +245,7 @@ impl ArrayClass {
         }
     }
 
+    #[must_use]
     /// Note: This should not be used for strictly identifying
     /// This is strictly for debug purposes
     pub fn name(&self) -> &str {
@@ -278,10 +283,12 @@ pub enum ArrayComponentType {
     Class(ClassId),
 }
 impl ArrayComponentType {
+    #[must_use]
     pub fn is_primitive(&self) -> bool {
         !matches!(self, ArrayComponentType::Class(_))
     }
 
+    #[must_use]
     /// Convert to class id if it is of the `Class` variant, aka if it is non-Primitive
     pub fn into_class_id(self) -> Option<ClassId> {
         match self {
@@ -318,10 +325,8 @@ impl ArrayComponentType {
 impl From<PrimitiveType> for ArrayComponentType {
     fn from(prim: PrimitiveType) -> ArrayComponentType {
         match prim {
-            PrimitiveType::Byte => ArrayComponentType::Byte,
-            PrimitiveType::UnsignedByte => ArrayComponentType::Byte,
-            PrimitiveType::Short => ArrayComponentType::Short,
-            PrimitiveType::UnsignedShort => ArrayComponentType::Short,
+            PrimitiveType::Byte | PrimitiveType::UnsignedByte => ArrayComponentType::Byte,
+            PrimitiveType::Short | PrimitiveType::UnsignedShort => ArrayComponentType::Short,
             PrimitiveType::Int => ArrayComponentType::Int,
             PrimitiveType::Long => ArrayComponentType::Long,
             PrimitiveType::Float => ArrayComponentType::Float,

@@ -189,7 +189,7 @@ impl LocalsIn for ALoad {
     type Iter = SingleInLocal;
 
     fn locals_in_type_iter(&self) -> Self::Iter {
-        [(self.index.into(), LocalVariableInType::ReferenceAny.into())].into_iter()
+        [(self.index.into(), LocalVariableInType::ReferenceAny)].into_iter()
     }
 }
 
@@ -211,14 +211,14 @@ impl LocalsIn for WideIntLoad {
     type Iter = SingleInLocal;
 
     fn locals_in_type_iter(&self) -> Self::Iter {
-        [(self.index.into(), PrimitiveType::Int.into())].into_iter()
+        [(self.index, PrimitiveType::Int.into())].into_iter()
     }
 }
 impl LocalsIn for WideIntIncrement {
     type Iter = SingleInLocal;
 
     fn locals_in_type_iter(&self) -> Self::Iter {
-        [(self.index.into(), PrimitiveType::Int.into())].into_iter()
+        [(self.index, PrimitiveType::Int.into())].into_iter()
     }
 }
 
@@ -287,6 +287,8 @@ fn descriptor_into_parameters_ret<const N: usize>(
     let mut desc_iter = MethodDescriptor::from_text_iter(descriptor, class_names)?;
 
     let mut parameters = SmallVec::new();
+
+    #[allow(clippy::while_let_on_iterator)]
     while let Some(parameter) = desc_iter.next() {
         let parameter = parameter?;
         let parameter = Type::from_descriptor_type(parameter);
@@ -398,8 +400,7 @@ impl PopTypeAt for RefMethodInfo {
         [self
             .class_id
             .map(ComplexType::ReferenceClass)
-            .map(PopType::from)
-            .unwrap_or(PopComplexType::ReferenceAny.into())]
+            .map_or_else(|| PopComplexType::ReferenceAny.into(), PopType::from)]
         .into_iter()
         .chain(self.parameters.iter().cloned().map(PopType::from))
         .rev()
@@ -896,7 +897,7 @@ impl HasStackInfo for Pop2 {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        class_file: &ClassFileData,
+        _: &ClassFileData,
         _method_id: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -935,6 +936,7 @@ impl PopTypeAt for Dup2Info {
         }
     }
 }
+#[allow(clippy::match_same_arms)]
 impl PushTypeAt for Dup2Info {
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         match (self, i) {
@@ -967,7 +969,7 @@ impl HasStackInfo for Dup2 {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        class_file: &ClassFileData,
+        _: &ClassFileData,
         _method_id: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -993,6 +995,7 @@ pub enum DupX2Info {
 }
 impl StackInfo for DupX2Info {}
 impl PopTypeAt for DupX2Info {
+    #[allow(clippy::match_same_arms)]
     fn pop_type_at(&self, i: PopIndex) -> Option<PopType> {
         match (self, i) {
             (DupX2Info::Category1, 0 | 1 | 2) => Some(PopType::Category1),
@@ -1010,6 +1013,7 @@ impl PopTypeAt for DupX2Info {
     }
 }
 impl PushTypeAt for DupX2Info {
+    #[allow(clippy::match_same_arms)]
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         match (self, i) {
             (DupX2Info::Category1, 0 | 3) => Some(WithType::Type(0).into()),
@@ -1038,7 +1042,7 @@ impl HasStackInfo for DupX2 {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        class_file: &ClassFileData,
+        _: &ClassFileData,
         _method_id: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1058,7 +1062,7 @@ impl HasStackInfo for DupX2 {
             Ok(DupX2Info::Category1)
         } else {
             // if there is a third entry then it must be category two
-            return Err(StackInfoError::BadStackSizes.into());
+            Err(StackInfoError::BadStackSizes.into())
         }
     }
 }
@@ -1071,6 +1075,7 @@ pub enum Dup2X1Info {
 }
 impl StackInfo for Dup2X1Info {}
 impl PopTypeAt for Dup2X1Info {
+    #[allow(clippy::match_same_arms)]
     fn pop_type_at(&self, i: PopIndex) -> Option<PopType> {
         match (self, i) {
             (Dup2X1Info::Category1, 0 | 1 | 2) => Some(PopType::Category1),
@@ -1088,6 +1093,7 @@ impl PopTypeAt for Dup2X1Info {
     }
 }
 impl PushTypeAt for Dup2X1Info {
+    #[allow(clippy::match_same_arms)]
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         Some(
             match (self, i) {
@@ -1123,7 +1129,7 @@ impl HasStackInfo for Dup2X1 {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        class_file: &ClassFileData,
+        _: &ClassFileData,
         _method_id: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1161,6 +1167,7 @@ pub enum Dup2X2Info {
 }
 impl StackInfo for Dup2X2Info {}
 impl PopTypeAt for Dup2X2Info {
+    #[allow(clippy::match_same_arms)]
     fn pop_type_at(&self, i: PopIndex) -> Option<PopType> {
         match (self, i) {
             (Dup2X2Info::Form1, 0 | 1 | 2 | 3) => Some(PopType::Category1),
@@ -1177,6 +1184,7 @@ impl PopTypeAt for Dup2X2Info {
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn pop_count(&self) -> usize {
         match self {
             Dup2X2Info::Form1 => 4,
@@ -1187,6 +1195,7 @@ impl PopTypeAt for Dup2X2Info {
     }
 }
 impl PushTypeAt for Dup2X2Info {
+    #[allow(clippy::match_same_arms)]
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         Some(
             WithType::Type(match (self, i) {
