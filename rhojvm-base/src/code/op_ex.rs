@@ -263,15 +263,18 @@ impl PushTypeAt for CheckCastInfo {
     }
 }
 impl PopTypeAt for CheckCastInfo {
-    fn pop_type_at(&self, _: PopIndex) -> Option<PopType> {
-        None
+    fn pop_type_at(&self, i: PopIndex) -> Option<PopType> {
+        if i == 0 {
+            Some(PopComplexType::ReferenceAny.into())
+        } else {
+            None
+        }
     }
 
     fn pop_count(&self) -> usize {
-        0
+        1
     }
 }
-
 empty_locals_in!(CheckCastInfo);
 empty_locals_out!(CheckCastInfo);
 impl HasStackInfo for CheckCast {

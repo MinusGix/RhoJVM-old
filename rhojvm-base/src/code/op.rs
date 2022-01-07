@@ -2844,9 +2844,7 @@ define_instructions! {[
             // TODO: is this correct?
             index: ConstantPoolIndexRaw<ClassConstant>,
         ],
-        pop: [
-            objectref: PopComplexType::ReferenceAny,
-        ],
+        pop: [{extern}],
         push: [{extern}],
         exceptions: [
             // TODO:

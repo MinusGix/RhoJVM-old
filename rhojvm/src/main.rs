@@ -207,7 +207,7 @@ fn main() {
     conf.stack_map_verification_logging = StackMapVerificationLogging {
         log_method_name: true,
         log_received_frame: false,
-        log_instruction: false,
+        log_instruction: true,
         log_stack_modifications: false,
         log_local_variable_modifications: false,
     };
