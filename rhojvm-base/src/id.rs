@@ -1,7 +1,5 @@
 use std::hash::Hasher;
 
-use crate::util;
-
 /// We make use of hashes of paths/names for a lot of these types as that makes them deterministic
 /// across runs, which is a nice a property to have in general.
 /// It would allow storing of precomputed data
@@ -47,16 +45,26 @@ pub(crate) fn make_hasher() -> impl Hasher {
 
 #[must_use]
 pub(crate) fn hash_access_path(path: &str) -> HashId {
-    if is_array_class(path) {
-        hash_access_path_iter([path].into_iter(), true)
-    } else {
-        hash_access_path_iter(util::access_path_iter(path), true)
-    }
+    let mut state = make_hasher();
+    state.write(path.as_bytes());
+    state.write_u8(0xff);
+    state.finish()
 }
 
 #[must_use]
 pub(crate) fn hash_access_path_slice<T: AsRef<str>>(path: &[T]) -> HashId {
-    hash_access_path_iter(path.iter().map(AsRef::as_ref), false)
+    let mut state = make_hasher();
+    if path.get(0).map_or(false, |x| is_array_class(x.as_ref())) && path.len() > 1 {
+        tracing::warn!(
+            "hash_access_path_slice received slice of array type with more than one entry"
+        );
+        panic!("");
+    }
+    for entry in itertools::intersperse(path.iter().map(AsRef::as_ref), "/") {
+        state.write(entry.as_bytes());
+    }
+    state.write_u8(0xff);
+    state.finish()
 }
 
 #[must_use]
