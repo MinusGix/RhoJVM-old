@@ -5,7 +5,7 @@ use classfile_parser::{
 
 use crate::{class::ClassFileData, code::method::MethodDescriptor, ClassNames};
 
-use super::op::{Inst, WideInst};
+use super::{op::Inst, types::Instruction};
 
 struct FormatInst<'a, 'b> {
     class_names: &'a mut ClassNames,

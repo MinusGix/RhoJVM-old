@@ -20,7 +20,6 @@
 
 use std::{
     borrow::Cow,
-    collections::BTreeMap,
     fs::File,
     io::Read,
     num::NonZeroUsize,
@@ -45,6 +44,7 @@ use code::{
 };
 use id::{ClassFileId, ClassId, GeneralClassId, MethodId, MethodIndex, PackageId};
 use package::Packages;
+use smallvec::{smallvec, SmallVec};
 use tracing::{info, span, Level};
 
 use crate::code::{method::MethodOverride, CodeInfo};
@@ -949,6 +949,10 @@ impl InternalKind {
             .and_then(InternalKind::from_str)
     }
 
+    fn from_iter<'a>(mut class_path: impl Iterator<Item = &'a str>) -> Option<InternalKind> {
+        class_path.next().and_then(InternalKind::from_str)
+    }
+
     fn from_str(class_path: &str) -> Option<InternalKind> {
         if id::is_array_class(class_path) {
             Some(InternalKind::Array)
@@ -971,7 +975,7 @@ pub struct Name {
     /// classfile.
     internal_kind: Option<InternalKind>,
     /// internal arrays only have one entry in this
-    path: Vec<String>,
+    path: SmallVec<[String; 6]>,
 }
 impl Name {
     #[must_use]
@@ -1035,7 +1039,7 @@ impl ClassNames {
                 match kind {
                     InternalKind::Array => Name {
                         internal_kind: Some(kind),
-                        path: vec![class_path.to_string()],
+                        path: smallvec![class_path.to_string()],
                     },
                 }
             } else {
@@ -1054,7 +1058,7 @@ impl ClassNames {
         &mut self,
         class_path: impl Iterator<Item = &'a str> + Clone,
     ) -> GeneralClassId {
-        let kind = class_path.clone().next().and_then(InternalKind::from_str);
+        let kind = InternalKind::from_iter(class_path.clone());
         let id = id::hash_access_path_iter(class_path.clone(), false);
         self.map.entry(id).or_insert_with(|| Name {
             internal_kind: kind,
@@ -1070,11 +1074,11 @@ impl ClassNames {
         &mut self,
         class_path: impl Iterator<Item = &'a str> + Clone,
     ) -> GeneralClassId {
-        let kind = class_path.clone().next().and_then(InternalKind::from_str);
+        let kind = InternalKind::from_iter(class_path.clone());
         let id = id::hash_access_path_iter(class_path.clone(), true);
         self.map.entry(id).or_insert_with(|| Name {
             internal_kind: kind,
-            path: vec![class_path.fold(String::new(), |mut acc, x| {
+            path: smallvec![class_path.fold(String::new(), |mut acc, x| {
                 acc.push_str(x);
                 acc
             })],
@@ -1111,6 +1115,102 @@ impl ClassNames {
         // "UNKNOWN_CLASS_NAME"
         const EMPTY_PATH: &[String] = &[String::new()];
         self.path_from_gcid(id).unwrap_or(EMPTY_PATH)
+    }
+
+    pub fn gcid_from_array_of_primitives(&mut self, prim: PrimitiveType) -> ClassId {
+        let prefix = prim.as_desc_prefix();
+        let iter = ["[", prefix].into_iter();
+        let id = id::hash_access_path_iter(iter.clone(), true);
+
+        if !self.contains_key(&id) {
+            let name: String = iter.collect();
+            let name = Name {
+                internal_kind: Some(InternalKind::Array),
+                path: smallvec![name],
+            };
+            self.set_at(id, name);
+        }
+
+        id
+    }
+
+    pub fn gcid_from_level_array_of_primitives(
+        &mut self,
+        level: NonZeroUsize,
+        prim: PrimitiveType,
+    ) -> ClassId {
+        let prefix = prim.as_desc_prefix();
+        let iter = std::iter::repeat("[").take(level.get());
+        let iter = iter.chain([prefix]);
+        let id = id::hash_access_path_iter(iter.clone(), true);
+
+        if !self.contains_key(&id) {
+            let name: String = iter.collect();
+            let name = Name {
+                internal_kind: Some(InternalKind::Array),
+                path: smallvec![name],
+            };
+            self.set_at(id, name);
+        }
+
+        id
+    }
+
+    pub fn gcid_from_level_array_of_class_id(
+        &mut self,
+        level: NonZeroUsize,
+        class_id: ClassId,
+    ) -> Result<ClassId, BadIdError> {
+        let class_name = self.name_from_gcid(class_id)?;
+        let class_path = class_name.path();
+
+        // First we generate an iterator for the id
+        // This is so we can check if it already exists without any allocations.
+        let first_iter = std::iter::repeat("[").take(level.get());
+        // We have to do a branching path here because the type changes..
+        let id = if class_name.is_array() {
+            // An array only has one entry in the class path
+            let component_desc = class_path[0].as_str();
+            let iter = first_iter.chain([component_desc]);
+            let id = id::hash_access_path_iter(iter.clone(), true);
+
+            // Now, we have to check if it already exists
+            if !self.contains_key(&id) {
+                let name: String = iter.collect();
+                let name = Name {
+                    internal_kind: Some(InternalKind::Array),
+                    path: smallvec![name],
+                };
+                self.set_at(id, name);
+            }
+
+            id
+        } else {
+            // To avoid allocations, we have to be a bit rough here
+            // Add the opening L for object
+            let iter = first_iter.chain(["L"]);
+            let class_path_iter = class_path.iter().map(String::as_str);
+            let class_path_iter = itertools::intersperse(class_path_iter, "/");
+            // Add the object's path
+            let iter = iter.chain(class_path_iter);
+            // Add the semicolon, indicating the end of the object
+            let iter = iter.chain([";"]);
+            let id = id::hash_access_path_iter(iter.clone(), true);
+
+            // Now, we have to check if it already exists
+            if !self.contains_key(&id) {
+                let name: String = iter.collect();
+                let name = Name {
+                    internal_kind: Some(InternalKind::Array),
+                    path: smallvec![name],
+                };
+                self.set_at(id, name);
+            }
+
+            id
+        };
+
+        Ok(id)
     }
 }
 
@@ -1202,35 +1302,104 @@ impl ClassFiles {
             return Ok(());
         }
 
-        let _span_ = span!(Level::TRACE, "CF::load_from_rel_path").entered();
+        let class_file = direct_load_class_file_from_rel_path(class_directories, id, rel_path)?;
+        self.set_at(id, class_file);
 
-        info!("Loading CF from {:?}", rel_path);
-        if let Some((file_path, mut file)) =
-            class_directories.load_class_file_with_rel_path(&rel_path)
-        {
-            let mut data = Vec::new();
-            file.read_to_end(&mut data)
-                .map_err(LoadClassFileError::ReadError)?;
+        Ok(())
+    }
+}
 
-            // TODO: Better errors
-            let (rem_data, class_file) = class_parser(&data)
-                .map_err(|x| format!("{:?}", x))
-                .map_err(LoadClassFileError::ClassFileParseError)?;
-            debug_assert!(rem_data.is_empty());
+// pub fn direct_load_class_non_array() -> Result<Class, StepError> {
 
-            self.set_at(
-                id,
-                ClassFileData {
-                    id,
-                    class_file,
-                    path: file_path,
-                },
-            );
+// }
 
-            Ok(())
-        } else {
-            Err(LoadClassFileError::NonexistentFile(rel_path))
+/// The id must be defined inside of the given class names
+pub fn direct_load_class_file_by_id(
+    class_directories: &ClassDirectories,
+    class_names: &ClassNames,
+    class_file_id: ClassFileId,
+) -> Result<Option<ClassFileData>, LoadClassFileError> {
+    let class_name = class_names
+        .name_from_gcid(class_file_id)
+        .map_err(LoadClassFileError::BadId)?;
+    debug_assert!(!class_name.path().is_empty());
+
+    if !class_name.has_class_file() {
+        // There's no class file to parse
+        return Ok(None);
+    }
+
+    let rel_path = util::class_path_slice_to_relative_path(class_name.path());
+    direct_load_class_file_from_rel_path(class_directories, class_file_id, rel_path).map(Some)
+}
+
+/// Load the class file with the given access path
+/// Returns `None` if it would not have a backing class file (ex: Arrays)
+pub fn direct_load_class_file_by_class_path_slice<T: AsRef<str>>(
+    class_directories: &ClassDirectories,
+    class_path: &[T],
+) -> Result<Option<ClassFileData>, LoadClassFileError> {
+    if let Some(kind) = InternalKind::from_slice(class_path) {
+        if !kind.has_class_file() {
+            // There is no class file to parse
+            return Ok(None);
         }
+    }
+
+    let class_file_id = id::hash_access_path_slice(class_path);
+
+    let rel_path = util::class_path_slice_to_relative_path(class_path);
+
+    direct_load_class_file_from_rel_path(class_directories, class_file_id, rel_path).map(Some)
+}
+
+pub fn direct_load_class_file_by_class_path_iter<'a>(
+    class_directories: &ClassDirectories,
+    class_path: impl Iterator<Item = &'a str> + Clone,
+) -> Result<Option<ClassFileData>, LoadClassFileError> {
+    if class_path.clone().next().is_none() {
+        return Err(LoadClassFileError::EmptyPath);
+    }
+
+    if let Some(kind) = InternalKind::from_iter(class_path.clone()) {
+        if !kind.has_class_file() {
+            // There is no class file to parse
+            return Ok(None);
+        }
+    }
+
+    let class_file_id = id::hash_access_path_iter(class_path.clone(), false);
+
+    let rel_path = util::class_path_iter_to_relative_path(class_path);
+
+    direct_load_class_file_from_rel_path(class_directories, class_file_id, rel_path).map(Some)
+}
+
+pub fn direct_load_class_file_from_rel_path(
+    class_directories: &ClassDirectories,
+    id: ClassFileId,
+    rel_path: PathBuf,
+) -> Result<ClassFileData, LoadClassFileError> {
+    if let Some((file_path, mut file)) = class_directories.load_class_file_with_rel_path(&rel_path)
+    {
+        let mut data = Vec::new();
+        file.read_to_end(&mut data)
+            .map_err(LoadClassFileError::ReadError)?;
+
+        // TODO: Better errors
+        let (rem_data, class_file) = class_parser(&data)
+            .map_err(|x| format!("{:?}", x))
+            .map_err(LoadClassFileError::ClassFileParseError)?;
+        // TODO: Don't assert
+        debug_assert!(rem_data.is_empty());
+
+        Ok(ClassFileData {
+            id,
+            class_file,
+            path: file_path,
+        })
+    } else {
+        Err(LoadClassFileError::NonexistentFile(rel_path))
     }
 }
 

@@ -5,6 +5,7 @@ use classfile_parser::{
     },
     method_info::MethodAccessFlags,
 };
+use smallvec::{smallvec, SmallVec};
 
 use crate::{class::ClassFileData, id::ClassId, BadIdError, ClassNames};
 
@@ -124,11 +125,27 @@ impl StackMapType {
 pub struct StackMapFrame {
     pub at: InstructionIndex,
     /// Operand Stack
-    pub stack: Vec<StackMapType>,
+    pub stack: SmallVec<[StackMapType; 4]>,
     /// Local variables
-    pub locals: Vec<StackMapType>,
+    pub locals: SmallVec<[StackMapType; 8]>,
 }
 impl StackMapFrame {
+    fn new_empty(at: InstructionIndex) -> StackMapFrame {
+        StackMapFrame {
+            at,
+            stack: SmallVec::new(),
+            locals: SmallVec::new(),
+        }
+    }
+
+    fn new_locals(at: InstructionIndex, locals: SmallVec<[StackMapType; 8]>) -> StackMapFrame {
+        StackMapFrame {
+            at,
+            stack: SmallVec::new(),
+            locals,
+        }
+    }
+
     /// Whether this frame has an uninitialized this, which constrains behavior of methods that
     /// have such.
     fn has_uninit_this(&self) -> bool {
@@ -143,7 +160,7 @@ impl StackMapFrame {
 #[derive(Debug)]
 pub struct StackMapFrames {
     /// There has to be at least one.
-    frames: Vec<StackMapFrame>,
+    frames: SmallVec<[StackMapFrame; 4]>,
 }
 impl StackMapFrames {
     /// The given code MUST be from the passed in method
@@ -154,6 +171,7 @@ impl StackMapFrames {
         method_code: &'a CodeInfo,
     ) -> Result<Option<StackMapFrames>, StackMapError> {
         let descriptor = method.descriptor();
+        // TODO: Should we skip adding the initial frame if it is empty? Some code may rely on it being nonempty
         let initial_frame = {
             let this_type = if class_file.id()
                 == class_names.gcid_from_slice(&["java", "lang", "Object"])
@@ -171,7 +189,7 @@ impl StackMapFrames {
 
             let count = descriptor.parameters().len() + if this_type.is_some() { 1 } else { 0 };
             // Not seeing if this_type is expanded is fine since it can't be a cat-2
-            let mut locals = Vec::with_capacity(count);
+            let mut locals = SmallVec::with_capacity(count);
             if let Some(this_type) = this_type {
                 locals.push(this_type);
             }
@@ -196,11 +214,7 @@ impl StackMapFrames {
                 }
             }
 
-            StackMapFrame {
-                at: InstructionIndex(0),
-                stack: Vec::new(),
-                locals,
-            }
+            StackMapFrame::new_locals(InstructionIndex(0), locals)
         };
 
         // Should always have one value when being constructed
@@ -209,9 +223,8 @@ impl StackMapFrames {
         // but we could likely do a modification based version which would cut down the number of
         // allocations by a large amount, but would complicate the code.
         // It is hoped to implement that in the future, especially if it would be a notable gain.
-        let stack_frames = vec![initial_frame];
         let mut stack_frames = StackMapFrames {
-            frames: stack_frames,
+            frames: smallvec![initial_frame],
         };
 
         // Stack map table attribute
@@ -247,11 +260,10 @@ impl StackMapFrames {
                     // The offset delta for this frame is just its frame type
                     let offset_delta = frame_type;
 
-                    let frame = StackMapFrame {
-                        at: stack_frames.get_new_index(offset_delta.into()),
-                        stack: Vec::new(),
-                        locals: stack_frames.last_r().locals.clone(),
-                    };
+                    let frame = StackMapFrame::new_locals(
+                        stack_frames.get_new_index(offset_delta.into()),
+                        stack_frames.last_r().locals.clone(),
+                    );
                     stack_frames.push(frame);
                 }
                 // Frame which has the same local variables as the previous frame and that the
@@ -265,7 +277,7 @@ impl StackMapFrames {
                         .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)?;
                     let frame = StackMapFrame {
                         at: stack_frames.get_new_index(offset_delta.into()),
-                        stack: vec![stack],
+                        stack: smallvec![stack],
                         locals: stack_frames.last_r().locals.clone(),
                     };
                     stack_frames.push(frame);
@@ -283,7 +295,7 @@ impl StackMapFrames {
                         .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)?;
                     let frame = StackMapFrame {
                         at: stack_frames.get_new_index(offset_delta),
-                        stack: vec![stack],
+                        stack: smallvec![stack],
                         locals: stack_frames.last_r().locals.clone(),
                     };
                     stack_frames.push(frame);
@@ -310,25 +322,21 @@ impl StackMapFrames {
                         .iter()
                         .take(new_count)
                         .cloned()
-                        .collect::<Vec<_>>();
+                        .collect::<SmallVec<[_; 8]>>();
                     debug_assert_eq!(locals.len(), new_count);
 
-                    let frame = StackMapFrame {
-                        at: stack_frames.get_new_index(offset_delta),
-                        stack: Vec::new(),
-                        locals,
-                    };
+                    let frame =
+                        StackMapFrame::new_locals(stack_frames.get_new_index(offset_delta), locals);
                     stack_frames.push(frame);
                 }
                 // Same local variables
                 // Empty operand stack
                 // This is like SameFrame, except that the offset delta is given directly
                 StackMapFrameCF::SameFrameExtended { offset_delta, .. } => {
-                    let frame = StackMapFrame {
-                        at: stack_frames.get_new_index(offset_delta),
-                        stack: Vec::new(),
-                        locals: stack_frames.last_r().locals.clone(),
-                    };
+                    let frame = StackMapFrame::new_locals(
+                        stack_frames.get_new_index(offset_delta),
+                        stack_frames.last_r().locals.clone(),
+                    );
                     stack_frames.push(frame);
                 }
                 // Same locals, but with some additional locals
@@ -342,20 +350,17 @@ impl StackMapFrames {
                     const APPEND_FRAME_PRE_START: u8 = 251;
                     debug_assert_eq!((frame_type - APPEND_FRAME_PRE_START) as usize, locals.len());
 
-                    let frame = StackMapFrame {
-                        at: stack_frames.get_new_index(offset_delta),
-                        stack: Vec::new(),
-                        locals: {
+                    let frame =
+                        StackMapFrame::new_locals(stack_frames.get_new_index(offset_delta), {
                             let mut new_locals = stack_frames.last_r().locals.clone();
-                            let locals = iter_verif_to_stack_map_types(
+                            iter_verif_to_stack_map_types(
                                 locals.into_iter(),
                                 class_names,
                                 class_file,
+                                &mut new_locals,
                             )?;
-                            new_locals.extend(locals.into_iter());
                             new_locals
-                        },
-                    };
+                        });
                     stack_frames.push(frame);
                 }
                 // Specifies all the information
@@ -370,15 +375,25 @@ impl StackMapFrames {
                     debug_assert_eq!(locals.len(), number_of_locals as usize);
                     debug_assert_eq!(stack.len(), number_of_stack_items as usize);
 
-                    let locals =
-                        iter_verif_to_stack_map_types(locals.into_iter(), class_names, class_file)?;
-                    let stack =
-                        iter_verif_to_stack_map_types(stack.into_iter(), class_names, class_file)?;
+                    let mut out_locals = SmallVec::new();
+                    iter_verif_to_stack_map_types(
+                        locals.into_iter(),
+                        class_names,
+                        class_file,
+                        &mut out_locals,
+                    )?;
+                    let mut out_stack = SmallVec::new();
+                    iter_verif_to_stack_map_types(
+                        stack.into_iter(),
+                        class_names,
+                        class_file,
+                        &mut out_stack,
+                    )?;
 
                     let frame = StackMapFrame {
                         at: stack_frames.get_new_index(offset_delta),
-                        stack,
-                        locals,
+                        stack: out_stack,
+                        locals: out_locals,
                     };
                     stack_frames.push(frame);
                 }
@@ -390,7 +405,7 @@ impl StackMapFrames {
 
         // We expand category two types, since they don't have `Top` written explicitly.
         for frame in stack_frames.frames.iter_mut() {
-            let mut output = Vec::new();
+            let mut output = SmallVec::new();
             let mut locals_iter = std::mem::take(&mut frame.locals).into_iter().peekable();
             while let Some(local) = locals_iter.next() {
                 if matches!(local, StackMapType::Double | StackMapType::Long) {
@@ -432,20 +447,23 @@ impl StackMapFrames {
     pub fn iter(&self) -> std::slice::Iter<'_, StackMapFrame> {
         self.frames.iter()
     }
-
-    pub fn into_vec(self) -> Vec<StackMapFrame> {
-        self.frames
-    }
 }
 
-fn iter_verif_to_stack_map_types(
+fn iter_verif_to_stack_map_types<const N: usize>(
     iter: impl Iterator<Item = VerificationTypeInfo>,
     class_names: &mut ClassNames,
     class_file: &ClassFileData,
-) -> Result<Vec<StackMapType>, StackMapError> {
-    iter.map(|v| {
+    output: &mut SmallVec<[StackMapType; N]>,
+) -> Result<(), StackMapError> {
+    let iter = iter.map(|v| {
         StackMapType::from_verif_type_info(v, class_names, class_file)
             .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)
-    })
-    .collect::<Result<Vec<_>, _>>()
+    });
+
+    for entry in iter {
+        let entry = entry?;
+        output.push(entry);
+    }
+
+    Ok(())
 }

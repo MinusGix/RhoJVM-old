@@ -491,6 +491,9 @@ fn verify_type_safe_method(
     state: &mut State,
     method_id: MethodId,
 ) -> Result<(), GeneralError> {
+    let (class_id, method_index) = method_id.decompose();
+    let class_file = class_files.get(&class_id).unwrap().clone();
+    // let mut methods = Methods::default();
     methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;
     let method = methods.get(&method_id).unwrap();
     method
@@ -533,7 +536,8 @@ fn verify_type_safe_method(
                 packages,
                 methods,
                 state.conf().stack_map_verification_logging.clone(),
-                method_id,
+                &class_file,
+                method_index,
             )?;
         }
     }

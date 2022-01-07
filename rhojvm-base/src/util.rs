@@ -93,14 +93,14 @@ macro_rules! __make_map {
     ($v:vis $name:ident < $key:ty, $val:ty > $(; $($tag:ident),*)?) => {
         #[derive(Default, Clone)]
         $v struct $name {
-            map: std::collections::BTreeMap<$key, $val>,
+            map: std::collections::HashMap<$key, $val>,
         }
         #[allow(dead_code)]
         impl $name {
             #[must_use]
             pub fn new() -> Self {
                 Self {
-                    map: BTreeMap::new(),
+                    map: std::collections::HashMap::new(),
                 }
             }
 
@@ -156,7 +156,7 @@ macro_rules! __make_map {
             }
 
             #[must_use]
-            pub fn iter(&self) -> std::collections::btree_map::Iter<$key, $val> {
+            pub fn iter(&self) -> std::collections::hash_map::Iter<$key, $val> {
                 self.map.iter()
             }
         }

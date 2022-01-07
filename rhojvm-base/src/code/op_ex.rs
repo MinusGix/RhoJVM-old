@@ -29,10 +29,7 @@ use crate::class::ClassFileData;
 use crate::code::method::MethodDescriptor;
 use crate::code::types::StackInfoError;
 use crate::id::{ClassFileId, MethodId};
-use crate::package::Packages;
-use crate::{
-    ClassDirectories, ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
-};
+use crate::{ClassNames, LoadMethodError, StepError};
 
 #[derive(Debug)]
 pub enum InstructionParseError {
@@ -438,21 +435,12 @@ impl HasStackInfo for InvokeSpecial {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: ClassFileId,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
-
-        let class_file = class_files
-            .get(&class_id)
-            .ok_or(StackInfoError::InvalidClassFileId)?;
 
         let target_method =
             class_file
@@ -493,22 +481,14 @@ impl HasStackInfo for InvokeInterface {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: ClassFileId,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
         // We can ignore count, since we get that same information from the Descriptor
 
-        let class_file = class_files
-            .get(&class_id)
-            .ok_or(StackInfoError::InvalidClassFileId)?;
         let target_method =
             class_file
                 .get_t(index)
@@ -533,21 +513,12 @@ impl HasStackInfo for InvokeDynamic {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: ClassFileId,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
-
-        let class_file = class_files
-            .get(&class_id)
-            .ok_or(StackInfoError::InvalidClassFileId)?;
 
         let target_method =
             class_file
@@ -569,21 +540,12 @@ impl HasStackInfo for InvokeStatic {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: ClassFileId,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
-
-        let class_file = class_files
-            .get(&class_id)
-            .ok_or(StackInfoError::InvalidClassFileId)?;
 
         let calling_method = class_file
             .get_t(index)
@@ -603,21 +565,12 @@ impl HasStackInfo for InvokeVirtual {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: ClassFileId,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
-
-        let class_file = class_files
-            .get(&class_id)
-            .ok_or(StackInfoError::InvalidClassFileId)?;
 
         let target_method =
             class_file
@@ -695,19 +648,14 @@ impl HasStackInfo for GetField {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: ClassFileId,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
 
-        let field_type = get_field_type(class_names, class_files, class_id, index)?;
+        let field_type = get_field_type(class_names, class_file, index)?;
         // Get the type version
         let field_type = Type::from_descriptor_type(field_type);
 
@@ -740,19 +688,14 @@ impl HasStackInfo for PutStaticField {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: ClassFileId,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
 
-        let field_type = get_field_type(class_names, class_files, class_id, index)?;
+        let field_type = get_field_type(class_names, class_file, index)?;
         // Get the type version
         let field_type = Type::from_descriptor_type(field_type);
 
@@ -789,19 +732,14 @@ impl HasStackInfo for PutField {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: ClassFileId,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
 
-        let field_type = get_field_type(class_names, class_files, class_id, index)?;
+        let field_type = get_field_type(class_names, class_file, index)?;
         // Get the type version
         let field_type = Type::from_descriptor_type(field_type);
 
@@ -812,14 +750,9 @@ impl HasStackInfo for PutField {
 
 fn get_field_type(
     class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    class_id: ClassFileId,
+    class_file: &ClassFileData,
     index: ConstantPoolIndexRaw<FieldRefConstant>,
 ) -> Result<DescriptorType, StepError> {
-    let class_file = class_files
-        .get(&class_id)
-        .ok_or(StackInfoError::InvalidClassFileId)?;
-
     let field = class_file
         .get_t(index)
         .ok_or(StackInfoError::InvalidConstantPoolIndex(
@@ -962,13 +895,8 @@ impl HasStackInfo for Pop2 {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
-        class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        _class_id: ClassFileId,
+        _: &mut ClassNames,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1038,13 +966,8 @@ impl HasStackInfo for Dup2 {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
-        class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        _class_id: ClassFileId,
+        _: &mut ClassNames,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1114,13 +1037,8 @@ impl HasStackInfo for DupX2 {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
-        class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        _class_id: ClassFileId,
+        _: &mut ClassNames,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1204,13 +1122,8 @@ impl HasStackInfo for Dup2X1 {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
-        class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        _class_id: ClassFileId,
+        _: &mut ClassNames,
+        class_file: &ClassFileData,
         _method_id: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1322,14 +1235,9 @@ impl HasStackInfo for Dup2X2 {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
-        class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        _class_id: ClassFileId,
-        _method_id: MethodId,
+        _: &mut ClassNames,
+        _: &ClassFileData,
+        _: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let first = stack_sizes[0].ok_or(StackInfoError::NeededStackSizeAt(0))?;

@@ -16,7 +16,7 @@ pub type PackageId = HashId;
 /// This is not meaningful without a class
 pub type MethodIndex = usize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MethodId {
     class_id: ClassId,
     method_index: MethodIndex,

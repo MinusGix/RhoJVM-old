@@ -5,11 +5,13 @@ use classfile_parser::{
     constant_info::{ClassConstant, FieldRefConstant, NameAndTypeConstant, Utf8Constant},
     constant_pool::ConstantPoolIndexRaw,
 };
+use rhojvm_base::code::op::InstMapFunc;
 use rhojvm_base::code::stack_map::{StackMapError, StackMapFrames};
 use rhojvm_base::code::types::{
-    Category, LocalVariableInType, LocalVariableIndex, LocalVariableType, LocalsIn, LocalsOutAt,
-    PopComplexType, StackSizes,
+    Category, Instruction, LocalVariableInType, LocalVariableIndex, LocalVariableType, LocalsIn,
+    LocalsOutAt, PopComplexType, StackSizes,
 };
+use rhojvm_base::id::MethodIndex;
 use rhojvm_base::Methods;
 use rhojvm_base::{
     class::ClassFileData,
@@ -439,7 +441,21 @@ struct Frame {
     stack: SmallVec<[FrameType; 20]>,
     locals: Locals,
 }
+impl Frame {
+    fn stack_sizes(&self) -> StackSizes {
+        let mut res = [None; 4];
+        for (i, entry) in self.stack.iter().rev().take(res.len()).enumerate() {
+            res[i] = Some(if entry.is_category_1() {
+                Category::One
+            } else {
+                Category::Two
+            });
+        }
+        res
+    }
+}
 
+/// Verify the type safety of a method's code using stack maps
 pub fn verify_type_safe_method_stack_map(
     class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
@@ -448,16 +464,18 @@ pub fn verify_type_safe_method_stack_map(
     packages: &mut Packages,
     methods: &mut Methods,
     conf: StackMapVerificationLogging,
-    method_id: MethodId,
+    class_file: &ClassFileData,
+    method_index: MethodIndex,
 ) -> Result<(), VerifyStackMapGeneralError> {
     let _span = tracing::span!(tracing::Level::TRACE, "stackmap verification").entered();
 
-    let (class_id, _) = method_id.decompose();
-    methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;
+    let class_id = class_file.id();
+    let method_id = MethodId::unchecked_compose(class_id, method_index);
+
+    methods.load_method_from_index(class_names, class_file, method_index)?;
     let method = methods.get_mut(&method_id).unwrap();
     method.load_code(class_files)?;
 
-    let class_file = class_files.get(&class_id).unwrap();
     let method = methods.get(&method_id).unwrap();
 
     if conf.log_method_name {
@@ -541,351 +559,604 @@ pub fn verify_type_safe_method_stack_map(
     // Transformations of the type sthat the instructions have is done, because they encode more
     // information than the main code uses.
     for (idx, inst) in code.instructions() {
-        inst_types.clear();
+        struct Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'ci, 'sf, 'af, 'it, 'oi> {
+            class_directories: &'cd ClassDirectories,
+            class_names: &'cn mut ClassNames,
+            class_files: &'cf mut ClassFiles,
+            classes: &'c mut Classes,
+            packages: &'p mut Packages,
+            class_file: &'cfd ClassFileData,
+            conf: StackMapVerificationLogging,
+            method_id: MethodId,
+            code: &'ci CodeInfo,
+            stack_frames: &'sf StackMapFrames,
+            act_frame: &'af mut Frame,
+            inst_types: &'it mut InstTypes,
+            idx: InstructionIndex,
+            outer_inst: &'oi Inst,
+        }
+        impl<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'ci, 'sf, 'af, 'it, 'oi> InstMapFunc<'oi>
+            for Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'ci, 'sf, 'af, 'it, 'oi>
+        {
+            type Output = Result<(), VerifyStackMapGeneralError>;
 
-        let inst_name = inst.name();
-        if conf.log_instruction {
-            tracing::info!(
-                "# ({}) {}",
-                idx.0,
-                inst.as_pretty_string(class_names, class_files.get(&class_id).unwrap(),)
-            );
+            fn call(self, inst: &impl Instruction) -> Self::Output {
+                check_instruction(
+                    self.class_directories,
+                    self.class_names,
+                    self.class_files,
+                    self.classes,
+                    self.packages,
+                    self.class_file,
+                    self.conf,
+                    self.method_id,
+                    self.code,
+                    self.stack_frames,
+                    self.act_frame,
+                    self.inst_types,
+                    self.idx,
+                    self.outer_inst,
+                    inst,
+                )
+            }
         }
 
-        if let Some(frame) = stack_frames.iter().find(|x| x.at == *idx) {
-            // The frame given by the JVM takes precedence over our frame
-            // TODO: Don't unwrap? It might be, in the future, that we can drop
-            // them by now, such as if instructions request a bunch of classes
-            // to be fully loaded and so the code gets rid of the class we're in
-            // to preserve memory.
-            let class_file = class_files.get(&class_id).unwrap();
-
-            if conf.log_received_frame {
-                tracing::info!("\t Received Frame: {:#?}", frame);
-            }
-
-            act_frame.stack.clear();
-            FrameType::from_stack_map_types(
-                class_names,
-                class_file,
-                &code,
-                &frame.stack,
-                &mut act_frame.stack,
-            )?;
-            act_frame
-                .locals
-                .from_stack_map_types(class_names, class_file, &code, &frame.locals)?;
-            if act_frame.locals.len() > usize::from(code.max_locals()) {
-                return Err(VerifyStackMapError::ReceivedFrameTooManyLocals {
-                    inst_name,
-                    inst_index: *idx,
-                }
-                .into());
-            }
-
-            // Fill in the rest of the allowed locals with `None`
-            act_frame.locals.resize_to(usize::from(code.max_locals()));
-            act_frame.at = frame.at;
-        }
-
-        let stack_sizes: StackSizes = {
-            let mut res = [None; 4];
-            for (i, entry) in act_frame.stack.iter().rev().take(res.len()).enumerate() {
-                res[i] = Some(if entry.is_category_1() {
-                    Category::One
-                } else {
-                    Category::Two
-                });
-            }
-            res
-        };
-
-        let stack_info = inst.stack_info(
+        inst.map(Data {
             class_directories,
             class_names,
             class_files,
             classes,
             packages,
-            methods,
-            class_id,
+            class_file,
+            conf: conf.clone(),
             method_id,
-            stack_sizes,
+            code: &code,
+            stack_frames: &stack_frames,
+            act_frame: &mut act_frame,
+            inst_types: &mut inst_types,
+            idx: *idx,
+            outer_inst: inst,
+        })?;
+    }
+
+    Ok(())
+}
+
+fn check_frame(
+    class_names: &mut ClassNames,
+    class_file: &ClassFileData,
+    conf: &StackMapVerificationLogging,
+    code: &CodeInfo,
+    stack_frames: &StackMapFrames,
+    act_frame: &mut Frame,
+    idx: InstructionIndex,
+    inst_name: &'static str,
+) -> Result<(), VerifyStackMapGeneralError> {
+    if let Some(frame) = stack_frames.iter().find(|x| x.at == idx) {
+        // The frame given by the JVM takes precedence over our frame
+
+        if conf.log_received_frame {
+            tracing::info!("\t Received Frame: {:#?}", frame);
+        }
+
+        act_frame.stack.clear();
+        FrameType::from_stack_map_types(
+            class_names,
+            class_file,
+            &code,
+            &frame.stack,
+            &mut act_frame.stack,
         )?;
-        let pop_count = stack_info.pop_count();
-        let push_count = stack_info.push_count();
-
-        inst_types.pop.resize(pop_count, None);
-
-        // Initialize all simple pop types that do not depend on other pop types
-        for i in 0..pop_count {
-            // TODO: Make pop_types iterator? That would avoid these checks, and would probably wor
-            // Get the pop type, which should exist because of the requirements on pop_type_at
-            let pop_type_o = stack_info.pop_type_at(i);
-            let pop_type_o = if let Some(pop_type) = pop_type_o {
-                pop_type
-            } else {
-                // This is a library error, since it means that the instruction violates that there
-                // should be types at each index.
-                panic!("Expected pop type index ({}) for instruction ({}) in method ({:?}) to be valid, since it is within ({})", i, inst.name(), method_id, pop_count);
-            };
-
-            let last_frame_type = if let Some(last_frame_type) = act_frame.stack.iter().rev().nth(i)
-            {
-                last_frame_type
-            } else {
-                return Err(VerifyStackMapError::InstExpectedTypeInStack {
-                    inst_name: inst.name(),
-                    expected_type: pop_type_o,
-                }
-                .into());
-            };
-
-            let typ = match &pop_type_o {
-                PopType::Category1 => {
-                    if !last_frame_type.is_category_1() {
-                        return Err(VerifyStackMapError::InstExpectedCategory1GotFrameType {
-                            inst_name,
-                            got_type: last_frame_type.clone(),
-                        }
-                        .into());
-                    }
-
-                    Some(last_frame_type.clone())
-                }
-                PopType::Category2 => {
-                    if last_frame_type.is_category_1() {
-                        return Err(VerifyStackMapError::InstExpectedCategory2GotFrameType {
-                            inst_name,
-                            got_type: last_frame_type.clone(),
-                        }
-                        .into());
-                    }
-
-                    Some(last_frame_type.clone())
-                }
-                PopType::Type(typ) => FrameType::from_opcode_type_no_with(
-                    classes,
-                    class_directories,
-                    class_names,
-                    class_files,
-                    packages,
-                    typ,
-                )?,
-                PopType::Complex(complex) => Some(FrameType::from_opcode_pop_complex_type(
-                    classes,
-                    class_directories,
-                    class_names,
-                    class_files,
-                    packages,
-                    complex,
-                    last_frame_type,
-                    inst_name,
-                )?),
-            };
-
-            if let Some(typ) = typ {
-                debug_assert!(inst_types.pop[i].is_none());
-                inst_types.pop[i] = Some(typ);
-            }
-            // otherwise, it was a type we will process after
-        }
-
-        // Initialize pop types that depend on other pop types
-        // we have to do these two stages separately because in the jvm,
-        // it is common for the fields that need another field to be put before
-        // and so we cannot simply evaluate them in order
-        for i in 0..pop_count {
-            let pop_type_o = stack_info.pop_type_at(i);
-            let pop_type_o = if let Some(pop_type) = pop_type_o {
-                pop_type
-            } else {
-                // This is a library error, since it means that the instruction violates that there
-                // should be types at each index.
-                panic!("Expected pop type index ({}) for instruction ({}) in method ({:?}) to be valid, since it is within ({})", i, inst.name(), method_id, pop_count);
-            };
-
-            let with_t = if let PopType::Type(Type::With(pop_type_o)) = pop_type_o {
-                FrameType::from_opcode_with_type(
-                    classes,
-                    class_directories,
-                    class_names,
-                    class_files,
-                    packages,
-                    &pop_type_o,
-                    &inst_types,
-                    &mut act_frame.locals,
-                    inst_name,
-                    class_id,
-                )?
-            } else {
-                continue;
-            };
-
-            debug_assert!(inst_types.pop[i].is_none());
-            inst_types.pop[i] = Some(with_t);
-        }
-
-        // Check that there are all the needed types on the stack to be popped
-        // This also performs the popping
-        for i in 0..pop_count {
-            // This should always have been initialized already
-            // and so an entry should exist at the index and it should have a value inside it
-            let pop_type = inst_types
-                .get_pop(i)
-                .expect("Expected pop type index to be valid");
-            // This uses last now because we are actually modifying the frame's stack
-            let last_frame_type = if let Some(last_frame_type) = act_frame.stack.last() {
-                last_frame_type
-            } else {
-                // If this didn't exist, then this would have already been returned by the previous
-                // initialization
-                return Err(VerifyStackMapError::InstExpectedFrameTypeInStack {
-                    inst_name: inst.name(),
-                    expected_type: pop_type.clone(),
-                }
-                .into());
-            };
-
-            // We check if it is represented the same on the stack
-            // This is because we keep some information (such as if something is a byte)
-            // even though smaller types are expanded to an int on the stack.
-            // As well, there are several reference types which are interconvertible
-            if pop_type.is_stack_same_of_frame_type(
-                classes,
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                last_frame_type,
-            )? {
-                if conf.log_stack_modifications {
-                    tracing::info!(
-                        "\t\tPOP {}    -- {:?}",
-                        last_frame_type.as_pretty_string(class_names),
-                        last_frame_type
-                    );
-                }
-                act_frame.stack.pop().expect(
-                    "There should be a type here since it was being actively used as a reference",
-                );
-            } else {
-                return Err(
-                    VerifyStackMapError::InstExpectedFrameTypeInStackGotFrameType {
-                        inst_name,
-                        expected_type: pop_type.clone(),
-                        got_type: last_frame_type.clone(),
-                    }
-                    .into(),
-                );
-            }
-        }
-
-        for (local_index, local_type) in stack_info.locals_in_type_iter() {
-            let local = act_frame.locals.get(local_index).ok_or(
-                VerifyStackMapError::BadLocalVariableIndex {
-                    inst_name,
-                    index: local_index,
-                },
-            )?;
-
-            let is_matching_type = match (local, &local_type) {
-                (
-                    Local::FrameType(FrameType::Primitive(l_prim)),
-                    LocalVariableInType::Primitive(r_prim),
-                ) => l_prim.is_same_type_on_stack(r_prim),
-                (Local::FrameType(FrameType::Complex(_)), LocalVariableInType::ReferenceAny) => {
-                    true
-                }
-                _ => false,
-            };
-
-            if !is_matching_type {
-                return Err(VerifyStackMapError::ExpectedLocalVariableType {
-                    inst_name,
-                    expected_type: local_type,
-                    got_type: local.clone(),
-                }
-                .into());
-            }
-
-            if conf.log_local_variable_modifications {
-                tracing::info!(
-                    "\t\tLLOAD [{}] = {}    -- {:?}",
-                    local_index,
-                    local.as_pretty_string(class_names),
-                    local
-                );
-            }
-        }
-
-        for (local_index, local_type) in stack_info.locals_out_type_iter() {
-            if usize::from(local_index) >= act_frame.locals.len() {
-                return Err(VerifyStackMapError::BadLocalVariableIndex {
-                    inst_name,
-                    index: local_index,
-                }
-                .into());
-            }
-
-            let local_type = FrameType::from_opcode_local_out_type(
-                classes,
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                &local_type,
-                &inst_types,
-                &mut act_frame.locals,
+        act_frame
+            .locals
+            .from_stack_map_types(class_names, class_file, &code, &frame.locals)?;
+        if act_frame.locals.len() > usize::from(code.max_locals()) {
+            return Err(VerifyStackMapError::ReceivedFrameTooManyLocals {
                 inst_name,
-                class_id,
-            )?;
-            if conf.log_local_variable_modifications {
-                tracing::info!(
-                    "\t\tLSTORE [{}] = {}    -- {:?}",
-                    local_index,
-                    local_type.as_pretty_string(class_names),
-                    local_type
-                );
+                inst_index: idx,
             }
-
-            act_frame
-                .locals
-                .set(inst_name, local_index, Local::FrameType(local_type))?;
+            .into());
         }
 
-        for i in 0..push_count {
-            // TODO: make push_types an iterator?
-            let push_type = stack_info.push_type_at(i);
-            let push_type = if let Some(push_type) = push_type {
-                push_type
-            } else {
-                // This is a library error, since it means that the instruction violates that there
-                // should be types at each index.
-                panic!("Expected push type index ({}) for instruction ({}) in method ({:?}) to be valid, since it is within ({})", i, inst.name(), method_id, pop_count);
-            };
+        // Fill in the rest of the allowed locals with `None`
+        act_frame.locals.resize_to(usize::from(code.max_locals()));
+        act_frame.at = frame.at;
+    }
 
-            let push_type = FrameType::from_opcode_push_type(
-                classes,
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                &push_type,
-                &inst_types,
-                &mut act_frame.locals,
-                inst_name,
-                class_id,
-            )?;
+    Ok(())
+}
 
+fn process_pop_type_early_load(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    act_frame: &mut Frame,
+    inst_types: &mut InstTypes,
+    pop_type_o: Option<PopType>,
+    pop_index: PopIndex,
+    inst_name: &'static str,
+) -> Result<(), VerifyStackMapGeneralError> {
+    let pop_type_o = if let Some(pop_type) = pop_type_o {
+        pop_type
+    } else {
+        // This is a library error, since it means that the instruction violates that there
+        // should be types at each index.
+        panic!(
+            "Expected push type index ({}) for instruction ({}) in method to be valid",
+            pop_index, inst_name
+        );
+    };
+
+    let last_frame_type = if let Some(last_frame_type) = act_frame.stack.iter().rev().nth(pop_index)
+    {
+        last_frame_type
+    } else {
+        return Err(VerifyStackMapError::InstExpectedTypeInStack {
+            inst_name: inst_name,
+            expected_type: pop_type_o,
+        }
+        .into());
+    };
+
+    let typ = match &pop_type_o {
+        PopType::Category1 => {
+            if !last_frame_type.is_category_1() {
+                return Err(VerifyStackMapError::InstExpectedCategory1GotFrameType {
+                    inst_name,
+                    got_type: last_frame_type.clone(),
+                }
+                .into());
+            }
+
+            Some(last_frame_type.clone())
+        }
+        PopType::Category2 => {
+            if last_frame_type.is_category_1() {
+                return Err(VerifyStackMapError::InstExpectedCategory2GotFrameType {
+                    inst_name,
+                    got_type: last_frame_type.clone(),
+                }
+                .into());
+            }
+
+            Some(last_frame_type.clone())
+        }
+        PopType::Type(typ) => FrameType::from_opcode_type_no_with(class_names, typ)?,
+        PopType::Complex(complex) => Some(FrameType::from_opcode_pop_complex_type(
+            classes,
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            complex,
+            last_frame_type,
+            inst_name,
+        )?),
+    };
+
+    if let Some(typ) = typ {
+        debug_assert!(inst_types.pop[pop_index].is_none());
+        inst_types.pop[pop_index] = Some(typ);
+    }
+    // otherwise, it was a type we will process after
+
+    Ok(())
+}
+
+fn process_pop_type_with_load(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    act_frame: &mut Frame,
+    inst_types: &mut InstTypes,
+    pop_type_o: Option<PopType>,
+    pop_index: PopIndex,
+    class_id: ClassId,
+    inst_name: &'static str,
+) -> Result<(), VerifyStackMapGeneralError> {
+    let pop_type_o = if let Some(pop_type) = pop_type_o {
+        pop_type
+    } else {
+        // This is a library error, since it means that the instruction violates that there
+        // should be types at each index.
+        panic!(
+            "Expected push type index ({}) for instruction ({}) in method to be valid",
+            pop_index, inst_name
+        );
+    };
+
+    let with_t = if let PopType::Type(Type::With(pop_type_o)) = pop_type_o {
+        FrameType::from_opcode_with_type(
+            classes,
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            &pop_type_o,
+            &inst_types,
+            &mut act_frame.locals,
+            inst_name,
+            class_id,
+        )?
+    } else {
+        return Ok(());
+    };
+
+    debug_assert!(inst_types.pop[pop_index].is_none());
+    inst_types.pop[pop_index] = Some(with_t);
+    Ok(())
+}
+
+fn check_pop_types(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    conf: &StackMapVerificationLogging,
+    act_frame: &mut Frame,
+    inst_types: &mut InstTypes,
+    pop_count: usize,
+    inst_name: &'static str,
+) -> Result<(), VerifyStackMapGeneralError> {
+    // Check that there are all the needed types on the stack to be popped
+    // This also performs the popping
+    for i in 0..pop_count {
+        // This should always have been initialized already
+        // and so an entry should exist at the index and it should have a value inside it
+        let pop_type = inst_types
+            .get_pop(i)
+            .expect("Expected pop type index to be valid");
+        // This uses last now because we are actually modifying the frame's stack
+        let last_frame_type = if let Some(last_frame_type) = act_frame.stack.last() {
+            last_frame_type
+        } else {
+            // If this didn't exist, then this would have already been returned by the previous
+            // initialization
+            return Err(VerifyStackMapError::InstExpectedFrameTypeInStack {
+                inst_name: inst_name,
+                expected_type: pop_type.clone(),
+            }
+            .into());
+        };
+
+        // We check if it is represented the same on the stack
+        // This is because we keep some information (such as if something is a byte)
+        // even though smaller types are expanded to an int on the stack.
+        // As well, there are several reference types which are interconvertible
+        if pop_type.is_stack_same_of_frame_type(
+            classes,
+            class_directories,
+            class_names,
+            class_files,
+            packages,
+            last_frame_type,
+        )? {
             if conf.log_stack_modifications {
                 tracing::info!(
-                    "\t\tPUSH {}    -- {:?}",
-                    push_type.as_pretty_string(class_names),
-                    push_type
+                    "\t\tPOP {}    -- {:?}",
+                    last_frame_type.as_pretty_string(class_names),
+                    last_frame_type
                 );
             }
-            act_frame.stack.push(push_type);
+            act_frame.stack.pop().expect(
+                "There should be a type here since it was being actively used as a reference",
+            );
+        } else {
+            return Err(
+                VerifyStackMapError::InstExpectedFrameTypeInStackGotFrameType {
+                    inst_name,
+                    expected_type: pop_type.clone(),
+                    got_type: last_frame_type.clone(),
+                }
+                .into(),
+            );
         }
+    }
+
+    Ok(())
+}
+
+fn check_locals_in_type(
+    class_names: &mut ClassNames,
+    conf: &StackMapVerificationLogging,
+    act_frame: &mut Frame,
+    local_index: LocalVariableIndex,
+    local_type: LocalVariableInType,
+    inst_name: &'static str,
+) -> Result<(), VerifyStackMapGeneralError> {
+    let local =
+        act_frame
+            .locals
+            .get(local_index)
+            .ok_or(VerifyStackMapError::BadLocalVariableIndex {
+                inst_name,
+                index: local_index,
+            })?;
+
+    let is_matching_type = match (local, &local_type) {
+        (
+            Local::FrameType(FrameType::Primitive(l_prim)),
+            LocalVariableInType::Primitive(r_prim),
+        ) => l_prim.is_same_type_on_stack(r_prim),
+        (Local::FrameType(FrameType::Complex(_)), LocalVariableInType::ReferenceAny) => true,
+        _ => false,
+    };
+
+    if !is_matching_type {
+        return Err(VerifyStackMapError::ExpectedLocalVariableType {
+            inst_name,
+            expected_type: local_type,
+            got_type: local.clone(),
+        }
+        .into());
+    }
+
+    if conf.log_local_variable_modifications {
+        tracing::info!(
+            "\t\tLLOAD [{}] = {}    -- {:?}",
+            local_index,
+            local.as_pretty_string(class_names),
+            local
+        );
+    }
+
+    Ok(())
+}
+
+fn check_locals_out_type(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    conf: &StackMapVerificationLogging,
+    act_frame: &mut Frame,
+    inst_types: &mut InstTypes,
+    class_id: ClassId,
+    local_index: LocalVariableIndex,
+    local_type: LocalVariableType,
+    inst_name: &'static str,
+) -> Result<(), VerifyStackMapGeneralError> {
+    if usize::from(local_index) >= act_frame.locals.len() {
+        return Err(VerifyStackMapError::BadLocalVariableIndex {
+            inst_name,
+            index: local_index,
+        }
+        .into());
+    }
+
+    let local_type = FrameType::from_opcode_local_out_type(
+        classes,
+        class_directories,
+        class_names,
+        class_files,
+        packages,
+        &local_type,
+        &inst_types,
+        &mut act_frame.locals,
+        inst_name,
+        class_id,
+    )?;
+    if conf.log_local_variable_modifications {
+        tracing::info!(
+            "\t\tLSTORE [{}] = {}    -- {:?}",
+            local_index,
+            local_type.as_pretty_string(class_names),
+            local_type
+        );
+    }
+
+    act_frame
+        .locals
+        .set(inst_name, local_index, Local::FrameType(local_type))?;
+    Ok(())
+}
+
+fn check_push_type(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    conf: &StackMapVerificationLogging,
+    act_frame: &mut Frame,
+    inst_types: &mut InstTypes,
+    class_id: ClassId,
+    push_index: usize,
+    push_type: Option<PushType>,
+    inst_name: &'static str,
+) -> Result<(), VerifyStackMapGeneralError> {
+    let push_type = if let Some(push_type) = push_type {
+        push_type
+    } else {
+        // This is a library error, since it means that the instruction violates that there
+        // should be types at each index.
+        panic!(
+            "Expected push type index ({}) for instruction ({}) in method to be valid",
+            push_index, inst_name
+        );
+    };
+
+    let push_type = FrameType::from_opcode_push_type(
+        classes,
+        class_directories,
+        class_names,
+        class_files,
+        packages,
+        &push_type,
+        &inst_types,
+        &mut act_frame.locals,
+        inst_name,
+        class_id,
+    )?;
+
+    if conf.log_stack_modifications {
+        tracing::info!(
+            "\t\tPUSH {}    -- {:?}",
+            push_type.as_pretty_string(class_names),
+            push_type
+        );
+    }
+    act_frame.stack.push(push_type);
+
+    Ok(())
+}
+
+fn check_instruction<'inst, T: Instruction>(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    class_file: &ClassFileData,
+    conf: StackMapVerificationLogging,
+    method_id: MethodId,
+    code: &CodeInfo,
+    stack_frames: &StackMapFrames,
+    act_frame: &mut Frame,
+    inst_types: &mut InstTypes,
+    idx: InstructionIndex,
+    outer_inst: &'inst Inst,
+    inst: &'inst T,
+) -> Result<(), VerifyStackMapGeneralError> {
+    inst_types.clear();
+
+    let class_id = class_file.id();
+
+    let inst_name = inst.name();
+    if conf.log_instruction {
+        tracing::info!(
+            "# ({}) {}",
+            idx.0,
+            outer_inst.as_pretty_string(class_names, class_file)
+        );
+    }
+
+    check_frame(
+        class_names,
+        class_file,
+        &conf,
+        code,
+        stack_frames,
+        act_frame,
+        idx,
+        inst_name,
+    )?;
+
+    let stack_sizes: StackSizes = act_frame.stack_sizes();
+
+    let stack_info = inst.stack_info(class_names, class_file, method_id, stack_sizes)?;
+    let pop_count = stack_info.pop_count();
+    let push_count = stack_info.push_count();
+
+    inst_types.pop.resize(pop_count, None);
+
+    // Initialize all simple pop types that do not depend on other pop types
+    for i in 0..pop_count {
+        // TODO: Make pop_types iterator? That would avoid these checks, and would probably wor
+        // Get the pop type, which should exist because of the requirements on pop_type_at
+        let pop_type_o = stack_info.pop_type_at(i);
+
+        process_pop_type_early_load(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            act_frame,
+            inst_types,
+            pop_type_o,
+            i,
+            inst_name,
+        )?;
+    }
+
+    // Initialize pop types that depend on other pop types
+    // we have to do these two stages separately because in the jvm,
+    // it is common for the fields that need another field to be put before
+    // and so we cannot simply evaluate them in order
+    for i in 0..pop_count {
+        let pop_type_o = stack_info.pop_type_at(i);
+
+        process_pop_type_with_load(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            act_frame,
+            inst_types,
+            pop_type_o,
+            i,
+            class_id,
+            inst_name,
+        )?;
+    }
+
+    check_pop_types(
+        class_directories,
+        class_names,
+        class_files,
+        classes,
+        packages,
+        &conf,
+        act_frame,
+        inst_types,
+        pop_count,
+        inst_name,
+    )?;
+
+    for (local_index, local_type) in stack_info.locals_in_type_iter() {
+        check_locals_in_type(
+            class_names,
+            &conf,
+            act_frame,
+            local_index,
+            local_type,
+            inst_name,
+        )?;
+    }
+
+    for (local_index, local_type) in stack_info.locals_out_type_iter() {
+        check_locals_out_type(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            &conf,
+            act_frame,
+            inst_types,
+            class_id,
+            local_index,
+            local_type,
+            inst_name,
+        )?;
+    }
+
+    for i in 0..push_count {
+        // TODO: make push_types an iterator?
+        let push_type = stack_info.push_type_at(i);
+
+        check_push_type(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            &conf,
+            act_frame,
+            inst_types,
+            class_id,
+            i,
+            push_type,
+            inst_name,
+        )?;
     }
 
     Ok(())
@@ -1132,32 +1403,22 @@ impl FrameType {
     }
 
     fn from_opcode_complex_type(
-        classes: &mut Classes,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        packages: &mut Packages,
         complex: &ComplexType,
     ) -> Result<FrameType, VerifyStackMapGeneralError> {
         Ok(match complex {
             ComplexType::RefArrayPrimitive(prim) => {
-                let array_id = classes.load_array_of_primitives(class_names, *prim)?;
+                let array_id = class_names.gcid_from_array_of_primitives(*prim);
                 ComplexFrameType::ReferenceClass(array_id).into()
             }
             ComplexType::RefArrayPrimitiveLevels { level, primitive } => {
-                let array_id =
-                    classes.load_level_array_of_primitives(class_names, *level, *primitive)?;
+                let array_id = class_names.gcid_from_level_array_of_primitives(*level, *primitive);
                 ComplexFrameType::ReferenceClass(array_id).into()
             }
             ComplexType::RefArrayLevels { level, class_id } => {
-                let array_id = classes.load_level_array_of_class_id(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    packages,
-                    *level,
-                    *class_id,
-                )?;
+                let array_id = class_names
+                    .gcid_from_level_array_of_class_id(*level, *class_id)
+                    .map_err(StepError::BadId)?;
 
                 ComplexFrameType::ReferenceClass(array_id).into()
             }
@@ -1566,14 +1827,7 @@ impl FrameType {
     ) -> Result<FrameType, VerifyStackMapGeneralError> {
         match typ {
             Type::Primitive(primitive) => Ok(FrameType::from_opcode_primitive_type(primitive)),
-            Type::Complex(complex) => FrameType::from_opcode_complex_type(
-                classes,
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                complex,
-            ),
+            Type::Complex(complex) => FrameType::from_opcode_complex_type(class_names, complex),
             Type::With(with_t) => FrameType::from_opcode_with_type(
                 classes,
                 class_directories,
@@ -1590,26 +1844,16 @@ impl FrameType {
     }
 
     fn from_opcode_type_no_with(
-        classes: &mut Classes,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        packages: &mut Packages,
         typ: &Type,
     ) -> Result<Option<FrameType>, VerifyStackMapGeneralError> {
         match typ {
             Type::Primitive(primitive) => {
                 Ok(Some(FrameType::from_opcode_primitive_type(primitive)))
             }
-            Type::Complex(complex) => FrameType::from_opcode_complex_type(
-                classes,
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                complex,
-            )
-            .map(Some),
+            Type::Complex(complex) => {
+                FrameType::from_opcode_complex_type(class_names, complex).map(Some)
+            }
             Type::With(_) => Ok(None),
         }
     }

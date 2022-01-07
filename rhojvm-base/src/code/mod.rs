@@ -240,31 +240,3 @@ pub(crate) fn parse_code(
         attributes: std::mem::take(&mut code_attr.attributes),
     })
 }
-
-// pub(crate) fn parse_code(
-//     mut code_attr: classfile_parser::attribute_info::CodeAttribute,
-// ) -> Result<CodeInfo, InstructionParseError> {
-//     // TODO: If the class file version number is 51.0 or above, then neither the jsr opcode or the jsr_w opcode may appear in the code array.
-
-//     let code = code_attr.code.as_slice();
-//     let mut res = Vec::new();
-
-//     let mut idx: u16 = 0;
-//     while (idx as usize) < code.len() {
-//         let inst = Inst::parse(code, InstructionIndex(idx))?;
-//         let size: u16 = inst
-//             .memory_size()
-//             .try_into()
-//             .expect("All inst memory sizes should fit into a u16");
-//         res.push((InstructionIndex(idx), inst));
-//         idx += size;
-//     }
-
-//     Ok(CodeInfo {
-//         instructions: res,
-//         max_locals: code_attr.max_locals,
-//         max_stack: code_attr.max_stack,
-//         exception_table: std::mem::take(&mut code_attr.exception_table),
-//         attributes: std::mem::take(&mut code_attr.attributes),
-//     })
-// }

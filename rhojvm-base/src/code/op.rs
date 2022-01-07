@@ -5,16 +5,17 @@ use classfile_parser::constant_info::{
 };
 use classfile_parser::constant_pool::ConstantPoolIndexRaw;
 
+use crate::class::ClassFileData;
 use crate::code::op_ex::InstructionParseError;
 use crate::code::types::{
-    Byte, Char, ComplexType, Double, Float, HasStackInfo, Int, LocalVariableInType,
-    LocalVariableIndex, LocalVariableIndexByte, LocalVariableIndexByteType, LocalVariableIndexType,
-    LocalVariableType, LocalsIn, LocalsOutAt, Long, ParseOutput, PopComplexType, PopIndex, PopType,
-    PopTypeAt, PrimitiveType, PushIndex, PushType, PushTypeAt, Short, StackInfo, StackSizes, Type,
-    UnsignedByte, UnsignedShort, WithType,
+    Byte, Char, ComplexType, Double, Float, HasStackInfo, Instruction, Int, LocalVariableInType,
+    LocalVariableIndex, LocalVariableIndexByteType, LocalVariableIndexType, LocalVariableType,
+    LocalsIn, LocalsOutAt, Long, ParseOutput, PopComplexType, PopIndex, PopType, PopTypeAt,
+    PrimitiveType, PushIndex, PushType, PushTypeAt, Short, StackInfo, StackSizes, UnsignedByte,
+    UnsignedShort, WithType,
 };
 use crate::util::{MemorySize, StaticMemorySize};
-use crate::{ClassDirectories, ClassFiles, ClassNames, Classes, Methods, Packages};
+use crate::ClassNames;
 
 use super::types::ConstantPoolIndexRawU8;
 
@@ -37,7 +38,7 @@ macro_rules! define_pop {
         impl PopTypeAt for $for {
             fn pop_type_at(&self, i: PopIndex) -> Option<PopType> {
                 let pops = [$(PopType::from($pop_ty)),*];
-                std::array::IntoIter::new(pops).nth(i)
+                pops.into_iter().nth(i)
             }
 
             fn pop_count(&self) -> usize {
@@ -49,7 +50,7 @@ macro_rules! define_pop {
             #[must_use]
             pub fn pop_type_name_at(&self, i: PopIndex) -> Option<&'static str> {
                 let pops = [$(stringify!($pop_name)),*];
-                std::array::IntoIter::new(pops).nth(i)
+                pops.into_iter().nth(i)
             }
         }
     };
@@ -63,7 +64,7 @@ macro_rules! define_push {
         impl PushTypeAt for $for {
             fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
                 let push = [$(PushType::from($push_ty)),*];
-                std::array::IntoIter::new(push).nth(i)
+                push.into_iter().nth(i)
             }
 
             fn push_count(&self) -> usize {
@@ -75,7 +76,7 @@ macro_rules! define_push {
             #[must_use]
             pub fn push_type_name_at(&self, i: PushIndex) -> Option<&'static str> {
                 let push = [$(stringify!($push_name)),*];
-                std::array::IntoIter::new(push).nth(i)
+                push.into_iter().nth(i)
             }
         }
     };
@@ -122,13 +123,8 @@ macro_rules! define_stack_info {
             type Output = Self;
             fn stack_info(
                 &self,
-                _: &ClassDirectories,
                 _: &mut ClassNames,
-                _: &mut ClassFiles,
-                _: &mut Classes,
-                _: &mut Packages,
-                _: &mut Methods,
-                _: $crate::id::ClassFileId,
+                _: &ClassFileData,
                 _: $crate::id::MethodId,
                 _: StackSizes,
             ) -> Result<Self::Output, $crate::StepError> {
@@ -214,9 +210,9 @@ macro_rules! define_instruction {
                         )*
                     })
                 }
-
-                // TODO: Feature to not compile this in
-                pub fn name(&self) -> &'static str {
+            }
+            impl Instruction for $name {
+                fn name(&self) -> &'static str {
                     stringify!($name)
                 }
             }
@@ -288,115 +284,121 @@ macro_rules! define_instructions {
             }
         }
 
-        pub enum StackInfosM {
-            $(
-                $name(<$name as HasStackInfo>::Output)
-            ),+
-        }
-        impl StackInfo for StackInfosM {}
-        impl PopTypeAt for StackInfosM {
-            fn pop_type_at(&self, i: usize) -> Option<PopType> {
-                match self {
-                    $(
-                        StackInfosM::$name(x) => x.pop_type_at(i),
-                    )+
-                    #[allow(unreachable_patterns)]
-                    _ => return None,
-                }
-            }
+        // pub enum StackInfosM {
+        //     $(
+        //         $name(<$name as HasStackInfo>::Output)
+        //     ),+
+        // }
+        // impl StackInfo for StackInfosM {}
+        // impl PopTypeAt for StackInfosM {
+        //     fn pop_type_at(&self, i: usize) -> Option<PopType> {
+        //         match self {
+        //             $(
+        //                 StackInfosM::$name(x) => x.pop_type_at(i),
+        //             )+
+        //             #[allow(unreachable_patterns)]
+        //             _ => return None,
+        //         }
+        //     }
 
-            fn pop_count(&self) -> usize {
-                match self {
-                    $(
-                        StackInfosM::$name(x) => x.pop_count(),
-                    )+
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                }
-            }
-        }
-        impl PushTypeAt for StackInfosM {
-            fn push_type_at(&self, i: usize) -> Option<PushType> {
-                match self {
-                    $(
-                        StackInfosM::$name(x) => x.push_type_at(i),
-                    )+
-                    #[allow(unreachable_patterns)]
-                    _ => return None,
-                }
-            }
+        //     fn pop_count(&self) -> usize {
+        //         match self {
+        //             $(
+        //                 StackInfosM::$name(x) => x.pop_count(),
+        //             )+
+        //             #[allow(unreachable_patterns)]
+        //             _ => unreachable!(),
+        //         }
+        //     }
+        // }
+        // impl PushTypeAt for StackInfosM {
+        //     fn push_type_at(&self, i: usize) -> Option<PushType> {
+        //         match self {
+        //             $(
+        //                 StackInfosM::$name(x) => x.push_type_at(i),
+        //             )+
+        //             #[allow(unreachable_patterns)]
+        //             _ => return None,
+        //         }
+        //     }
 
-            fn push_count(&self) -> usize {
-                match self {
-                    $(
-                        StackInfosM::$name(x) => x.push_count(),
-                    )+
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                }
-            }
-        }
+        //     fn push_count(&self) -> usize {
+        //         match self {
+        //             $(
+        //                 StackInfosM::$name(x) => x.push_count(),
+        //             )+
+        //             #[allow(unreachable_patterns)]
+        //             _ => unreachable!(),
+        //         }
+        //     }
+        // }
 
-        pub enum LocalsOutIter {
-            $(
-                $name(<<$name as HasStackInfo>::Output as LocalsOutAt>::Iter)
-            ),+
-        }
-        impl Iterator for LocalsOutIter {
-            type Item = (LocalVariableIndex, LocalVariableType);
-            fn next(&mut self) -> Option<Self::Item> {
-                match self {
-                    $(
-                        LocalsOutIter::$name(x) => x.next(),
-                    )+
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                }
-            }
-        }
-        impl LocalsOutAt for StackInfosM {
-            type Iter = LocalsOutIter;
+        // pub enum LocalsOutIter {
+        //     $(
+        //         $name(<<$name as HasStackInfo>::Output as LocalsOutAt>::Iter)
+        //     ),+
+        // }
+        // impl Iterator for LocalsOutIter {
+        //     type Item = (LocalVariableIndex, LocalVariableType);
+        //     fn next(&mut self) -> Option<Self::Item> {
+        //         match self {
+        //             $(
+        //                 LocalsOutIter::$name(x) => x.next(),
+        //             )+
+        //             #[allow(unreachable_patterns)]
+        //             _ => unreachable!(),
+        //         }
+        //     }
+        // }
+        // impl LocalsOutAt for StackInfosM {
+        //     type Iter = LocalsOutIter;
 
-            fn locals_out_type_iter(&self) -> Self::Iter {
-                match self {
-                    $(
-                        StackInfosM::$name(x) => LocalsOutIter::$name(x.locals_out_type_iter()),
-                    )+
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                }
-            }
-        }
+        //     fn locals_out_type_iter(&self) -> Self::Iter {
+        //         match self {
+        //             $(
+        //                 StackInfosM::$name(x) => LocalsOutIter::$name(x.locals_out_type_iter()),
+        //             )+
+        //             #[allow(unreachable_patterns)]
+        //             _ => unreachable!(),
+        //         }
+        //     }
+        // }
 
-        pub enum LocalsInIter {
-            $(
-                $name(<<$name as HasStackInfo>::Output as LocalsIn>::Iter)
-            ),+
-        }
-        impl Iterator for LocalsInIter {
-            type Item = (LocalVariableIndex, LocalVariableInType);
-            fn next(&mut self) -> Option<Self::Item> {
-                match self {
-                    $(
-                        LocalsInIter::$name(x) => x.next(),
-                    )+
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                }
-            }
-        }
-        impl LocalsIn for StackInfosM {
-            type Iter = LocalsInIter;
+        // pub enum LocalsInIter {
+        //     $(
+        //         $name(<<$name as HasStackInfo>::Output as LocalsIn>::Iter)
+        //     ),+
+        // }
+        // impl Iterator for LocalsInIter {
+        //     type Item = (LocalVariableIndex, LocalVariableInType);
+        //     fn next(&mut self) -> Option<Self::Item> {
+        //         match self {
+        //             $(
+        //                 LocalsInIter::$name(x) => x.next(),
+        //             )+
+        //             #[allow(unreachable_patterns)]
+        //             _ => unreachable!(),
+        //         }
+        //     }
+        // }
+        // impl LocalsIn for StackInfosM {
+        //     type Iter = LocalsInIter;
 
-            fn locals_in_type_iter(&self) -> Self::Iter {
-                match self {
-                    $(
-                        StackInfosM::$name(x) => LocalsInIter::$name(x.locals_in_type_iter()),
-                    )+
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                }
-            }
+        //     fn locals_in_type_iter(&self) -> Self::Iter {
+        //         match self {
+        //             $(
+        //                 StackInfosM::$name(x) => LocalsInIter::$name(x.locals_in_type_iter()),
+        //             )+
+        //             #[allow(unreachable_patterns)]
+        //             _ => unreachable!(),
+        //         }
+        //     }
+        // }
+
+        pub trait InstMapFunc<'a> {
+            type Output;
+
+            fn call(self, inst: &'a impl Instruction) -> Self::Output;
         }
 
         #[derive(Clone)]
@@ -425,6 +427,17 @@ macro_rules! define_instructions {
                 }
             }
 
+            pub fn map<'a, F: InstMapFunc<'a>>(&'a self, f: F) -> F::Output {
+                match self {
+                    $(
+                        InstM::$name(x) => f.call(x),
+                    )+
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!()
+                }
+            }
+        // }
+        // impl Instruction for InstM {
             pub fn name(&self) -> &'static str {
                 match self {
                     $(
@@ -435,24 +448,24 @@ macro_rules! define_instructions {
                 }
             }
         }
-        impl HasStackInfo for InstM {
-            type Output = StackInfosM;
+        // impl HasStackInfo for InstM {
+        //     type Output = StackInfosM;
 
-            fn stack_info(&self, class_directories: &ClassDirectories,
-                class_names: &mut ClassNames,
-                class_files: &mut ClassFiles,
-                classes: &mut Classes,
-                packages: &mut Packages,
-                methods: &mut Methods, class_id: $crate::id::ClassFileId, method_id: $crate::id::MethodId, stack_sizes: StackSizes,) -> Result<StackInfosM, $crate::StepError> {
-                Ok(match self {
-                    $(
-                        InstM::$name(inst) => StackInfosM::$name(inst.stack_info(class_directories, class_names, class_files, classes, packages, methods, class_id, method_id, stack_sizes)?),
-                    )*
-                    #[allow(unreachable_patterns)]
-                    _ => unimplemented!(),
-                })
-            }
-        }
+        //     fn stack_info(&self,
+        //         class_names: &mut ClassNames,
+        //         class_file: &ClassFileData,
+        //         method_id: $crate::id::MethodId,
+        //         stack_sizes: StackSizes
+        //     ) -> Result<StackInfosM, $crate::StepError> {
+        //         Ok(match self {
+        //             $(
+        //                 InstM::$name(inst) => StackInfosM::$name(inst.stack_info(class_names, class_file, method_id, stack_sizes)?),
+        //             )*
+        //             #[allow(unreachable_patterns)]
+        //             _ => unimplemented!(),
+        //         })
+        //     }
+        // }
         impl MemorySize for InstM {
             fn memory_size(&self) -> usize {
                 match self {
@@ -613,8 +626,9 @@ macro_rules! define_instructions {
                     })
                 }
             }
-
-            pub fn name(&self) -> &'static str {
+        }
+        impl Instruction for WideInstM {
+            fn name(&self) -> &'static str {
                 match self {
                     $(
                         WideInstM::$wide_name(inst) => inst.name(),
@@ -627,15 +641,15 @@ macro_rules! define_instructions {
         impl HasStackInfo for WideInstM {
             type Output = WideStackInfosM;
 
-            fn stack_info(&self, class_directories: &ClassDirectories,
+            fn stack_info(&self,
                 class_names: &mut ClassNames,
-                class_files: &mut ClassFiles,
-                classes: &mut Classes,
-                packages: &mut Packages,
-                methods: &mut Methods, class_id: $crate::id::ClassFileId, method_id: $crate::id::MethodId, stack_sizes: StackSizes) -> Result<WideStackInfosM, $crate::StepError> {
+                class_file: &ClassFileData,
+                method_id: $crate::id::MethodId,
+                stack_sizes: StackSizes
+            ) -> Result<WideStackInfosM, $crate::StepError> {
                 Ok(match self {
                     $(
-                        WideInstM::$wide_name(inst) => WideStackInfosM::$wide_name(inst.stack_info(class_directories, class_names, class_files, classes, packages, methods, class_id, method_id, stack_sizes)?),
+                        WideInstM::$wide_name(inst) => WideStackInfosM::$wide_name(inst.stack_info(class_names, class_file, method_id, stack_sizes)?),
                     )*
                     #[allow(unreachable_patterns)]
                     _ => unimplemented!(),
@@ -2895,13 +2909,8 @@ macro_rules! self_sinfo {
             type Output = Self;
             fn stack_info(
                 &self,
-                _: &ClassDirectories,
                 _: &mut ClassNames,
-                _: &mut ClassFiles,
-                _: &mut Classes,
-                _: &mut Packages,
-                _: &mut Methods,
-                _: $crate::id::ClassFileId,
+                _: &ClassFileData,
                 _: $crate::id::MethodId,
                 _: StackSizes,
             ) -> Result<Self::Output, $crate::StepError> {
@@ -2961,8 +2970,9 @@ impl LookupSwitch {
             pairs,
         })
     }
-
-    pub fn name(&self) -> &'static str {
+}
+impl Instruction for LookupSwitch {
+    fn name(&self) -> &'static str {
         "LookupSwitch"
     }
 }
@@ -3068,8 +3078,9 @@ impl TableSwitch {
             jump_offsets,
         })
     }
-
-    pub fn name(&self) -> &'static str {
+}
+impl Instruction for TableSwitch {
+    fn name(&self) -> &'static str {
         "TableSwitch"
     }
 }
@@ -3121,8 +3132,9 @@ impl Wide {
         idx.0 += 1;
         Ok(Self(WideInstM::parse(data, idx)?))
     }
-
-    pub fn name(&self) -> &'static str {
+}
+impl Instruction for Wide {
+    fn name(&self) -> &'static str {
         self.0.name()
     }
 }
@@ -3131,17 +3143,13 @@ impl HasStackInfo for Wide {
 
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: crate::id::ClassFileId,
+        class_file: &ClassFileData,
         method_id: crate::id::MethodId,
         stack_sizes: StackSizes,
     ) -> Result<WideStackInfosM, crate::StepError> {
-        self.0.stack_info(class_directories, class_names, class_files, classes, packages, methods, class_id, method_id, stack_sizes)
+        self.0
+            .stack_info(class_names, class_file, method_id, stack_sizes)
     }
 }
 impl MemorySize for Wide {

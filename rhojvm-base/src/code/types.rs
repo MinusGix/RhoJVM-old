@@ -10,6 +10,7 @@ use classfile_parser::{
 };
 
 use crate::{
+    class::ClassFileData,
     id::{ClassFileId, MethodId},
     package::Packages,
     util::{MemorySize, StaticMemorySize},
@@ -101,6 +102,19 @@ create_primitive_types!([
 impl PrimitiveTypeM {
     pub fn is_category_2(&self) -> bool {
         matches!(self, PrimitiveType::Double | PrimitiveType::Long)
+    }
+
+    pub fn as_desc_prefix(&self) -> &'static str {
+        match self {
+            PrimitiveTypeM::Byte | PrimitiveTypeM::UnsignedByte => "B",
+            PrimitiveTypeM::Short | PrimitiveTypeM::UnsignedShort => "S",
+            PrimitiveTypeM::Int => "I",
+            PrimitiveTypeM::Long => "J",
+            PrimitiveTypeM::Float => "F",
+            PrimitiveTypeM::Double => "D",
+            PrimitiveTypeM::Char => "C",
+            PrimitiveTypeM::Boolean => "Z",
+        }
     }
 
     pub fn is_same_type_on_stack(&self, right: &PrimitiveType) -> bool {
@@ -519,14 +533,16 @@ pub trait HasStackInfo {
     #[must_use]
     fn stack_info(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        classes: &mut Classes,
-        packages: &mut Packages,
-        methods: &mut Methods,
-        class_id: ClassFileId,
+        class_file: &ClassFileData,
         method_id: MethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError>;
+}
+
+/// Note that this is for things that behave like an instruction
+/// This means it is not a pure marker trait, because it is implemented for the enum of all
+/// instructions.
+pub trait Instruction: HasStackInfo {
+    fn name(&self) -> &'static str;
 }
