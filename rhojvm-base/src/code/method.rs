@@ -12,6 +12,7 @@ use classfile_parser::{
     method_info::{MethodAccessFlags, MethodInfo},
     ClassAccessFlags,
 };
+use smallvec::SmallVec;
 
 use crate::{
     class::{ArrayComponentType, ClassFileData},
@@ -50,7 +51,7 @@ pub struct Method {
     pub(crate) overrides: Option<Vec<MethodOverride>>,
     pub(crate) code: Option<CodeInfo>,
     /// Attributes may be removed at will as they are initialized
-    pub(crate) attributes: Vec<AttributeInfo>,
+    pub(crate) attributes: SmallVec<[AttributeInfo; 4]>,
 }
 impl Method {
     pub(crate) fn new(
@@ -58,7 +59,7 @@ impl Method {
         name: String,
         descriptor: MethodDescriptor,
         access_flags: MethodAccessFlags,
-        attributes: Vec<AttributeInfo>,
+        attributes: SmallVec<[AttributeInfo; 4]>,
     ) -> Self {
         Self {
             id,

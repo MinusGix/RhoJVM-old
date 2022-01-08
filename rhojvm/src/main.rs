@@ -2,6 +2,7 @@
 // The way this library is designed has many arguments. Grouping them together would be nice for
 // readability, but it makes it harder to minimize dependnecies which has other knock-on effects..
 #![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_lines)]
 
 use std::{borrow::Cow, num::NonZeroUsize, path::Path};
 
@@ -290,6 +291,115 @@ fn main() {
         .unwrap();
 
     state.entry_point_method = Some(main_method_id);
+
+    // #[derive(Default)]
+    // struct Stat {
+    //     values: Vec<usize>,
+    // }
+    // impl Stat {
+    //     fn push(&mut self, v: impl Into<usize>) {
+    //         let v = v.into();
+    //         self.values.push(v);
+    //     }
+
+    //     fn count(&self) -> usize {
+    //         self.values.len()
+    //     }
+
+    //     fn sum(&self) -> usize {
+    //         self.values.iter().fold(0, |acc, x| acc + x)
+    //     }
+
+    //     fn average(&self) -> f64 {
+    //         (self.sum() as f64) / (self.count() as f64)
+    //     }
+
+    //     fn sort(&mut self) {
+    //         self.values.sort();
+    //     }
+
+    //     fn percentile(&self, percent: f64) -> usize {
+    //         let index = (self.count() as f64 * percent).round() as usize;
+    //         return self.values[index];
+    //     }
+    // }
+
+    // let mut const_pool_size_stat = Stat::default();
+    // let mut interface_stat = Stat::default();
+    // let mut fields_stat = Stat::default();
+    // let mut methods_stat = Stat::default();
+    // let mut attributes_stat = Stat::default();
+
+    // let mut field_attributes_stat = Stat::default();
+    // let mut method_attributes_stat = Stat::default();
+
+    // for (entry_id, class) in class_files.iter() {
+    //     let c = class.get_class_file_unstable();
+    //     const_pool_size_stat.push(c.const_pool_size);
+    //     interface_stat.push(c.interfaces_count);
+    //     fields_stat.push(c.fields_count);
+    //     methods_stat.push(c.methods_count);
+    //     attributes_stat.push(c.attributes_count);
+
+    //     for field in c.fields.iter() {
+    //         field_attributes_stat.push(field.attributes_count);
+    //     }
+
+    //     for method in c.methods.iter() {
+    //         method_attributes_stat.push(method.attributes_count)
+    //     }
+    // }
+    // const_pool_size_stat.sort();
+    // interface_stat.sort();
+    // fields_stat.sort();
+    // methods_stat.sort();
+    // attributes_stat.sort();
+
+    // field_attributes_stat.sort();
+    // method_attributes_stat.sort();
+
+    // // Since they are all the same, this is fine.
+    // println!("Count: {}", const_pool_size_stat.count());
+
+    // let perc = 0.90;
+    // println!(
+    //     "Const Pool: {}, Avg: {:?}",
+    //     const_pool_size_stat.percentile(perc),
+    //     const_pool_size_stat.average()
+    // );
+    // println!(
+    //     "Interface: {}, Avg: {:?}, Sum: {}",
+    //     interface_stat.percentile(perc),
+    //     interface_stat.average(),
+    //     interface_stat.sum(),
+    // );
+    // println!(
+    //     "Fields: {}, Avg: {:?}",
+    //     fields_stat.percentile(perc),
+    //     fields_stat.average()
+    // );
+    // println!(
+    //     "Methods: {}, Avg: {:?}",
+    //     methods_stat.percentile(perc),
+    //     methods_stat.average()
+    // );
+    // println!(
+    //     "Attributes: {}, Avg: {:?}",
+    //     attributes_stat.percentile(perc),
+    //     attributes_stat.average()
+    // );
+
+    // println!(
+    //     "Field Attributes: {}, Avg: {:?}",
+    //     field_attributes_stat.percentile(perc),
+    //     field_attributes_stat.average()
+    // );
+
+    // println!(
+    //     "Method Attributes: {}, Avg: {:?}",
+    //     method_attributes_stat.percentile(perc),
+    //     method_attributes_stat.average()
+    // );
 }
 
 #[derive(Debug)]

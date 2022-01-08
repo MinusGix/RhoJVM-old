@@ -32,6 +32,13 @@ pub struct ClassFileData {
     pub(crate) class_file: ClassFile,
 }
 impl ClassFileData {
+    /// Gets the classfile directly.
+    /// There is _no_ guarantee that this is stable, and it may be removed without a major version
+    /// change.
+    pub fn get_class_file_unstable(&self) -> &ClassFile {
+        &self.class_file
+    }
+
     #[must_use]
     pub fn id(&self) -> ClassFileId {
         self.id
