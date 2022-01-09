@@ -87,7 +87,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
     let index = index.into_generic();
     if let Some(value) = class_file.get_t(index) {
         match value {
-            ConstantInfo::Utf8(v) => format!("utf8\"{}\"", v.as_text()),
+            ConstantInfo::Utf8(v) => format!("utf8\"{}\"", v.as_text(&class_file.class_file_data)),
             ConstantInfo::Integer(v) => format!("{}", v.value),
             ConstantInfo::Float(v) => format!("{}_f", v.value),
             ConstantInfo::Long(v) => format!("{}_l", v.value),

@@ -217,8 +217,9 @@ impl StackMapFrames {
         });
 
         let smt = if let Some(smt) = smt {
-            let (rem_data, smt) = stack_map_table_attribute_parser(&smt.info)
-                .map_err(|_| StackMapError::ParseError)?;
+            let (rem_data, smt) =
+                stack_map_table_attribute_parser(class_file.parse_data_for(smt.info.clone()))
+                    .map_err(|_| StackMapError::ParseError)?;
             debug_assert!(rem_data.is_empty());
             smt
         } else if class_file.version().map_or(false, |x| x.major <= 50) {

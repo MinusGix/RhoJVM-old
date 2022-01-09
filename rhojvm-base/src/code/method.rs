@@ -213,8 +213,9 @@ impl Method {
 
         if let Some(attr_idx) = code_attr_idx {
             let code_attr = &self.attributes()[attr_idx];
-            let (data_rem, code_attr) = code_attribute_parser(&code_attr.info)
-                .map_err(|_| LoadCodeError::InvalidCodeAttribute)?;
+            let (data_rem, code_attr) =
+                code_attribute_parser(class_file.parse_data_for(code_attr.info.clone()))
+                    .map_err(|_| LoadCodeError::InvalidCodeAttribute)?;
             debug_assert!(data_rem.is_empty(), "The remaining data after parsing the code attribute was non-empty. This indicates a bug.");
 
             // TODO: A config for code parsing that includes information like the class file

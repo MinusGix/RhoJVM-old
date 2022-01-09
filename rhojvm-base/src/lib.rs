@@ -1387,6 +1387,8 @@ pub fn direct_load_class_file_from_rel_path(
     id: ClassFileId,
     rel_path: PathBuf,
 ) -> Result<ClassFileData, LoadClassFileError> {
+    use classfile_parser::parser::ParseData;
+
     if let Some((file_path, mut file)) = class_directories.load_class_file_with_rel_path(&rel_path)
     {
         let mut data = Vec::new();
@@ -1394,7 +1396,7 @@ pub fn direct_load_class_file_from_rel_path(
             .map_err(LoadClassFileError::ReadError)?;
 
         // TODO: Better errors
-        let (rem_data, class_file) = class_parser(&data)
+        let (rem_data, class_file) = class_parser(ParseData::new(&data))
             .map_err(|x| format!("{:?}", x))
             .map_err(LoadClassFileError::ClassFileParseError)?;
         // TODO: Don't assert
@@ -1403,6 +1405,7 @@ pub fn direct_load_class_file_from_rel_path(
         Ok(ClassFileData {
             id,
             class_file,
+            class_file_data: data,
             path: file_path,
         })
     } else {

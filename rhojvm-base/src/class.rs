@@ -1,9 +1,10 @@
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, ops::Range, path::PathBuf};
 
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo, Utf8Constant},
     constant_pool::{ConstantPoolIndex, ConstantPoolIndexRaw},
     method_info::MethodInfo,
+    parser::ParseData,
     ClassFile, ClassFileVersion,
 };
 
@@ -29,6 +30,13 @@ pub struct ClassFileData {
     #[allow(dead_code)]
     /// The direct path to the file
     pub(crate) path: PathBuf,
+    /// The raw bytes of the class file
+    /// We keep this around because the majority of class files are relatively small
+    /// This could switch to holding a File, or just opening the file as needed, to read the bytes
+    /// out (that we haven't parsed and collected, because doing that for everything is excessive)
+    /// As well, an optimization for memory could throw away parts that we always parse, but that
+    /// complicates the implementation, and so has not yet been done.
+    pub(crate) class_file_data: Vec<u8>,
     pub(crate) class_file: ClassFile,
 }
 impl ClassFileData {
@@ -38,6 +46,12 @@ impl ClassFileData {
     /// change.
     pub fn get_class_file_unstable(&self) -> &ClassFile {
         &self.class_file
+    }
+
+    // TODO: Give the class file a good way of parsing attributes to not expose
+    // implementation details
+    pub(crate) fn parse_data_for(&self, r: Range<usize>) -> ParseData {
+        ParseData::from_range(&self.class_file_data, r)
     }
 
     #[must_use]
@@ -67,16 +81,9 @@ impl ClassFileData {
         self.class_file.const_pool.get_t_mut(i)
     }
 
-    /// Prefer to use this version since it lets us cache
-    pub fn get_text_t_mut(
-        &mut self,
-        i: impl TryInto<ConstantPoolIndex<Utf8Constant>>,
-    ) -> Option<&str> {
-        self.get_t_mut(i).map(Utf8Constant::as_text_mut)
-    }
-
+    // TODO: Add a cache for these!
     pub fn get_text_t(&self, i: impl TryInto<ConstantPoolIndex<Utf8Constant>>) -> Option<Cow<str>> {
-        self.get_t(i).map(Utf8Constant::as_text)
+        self.get_t(i).map(|x| x.as_text(&self.class_file_data))
     }
 
     #[must_use]
