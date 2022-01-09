@@ -440,8 +440,9 @@ impl StaticMethodInfo {
             StackInfoError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
         )?;
 
-        let (parameters, return_type) = descriptor_into_parameters_ret(class_names, descriptor)
-            .map_err(LoadMethodError::MethodDescriptorError)?;
+        let (parameters, return_type) =
+            descriptor_into_parameters_ret(class_names, descriptor.as_ref())
+                .map_err(LoadMethodError::MethodDescriptorError)?;
 
         Ok(StaticMethodInfo {
             parameters,
@@ -502,8 +503,9 @@ impl RefMethodInfo {
         let descriptor = class_file.get_text_t(nat.descriptor_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
         )?;
-        let (parameters, return_type) = descriptor_into_parameters_ret(class_names, descriptor)
-            .map_err(LoadMethodError::MethodDescriptorError)?;
+        let (parameters, return_type) =
+            descriptor_into_parameters_ret(class_names, descriptor.as_ref())
+                .map_err(LoadMethodError::MethodDescriptorError)?;
 
         Ok(RefMethodInfo {
             class_id: rec_class_id,
@@ -891,8 +893,8 @@ fn get_field_type(
         StackInfoError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
     )?;
     // Parse the type of the field
-    let (field_type, rem) =
-        DescriptorTypeCF::parse(field_descriptor).map_err(StackInfoError::InvalidDescriptorType)?;
+    let (field_type, rem) = DescriptorTypeCF::parse(field_descriptor.as_ref())
+        .map_err(StackInfoError::InvalidDescriptorType)?;
     // There shouldn't be any remaining data.
     if !rem.is_empty() {
         return Err(StackInfoError::UnparsedFieldType.into());

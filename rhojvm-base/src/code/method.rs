@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::num::NonZeroUsize;
 
 use classfile_parser::{
@@ -83,7 +84,13 @@ impl Method {
                 index: method.name_index,
             },
         )?;
-        Self::new_from_info_with_name(id, class_file, class_names, method, method_name.to_owned())
+        Self::new_from_info_with_name(
+            id,
+            class_file,
+            class_names,
+            method,
+            method_name.into_owned(),
+        )
     }
 
     /// Construct the method with an already known name
@@ -97,7 +104,7 @@ impl Method {
     ) -> Result<Self, LoadMethodError> {
         debug_assert_eq!(
             class_file.get_text_t(method.name_index),
-            Some(method_name.as_str())
+            Some(Cow::Borrowed(method_name.as_str()))
         );
 
         let descriptor_text = class_file.get_text_t(method.descriptor_index).ok_or(
@@ -105,7 +112,7 @@ impl Method {
                 index: method.descriptor_index,
             },
         )?;
-        let desc = MethodDescriptorCF::parse(descriptor_text)
+        let desc = MethodDescriptorCF::parse(descriptor_text.as_ref())
             .map_err(LoadMethodError::MethodDescriptorError)?;
         let desc = MethodDescriptor::from_class_file_parser_md(desc, class_names);
 
@@ -415,9 +422,11 @@ impl DescriptorType {
     }
 }
 
+pub type ParametersContainer = SmallVec<[DescriptorType; 8]>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodDescriptor {
-    parameters: Vec<DescriptorType>,
+    parameters: ParametersContainer,
     /// None represents void
     return_type: Option<DescriptorType>,
 }
@@ -425,7 +434,7 @@ impl MethodDescriptor {
     #[must_use]
     /// Construct a method descriptor that takes in the given parameters and potentially returns
     /// some type
-    pub fn new(parameters: Vec<DescriptorType>, return_type: Option<DescriptorType>) -> Self {
+    pub fn new(parameters: ParametersContainer, return_type: Option<DescriptorType>) -> Self {
         Self {
             parameters,
             return_type,
@@ -434,20 +443,20 @@ impl MethodDescriptor {
 
     #[must_use]
     /// Construct a [`MethodDescriptor`] that returns void
-    pub fn new_void(parameters: Vec<DescriptorType>) -> Self {
-        Self::new(parameters, None)
+    pub fn new_void(parameters: impl Into<ParametersContainer>) -> Self {
+        Self::new(parameters.into(), None)
     }
 
     #[must_use]
     /// Construct a [`MethodDescriptor`] that takes no parameters and returns void
     pub fn new_empty() -> Self {
-        Self::new(Vec::new(), None)
+        Self::new(ParametersContainer::new(), None)
     }
 
     #[must_use]
     /// Construct a [`MethodDescriptor`] that takes no parameters and returns some type
     pub fn new_ret(return_type: DescriptorType) -> Self {
-        Self::new(Vec::new(), Some(return_type))
+        Self::new(ParametersContainer::new(), Some(return_type))
     }
 
     #[must_use]
@@ -461,7 +470,7 @@ impl MethodDescriptor {
     }
 
     #[must_use]
-    pub fn into_parameters_ret(self) -> (Vec<DescriptorType>, Option<DescriptorType>) {
+    pub fn into_parameters_ret(self) -> (ParametersContainer, Option<DescriptorType>) {
         (self.parameters, self.return_type)
     }
 
@@ -473,9 +482,10 @@ impl MethodDescriptor {
     }
 
     pub(crate) fn from_text(
-        desc: &str,
+        desc: impl AsRef<str>,
         class_names: &mut ClassNames,
     ) -> Result<Self, MethodDescriptorError> {
+        let desc = desc.as_ref();
         let desc = classfile_parser::descriptor::method::MethodDescriptor::parse(desc)?;
         Ok(MethodDescriptor::from_class_file_parser_md(
             desc,

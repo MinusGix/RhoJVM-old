@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use classfile_parser::{
     attribute_info::{
         stack_map_table_attribute_parser, InstructionIndex, StackMapFrame as StackMapFrameCF,
@@ -210,10 +212,9 @@ impl StackMapFrames {
         };
 
         // Stack map table attribute
-        let smt = method_code
-            .attributes()
-            .iter()
-            .find(|x| class_file.get_text_t(x.attribute_name_index) == Some("StackMapTable"));
+        let smt = method_code.attributes().iter().find(|x| {
+            class_file.get_text_t(x.attribute_name_index) == Some(Cow::Borrowed("StackMapTable"))
+        });
 
         let smt = if let Some(smt) = smt {
             let (rem_data, smt) = stack_map_table_attribute_parser(&smt.info)

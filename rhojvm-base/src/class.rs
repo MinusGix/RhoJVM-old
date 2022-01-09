@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{borrow::Cow, path::PathBuf};
 
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo, Utf8Constant},
@@ -32,6 +32,7 @@ pub struct ClassFileData {
     pub(crate) class_file: ClassFile,
 }
 impl ClassFileData {
+    #[must_use]
     /// Gets the classfile directly.
     /// There is _no_ guarantee that this is stable, and it may be removed without a major version
     /// change.
@@ -66,8 +67,16 @@ impl ClassFileData {
         self.class_file.const_pool.get_t_mut(i)
     }
 
-    pub fn get_text_t(&self, i: impl TryInto<ConstantPoolIndex<Utf8Constant>>) -> Option<&str> {
-        self.get_t(i).map(|x| x.utf8_string.as_str())
+    /// Prefer to use this version since it lets us cache
+    pub fn get_text_t_mut(
+        &mut self,
+        i: impl TryInto<ConstantPoolIndex<Utf8Constant>>,
+    ) -> Option<&str> {
+        self.get_t_mut(i).map(Utf8Constant::as_text_mut)
+    }
+
+    pub fn get_text_t(&self, i: impl TryInto<ConstantPoolIndex<Utf8Constant>>) -> Option<Cow<str>> {
+        self.get_t(i).map(Utf8Constant::as_text)
     }
 
     #[must_use]
@@ -85,16 +94,15 @@ impl ClassFileData {
         self.class_file.access_flags
     }
 
-    pub(crate) fn get_this_class_name(&self) -> Result<&str, ClassFileIndexError> {
+    pub(crate) fn get_this_class_name(&self) -> Result<Cow<str>, ClassFileIndexError> {
         let this_class = self
             .get_t(self.class_file.this_class)
             .ok_or(ClassFileIndexError::InvalidThisClassIndex)?;
-        self.get_t(this_class.name_index)
-            .map(|x| x.utf8_string.as_str())
+        self.get_text_t(this_class.name_index)
             .ok_or(ClassFileIndexError::InvalidThisClassNameIndex)
     }
 
-    pub(crate) fn get_super_class_name(&self) -> Result<Option<&str>, ClassFileIndexError> {
+    pub(crate) fn get_super_class_name(&self) -> Result<Option<Cow<str>>, ClassFileIndexError> {
         // There is no base class
         // Only java/lang/Object should have no base class, but we don't do that verification here
         if self.class_file.super_class.is_zero() {
@@ -104,8 +112,7 @@ impl ClassFileData {
         let super_class = self
             .get_t(self.class_file.super_class)
             .ok_or(ClassFileIndexError::InvalidSuperClassIndex)?;
-        self.get_t(super_class.name_index)
-            .map(|x| x.utf8_string.as_str())
+        self.get_text_t(super_class.name_index)
             .map(Some)
             .ok_or(ClassFileIndexError::InvalidSuperClassNameIndex)
     }

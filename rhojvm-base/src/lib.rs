@@ -330,10 +330,11 @@ impl Classes {
         let super_class_name = class_file
             .get_super_class_name()
             .map_err(LoadClassError::ClassFileIndex)?;
-        let super_class_id = super_class_name.map(|x| class_names.gcid_from_str(x));
+        let super_class_name = super_class_name.as_ref().map(AsRef::as_ref);
 
+        let super_class_id = super_class_name.map(|x| class_names.gcid_from_str(x));
         let package = {
-            let mut package = util::access_path_iter(this_class_name).peekable();
+            let mut package = util::access_path_iter(this_class_name.as_ref()).peekable();
             // TODO: Don't unwrap
             let _class_name = package.next_back().unwrap();
             let package = if package.peek().is_some() {
@@ -1035,7 +1036,8 @@ impl ClassNames {
         id
     }
 
-    pub fn gcid_from_str(&mut self, class_path: &str) -> GeneralClassId {
+    pub fn gcid_from_str(&mut self, class_path: impl AsRef<str>) -> GeneralClassId {
+        let class_path = class_path.as_ref();
         let kind = InternalKind::from_str(class_path);
 
         let id = id::hash_access_path(class_path);
@@ -1444,7 +1446,7 @@ fn method_id_from_desc<'a>(
         .methods()
         .iter()
         .enumerate()
-        .filter(|(_, x)| class_file.get_text_t(x.name_index) == Some(name));
+        .filter(|(_, x)| class_file.get_text_t(x.name_index) == Some(Cow::Borrowed(name)));
 
     for (i, method_info) in methods {
         let descriptor_index = method_info.descriptor_index;
@@ -1455,7 +1457,7 @@ fn method_id_from_desc<'a>(
         )?;
 
         if desc
-            .is_equal_to_descriptor(class_names, descriptor_text)
+            .is_equal_to_descriptor(class_names, descriptor_text.as_ref())
             .map_err(LoadMethodError::MethodDescriptorError)?
         {
             let method_id = MethodId::unchecked_compose(class_file.id(), i);

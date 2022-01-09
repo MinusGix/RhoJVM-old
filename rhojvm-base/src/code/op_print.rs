@@ -87,7 +87,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
     let index = index.into_generic();
     if let Some(value) = class_file.get_t(index) {
         match value {
-            ConstantInfo::Utf8(v) => format!("utf8\"{}\"", v.utf8_string),
+            ConstantInfo::Utf8(v) => format!("utf8\"{}\"", v.as_text()),
             ConstantInfo::Integer(v) => format!("{}", v.value),
             ConstantInfo::Float(v) => format!("{}_f", v.value),
             ConstantInfo::Long(v) => format!("{}_l", v.value),
@@ -97,7 +97,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
                     format!(
                         "Class({} = {})",
                         class_name,
-                        class_names.gcid_from_str(class_name)
+                        class_names.gcid_from_str(class_name.as_ref())
                     )
                 } else {
                     format!(
@@ -116,7 +116,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
             ConstantInfo::FieldRef(field) => {
                 let class_name = if let Some(class) = class_file.get_t(field.class_index) {
                     if let Some(text) = class_file.get_text_t(class.name_index) {
-                        text.to_owned()
+                        text.into_owned()
                     } else {
                         format!(
                             "[BadClassNameIndex #{} -> {}]",
@@ -129,7 +129,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
 
                 if let Some(nat) = class_file.get_t(field.name_and_type_index) {
                     let name = if let Some(name) = class_file.get_text_t(nat.name_index) {
-                        name.to_owned()
+                        name.into_owned()
                     } else {
                         format!(
                             "[BadNameIndex #{} -> #{}]",
@@ -139,7 +139,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
 
                     let typ = if let Some(typ) = class_file.get_text_t(nat.descriptor_index) {
                         // TODO: Parse it?
-                        typ.to_owned()
+                        typ.into_owned()
                     } else {
                         format!(
                             "[BadDescriptorIndex #{} -> #{}]",
@@ -171,14 +171,14 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
             ),
             ConstantInfo::NameAndType(nat) => {
                 let name = if let Some(name) = class_file.get_text_t(nat.name_index) {
-                    name.to_owned()
+                    name.into_owned()
                 } else {
                     format!("[BadNameIndex #{} -> #{}]", index.0, nat.name_index.0)
                 };
 
                 let typ = if let Some(typ) = class_file.get_text_t(nat.descriptor_index) {
                     // TODO: Parse it?
-                    typ.to_owned()
+                    typ.into_owned()
                 } else {
                     format!(
                         "[BadDescriptorIndex #{} -> #{}]",
@@ -228,7 +228,7 @@ fn method_to_string(
     let class_name = if let Some(class_index) = class_index {
         if let Some(class) = class_file.get_t(class_index) {
             if let Some(text) = class_file.get_text_t(class.name_index) {
-                text.to_owned()
+                text.into_owned()
             } else {
                 format!(
                     "[BadClassNameIndex #{} -> {}]",
@@ -244,13 +244,13 @@ fn method_to_string(
 
     if let Some(nat) = class_file.get_t(nat_index) {
         let name = if let Some(name) = class_file.get_text_t(nat.name_index) {
-            name.to_owned()
+            name.into_owned()
         } else {
             format!("[BadNameIndex #{} -> #{}]", nat_index.0, nat.name_index.0)
         };
 
         let typ = if let Some(typ) = class_file.get_text_t(nat.descriptor_index) {
-            if let Ok(method_descriptor) = MethodDescriptor::from_text(typ, class_names) {
+            if let Ok(method_descriptor) = MethodDescriptor::from_text(typ.as_ref(), class_names) {
                 method_descriptor.as_pretty_string(class_names)
             } else {
                 format!("[BadMethodDescriptor {}]", typ)
