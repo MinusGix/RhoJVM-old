@@ -179,7 +179,7 @@ impl CodeInfo {
         self.check_exception_basic(exc)?;
 
         // initHandlerIsLegal(1)
-        if method.name == "<init>" {
+        if method.is_init() {
             // notInitHandler (2)
             let has_init_calls = self.invokes_init_methods(class_file)?;
             if has_init_calls {

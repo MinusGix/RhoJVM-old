@@ -485,7 +485,9 @@ pub fn verify_type_safe_method_stack_map(
             class_names
                 .display_path_from_gcid(class_id)
                 .unwrap_or_else(|_| "[BadIdError]".to_owned()),
-            method.name(),
+            class_file
+                .get_text_t(method.name_index())
+                .unwrap_or_else(|| std::borrow::Cow::Owned("[BadMethodNameIndex]".to_owned())),
             method.descriptor().as_pretty_string(class_names),
         );
     }

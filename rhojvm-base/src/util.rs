@@ -137,6 +137,12 @@ macro_rules! __make_map {
             pub fn contains_key(&self, key: &$key) -> bool {
                 self.map.contains_key(key)
             }
+
+            /// Takes the value out
+            /// NOTE: This should really only be used if you know what you're doing.
+            pub fn remove(&mut self, key: &$key) -> Option<$val> {
+                self.map.remove(key)
+            }
         }
 
         $(
@@ -172,6 +178,12 @@ macro_rules! __make_map {
             #[must_use]
             pub fn contains_key(&self, key: &$key) -> bool {
                 self.map.contains_key(key)
+            }
+
+            /// Takes the value out
+            /// NOTE: This should really only be used if you know what you're doing.
+            pub fn remove(&mut self, key: &$key) -> Option<$val> {
+                self.map.remove(key)
             }
         }
 

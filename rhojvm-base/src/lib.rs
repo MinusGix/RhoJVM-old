@@ -131,6 +131,9 @@ pub enum LoadMethodError {
 pub enum LoadCodeError {
     InvalidCodeAttribute,
     InstructionParse(InstructionParseError),
+    /// The method index was invalid, this could signify either a logical bug with this lib
+    /// or the code using it.
+    BadMethodIndex,
 }
 
 #[derive(Debug)]
@@ -377,12 +380,9 @@ impl Classes {
     ) -> Result<ClassId, StepError> {
         let component_type = ArrayComponentType::Class(class_id);
 
-        let mut name = component_type
-            .to_desc_string(class_names)
+        let id = class_names
+            .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), class_id)
             .map_err(StepError::BadId)?;
-        name.insert(0, '[');
-
-        let id = class_names.gcid_from_str(&name);
         if let Some(class) = self.get(&id) {
             // It was already loaded
             debug_assert!(matches!(class, ClassVariant::Array(_)));
@@ -403,7 +403,6 @@ impl Classes {
         };
         let array = ArrayClass {
             id,
-            name,
             super_class: class_names.object_id(),
             component_type,
             access_flags,
@@ -418,12 +417,8 @@ impl Classes {
         prim: PrimitiveType,
     ) -> Result<ClassId, StepError> {
         let component_type = ArrayComponentType::from(prim);
-        let mut name = component_type
-            .to_desc_string(class_names)
-            .map_err(StepError::BadId)?;
-        name.insert(0, '[');
 
-        let array_id = class_names.gcid_from_str(&name);
+        let array_id = class_names.gcid_from_array_of_primitives(prim);
         if let Some(class) = self.get(&array_id) {
             // It was already loaded
             debug_assert!(matches!(class, ClassVariant::Array(_)));
@@ -432,7 +427,6 @@ impl Classes {
 
         let array = ArrayClass::new_unchecked(
             array_id,
-            name,
             component_type,
             class_names.object_id(),
             // Since all the types are primitive, we can simply use this
@@ -448,38 +442,48 @@ impl Classes {
         level: NonZeroUsize,
         prim: PrimitiveType,
     ) -> Result<ClassId, StepError> {
-        let component_type = ArrayComponentType::from(prim);
-        let mut name = component_type
-            .to_desc_string(class_names)
-            .map_err(StepError::BadId)?;
-
-        let object_id = class_names.object_id();
-
-        let mut prev_type = component_type;
-        let mut last_id = None;
-        for _ in 0..level.get() {
-            name.insert(0, '[');
-            let id = class_names.gcid_from_str(&name);
-            if let Some(class) = self.get(&id) {
-                // It was already loaded, so do nothing
-                debug_assert!(matches!(class, ClassVariant::Array(_)));
-            } else {
-                let array = ArrayClass {
-                    id,
-                    name: name.clone(),
-                    super_class: object_id,
-                    component_type: prev_type,
-                    // All primitive types are public
-                    access_flags: ClassAccessFlags::PUBLIC,
-                };
-                self.register_array_class(array);
-            }
-            prev_type = ArrayComponentType::Class(id);
-            last_id = Some(id);
+        let array_id = class_names.gcid_from_level_array_of_primitives(level, prim);
+        if let Some(class) = self.get(&array_id) {
+            // It was already loaded
+            debug_assert!(matches!(class, ClassVariant::Array(_)));
+            return Ok(array_id);
         }
 
-        // Last id must always be filled due to nonzero level
-        Ok(last_id.unwrap())
+        let array = ArrayClass::new_unchecked(
+            array_id,
+            prim.into(),
+            class_names.object_id(),
+            ClassAccessFlags::PUBLIC,
+        );
+        self.register_array_class(array);
+
+        Ok(array_id)
+
+        // let mut prev_type = component_type;
+        // let mut last_id = None;
+        // for i in 0..level.get() {
+        //     let array_id = class_names.gcid_from_level_array_component_type(i_level);
+        //     name.insert(0, '[');
+        //     let id = class_names.gcid_from_str(&name);
+        //     if let Some(class) = self.get(&id) {
+        //         // It was already loaded, so do nothing
+        //         debug_assert!(matches!(class, ClassVariant::Array(_)));
+        //     } else {
+        //         let array = ArrayClass {
+        //             id,
+        //             super_class: object_id,
+        //             component_type: prev_type,
+        //             // All primitive types are public
+        //             access_flags: ClassAccessFlags::PUBLIC,
+        //         };
+        //         self.register_array_class(array);
+        //     }
+        //     prev_type = ArrayComponentType::Class(id);
+        //     last_id = Some(id);
+        // }
+
+        // // Last id must always be filled due to nonzero level
+        // Ok(last_id.unwrap())
     }
 
     pub fn load_level_array_of_desc_type_basic(
@@ -540,7 +544,6 @@ impl Classes {
             } else {
                 let array = ArrayClass {
                     id,
-                    name: name.clone(),
                     super_class: object_id,
                     component_type: prev_type,
                     access_flags,
@@ -929,13 +932,7 @@ impl Methods {
             return Ok(method_id);
         }
 
-        let method = Method::new_from_info_with_name(
-            method_id,
-            class_file,
-            class_names,
-            method_info,
-            name.into_owned(),
-        )?;
+        let method = Method::new_from_info(method_id, class_file, class_names, method_info)?;
 
         self.set_at(method_id, method);
         Ok(method_id)
@@ -1485,12 +1482,11 @@ pub fn direct_load_method_from_desc(
     let (method_id, method_info) =
         method_id_from_desc(class_names, class_file, name.as_ref(), desc)?;
 
-    Ok(Method::new_from_info_with_name(
+    Ok(Method::new_from_info(
         method_id,
         class_file,
         class_names,
         method_info,
-        name.into_owned(),
     )?)
 }
 
@@ -1533,10 +1529,10 @@ fn helper_get_overrided_method(
     class_files: &mut ClassFiles,
     classes: &mut Classes,
     packages: &mut Packages,
-    methods: &mut Methods,
     super_class_file_id: ClassFileId,
     over_package: Option<PackageId>,
-    over_method_id: MethodId,
+    over_method: &Method,
+    over_method_name_hash: u128,
 ) -> Result<Option<MethodId>, StepError> {
     classes.load_class(
         class_directories,
@@ -1566,11 +1562,6 @@ fn helper_get_overrided_method(
             .ok_or(StepError::MissingLoadedValue(
                 "helper_get_overrided_method : super_class_file",
             ))?;
-    let over_method = methods
-        .get(&over_method_id)
-        .ok_or(StepError::MissingLoadedValue(
-            "helper_get_overrided_method : over_method",
-        ))?;
     for (i, method) in super_class_file.methods().iter().enumerate() {
         let flags = method.access_flags;
         let is_public = flags.contains(MethodAccessFlags::PUBLIC);
@@ -1623,7 +1614,16 @@ fn helper_get_overrided_method(
                     index: method.name_index,
                 },
             )?;
-            if method_name == over_method.name {
+
+            // TODO: This should be fine in the majority of cases, since if they want to override a
+            // method, they can just specify the right name rather than trying for a hash collision
+            // but some may not like that trade off of avoiding string allocations, and so allowing
+            // it as an option to simply use the strings would be good.
+            // The reason why we don't simply pass in the name of the over_method is because it is
+            // probably owned by the class file, but we have to modify class_files which invalidates
+            // any reference we have for it.
+            let method_name_hash = method::hash_method_name(method_name.as_ref());
+            if method_name_hash == over_method_name_hash {
                 // TODO: Don't do allocation for comparison. Either have a way to just directly
                 // compare method descriptors with the parsed versions, or a streaming parser
                 // for comparison without alloc
@@ -1666,10 +1666,10 @@ fn helper_get_overrided_method(
             class_files,
             classes,
             packages,
-            methods,
             super_super_class_file_id,
             over_package,
-            over_method_id,
+            over_method,
+            over_method_name_hash,
         )
     } else {
         // There was no method.
@@ -1699,6 +1699,7 @@ pub fn init_method_overrides(
         eprintln!("Skipped trying to find overrides for an array class");
         return Ok(());
     };
+    let class_file = class_files.get(&class_id).unwrap();
     let package = class.package;
 
     let method = methods.get(&method_id).unwrap();
@@ -1715,6 +1716,10 @@ pub fn init_method_overrides(
     }
 
     let overrides = {
+        let method_name = class_file
+            .get_text_t(method.name_index())
+            .ok_or(StepError::MissingLoadedValue("method name.index"))?;
+        let method_name_hash = method::hash_method_name(method_name.as_ref());
         if let Some(super_class_file_id) = class.super_class {
             if let Some(overridden) = helper_get_overrided_method(
                 class_directories,
@@ -1722,20 +1727,20 @@ pub fn init_method_overrides(
                 class_files,
                 classes,
                 packages,
-                methods,
                 super_class_file_id,
                 package,
-                method_id,
+                method,
+                method_name_hash,
             )? {
-                vec![MethodOverride::new(overridden)]
+                smallvec![MethodOverride::new(overridden)]
             } else {
-                Vec::new()
+                SmallVec::new()
             }
         } else {
             // There is no super class (so, in standard we must be Object), and so we don't have
             // to worry about a method overriding a super-class, since we don't have one and/or
             // we are the penultimate super-class.
-            Vec::new()
+            SmallVec::new()
         }
     };
 

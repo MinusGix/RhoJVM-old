@@ -43,6 +43,10 @@ pub(crate) fn make_hasher() -> impl Hasher {
     siphasher::sip::SipHasher::new_with_keys(0, 0)
 }
 
+pub(crate) fn make_hasher1238() -> impl siphasher::sip128::Hasher128 + Hasher {
+    siphasher::sip128::SipHasher::new_with_keys(0, 0)
+}
+
 #[must_use]
 pub(crate) fn hash_access_path(path: &str) -> HashId {
     let mut state = make_hasher();

@@ -609,6 +609,7 @@ fn verify_type_safe_method(
     method_id: MethodId,
 ) -> Result<(), GeneralError> {
     let (class_id, method_index) = method_id.decompose();
+    // It is generally cheaper to clone since they tend to load it as well..
     let class_file = class_files.get(&class_id).unwrap().clone();
     // let mut methods = Methods::default();
     methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;

@@ -241,7 +241,6 @@ impl Class {
 #[derive(Debug, Clone)]
 pub struct ArrayClass {
     pub(crate) id: ClassId,
-    pub(crate) name: String,
     pub(crate) component_type: ArrayComponentType,
     /// Always "java/lang/Object"
     pub(crate) super_class: ClassId,
@@ -252,25 +251,16 @@ impl ArrayClass {
     #[must_use]
     pub fn new_unchecked(
         id: ClassId,
-        name: String,
         component_type: ArrayComponentType,
         super_class: ClassId,
         access_flags: ClassAccessFlags,
     ) -> Self {
         ArrayClass {
             id,
-            name,
             component_type,
             super_class,
             access_flags,
         }
-    }
-
-    #[must_use]
-    /// Note: This should not be used for strictly identifying
-    /// This is strictly for debug purposes
-    pub fn name(&self) -> &str {
-        self.name.as_str()
     }
 
     #[must_use]

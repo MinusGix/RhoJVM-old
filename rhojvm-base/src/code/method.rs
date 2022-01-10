@@ -1,8 +1,11 @@
-use std::borrow::Cow;
+use std::hash::Hash;
 use std::num::NonZeroUsize;
+use std::{borrow::Cow, hash::Hasher};
 
 use classfile_parser::{
-    attribute_info::{code_attribute_parser, AttributeInfo},
+    attribute_info::code_attribute_parser,
+    constant_info::Utf8Constant,
+    constant_pool::ConstantPoolIndexRaw,
     descriptor::{
         method::{
             MethodDescriptor as MethodDescriptorCF, MethodDescriptorError,
@@ -39,74 +42,44 @@ use super::CodeInfo;
 pub struct Method {
     /// Its own id.
     pub(crate) id: MethodId,
-    // TODO: Theoretically this can just be gotten by getting the data from the class file, which
-    // avoids a load of allocations
-    /// The name of the method
-    pub(crate) name: String,
     /// Parameters and return type of the methods
     pub(crate) descriptor: MethodDescriptor,
     /// The access flags for the method
     pub(crate) access_flags: MethodAccessFlags,
     /// The methods that are overridden by this.
     /// `None` if it has not been initialized
-    pub(crate) overrides: Option<Vec<MethodOverride>>,
+    pub(crate) overrides: Option<SmallVec<[MethodOverride; 2]>>,
     pub(crate) code: Option<CodeInfo>,
-    /// Attributes may be removed at will as they are initialized
-    pub(crate) attributes: SmallVec<[AttributeInfo; 4]>,
+    pub(crate) is_init: bool,
+    pub(crate) name_index: ConstantPoolIndexRaw<Utf8Constant>,
 }
 impl Method {
     pub(crate) fn new(
         id: MethodId,
-        name: String,
+        is_init: bool,
         descriptor: MethodDescriptor,
         access_flags: MethodAccessFlags,
-        attributes: SmallVec<[AttributeInfo; 4]>,
+        name_index: ConstantPoolIndexRaw<Utf8Constant>,
     ) -> Self {
         Self {
             id,
-            name,
+            is_init,
             descriptor,
             access_flags,
             overrides: None,
             code: None,
-            attributes,
+            name_index,
         }
     }
 
+    /// Construct the method with an already known name
+    /// NOTE: This should _always_ be the same as the method's actual name.
     pub(crate) fn new_from_info(
         id: MethodId,
         class_file: &ClassFileData,
         class_names: &mut ClassNames,
         method: &MethodInfo,
     ) -> Result<Self, LoadMethodError> {
-        let method_name = class_file.get_text_t(method.name_index).ok_or(
-            LoadMethodError::InvalidMethodNameIndex {
-                index: method.name_index,
-            },
-        )?;
-        Self::new_from_info_with_name(
-            id,
-            class_file,
-            class_names,
-            method,
-            method_name.into_owned(),
-        )
-    }
-
-    /// Construct the method with an already known name
-    /// NOTE: This should _always_ be the same as the method's actual name.
-    pub(crate) fn new_from_info_with_name(
-        id: MethodId,
-        class_file: &ClassFileData,
-        class_names: &mut ClassNames,
-        method: &MethodInfo,
-        method_name: String,
-    ) -> Result<Self, LoadMethodError> {
-        debug_assert_eq!(
-            class_file.get_text_t(method.name_index),
-            Some(Cow::Borrowed(method_name.as_str()))
-        );
-
         let descriptor_text = class_file.get_text_t(method.descriptor_index).ok_or(
             LoadMethodError::InvalidDescriptorIndex {
                 index: method.descriptor_index,
@@ -116,13 +89,26 @@ impl Method {
             .map_err(LoadMethodError::MethodDescriptorError)?;
         let desc = MethodDescriptor::from_class_file_parser_md(desc, class_names);
 
+        let name_index = method.name_index;
+        // TODO: We could do slightly better by just getting a slice of the bytes and then
+        // comparing it to <init>
+        let method_name = class_file.get_text_t(method.name_index).ok_or(
+            LoadMethodError::InvalidMethodNameIndex {
+                index: method.name_index,
+            },
+        )?;
+        let is_init = method_name == Cow::Borrowed("<init>");
         Ok(Method::new(
             id,
-            method_name,
+            is_init,
             desc,
             method.access_flags,
-            method.attributes.clone(),
+            name_index,
         ))
+    }
+
+    pub fn name_index(&self) -> ConstantPoolIndexRaw<Utf8Constant> {
+        self.name_index
     }
 
     #[must_use]
@@ -131,14 +117,9 @@ impl Method {
     }
 
     #[must_use]
-    pub fn name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    #[must_use]
     /// Whether or not it is an <init> function
     pub fn is_init(&self) -> bool {
-        self.name() == "<init>"
+        self.is_init
     }
 
     #[must_use]
@@ -161,11 +142,6 @@ impl Method {
     /// Some if it has been initialized
     pub fn code(&self) -> Option<&CodeInfo> {
         self.code.as_ref()
-    }
-
-    #[must_use]
-    pub fn attributes(&self) -> &[AttributeInfo] {
-        self.attributes.as_slice()
     }
 
     #[must_use]
@@ -200,8 +176,12 @@ impl Method {
             return Ok(());
         }
 
-        let code_attr_idx = self
-            .attributes()
+        let (_, method_index) = self.id.decompose();
+        let attributes = class_file
+            .get_method(method_index)
+            .map(|x| x.attributes.as_slice())
+            .ok_or(LoadCodeError::BadMethodIndex)?;
+        let code_attr_idx = attributes
             .iter()
             .enumerate()
             .find(|(_, x)| {
@@ -212,7 +192,7 @@ impl Method {
             .map(|(i, _)| i);
 
         if let Some(attr_idx) = code_attr_idx {
-            let code_attr = &self.attributes()[attr_idx];
+            let code_attr = &attributes[attr_idx];
             let (data_rem, code_attr) =
                 code_attribute_parser(class_file.parse_data_for(code_attr.info.clone()))
                     .map_err(|_| LoadCodeError::InvalidCodeAttribute)?;
@@ -242,6 +222,15 @@ impl Method {
 
         self.load_code_with_unchecked(class_file)
     }
+}
+
+/// Hashes a method name for comparison
+pub(crate) fn hash_method_name(name: &str) -> u128 {
+    use siphasher::sip128::Hasher128;
+    let mut hasher = crate::id::make_hasher1238();
+    // TODO: Should we rely on the hashing of a str being the same across Rust versions?
+    name.hash(&mut hasher);
+    hasher.finish128().into()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
