@@ -7,7 +7,7 @@ use classfile_parser::{
     },
     method_info::MethodAccessFlags,
 };
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 
 use crate::{class::ClassFileData, id::ClassId, BadIdError, ClassNames};
 
@@ -141,24 +141,33 @@ impl StackMapFrame {
         }
     }
 }
-/// This currently simply stores the stack map types at each needed indice
-/// but there are other methods which could be me more efficient in memory/computation
-/// such as storing only the changes, which are not done yet due to complexity.
-#[derive(Debug)]
-pub struct StackMapFrames {
-    /// There has to be at least one.
-    frames: SmallVec<[StackMapFrame; 4]>,
+
+/// The start of the `SameLocals1Item` frame, used for computing the `offset_delta`
+/// since it is encoded in the frame type
+const SAME_LOCALS_1_ITEM_START: u8 = 64;
+
+/// Used to parse the stack map frames one at a time
+/// This avoids unecessary allocations by keeping the current frame inside it
+/// and reusing it for future frames, since they rely on previous frames.
+pub struct StackMapFramesProcessor {
+    table: StackMapTableAttribute,
+    current_frame: StackMapFrame,
+    /// None signifies that this we are at the initial frame
+    /// Note that when it is Some, the value inside might not be a valid index
+    next_table_index: Option<usize>,
+    // This becomes None when there is no more instructions for it to process
+    next_instruction_index: Option<InstructionIndex>,
 }
-impl StackMapFrames {
-    /// The given code MUST be from the passed in method
-    pub fn parse_frames<'a>(
+impl StackMapFramesProcessor {
+    pub fn new<'a>(
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
         method: &'a Method,
         method_code: &'a CodeInfo,
-    ) -> Result<Option<StackMapFrames>, StackMapError> {
+    ) -> Result<StackMapFramesProcessor, StackMapError> {
         let descriptor = method.descriptor();
-        // TODO: Should we skip adding the initial frame if it is empty? Some code may rely on it being nonempty
+        // TODO: Should we skip adding the initial frame if it is empty? Some code may rely on it
+        // being nonempty
         let initial_frame = {
             let this_type = if class_file.id()
                 == class_names.gcid_from_slice(&["java", "lang", "Object"])
@@ -185,11 +194,13 @@ impl StackMapFrames {
                 let typ = StackMapType::from_desc(class_names, parameter)
                     .map_err(StackMapError::BadDescriptorTypeId)?;
                 match typ {
-                    StackMapType::Integer
-                    | StackMapType::Float
-                    | StackMapType::Long
-                    | StackMapType::Double
-                    | StackMapType::Object(_) => locals.push(typ),
+                    StackMapType::Integer | StackMapType::Float | StackMapType::Object(_) => {
+                        locals.push(typ)
+                    }
+                    StackMapType::Long | StackMapType::Double => {
+                        locals.push(typ);
+                        locals.push(StackMapType::Top);
+                    }
 
                     StackMapType::Top
                     | StackMapType::Null
@@ -201,21 +212,16 @@ impl StackMapFrames {
             StackMapFrame::new_locals(InstructionIndex(0), locals)
         };
 
-        // Should always have one value when being constructed
-        // NOTE: The current implementation is probably inefficient in terms of processing and memory
-        // We currently store the stack map frame for each indice that has the information
-        // but we could likely do a modification based version which would cut down the number of
-        // allocations by a large amount, but would complicate the code.
-        // It is hoped to implement that in the future, especially if it would be a notable gain.
-        let mut stack_frames = StackMapFrames {
-            frames: smallvec![initial_frame],
-        };
-
         // Stack map table attribute
         let smt = method_code.attributes().iter().find(|x| {
             class_file.get_text_t(x.attribute_name_index) == Some(Cow::Borrowed("StackMapTable"))
         });
 
+        // TODO: Performance with this could be improved notably by only parsing the table to get
+        // what we need, and could potentially avoid all the allocations besides the essential.
+        // TODO: Once we get that, it may even be possible to get rid of the remaining allocations
+        // through returning an iterator for locals/stack, so that the caller can feed them into
+        // their own vectors.
         let smt = if let Some(smt) = smt {
             let (rem_data, smt) =
                 stack_map_table_attribute_parser(class_file.parse_data_for(smt.info.clone()))
@@ -235,219 +241,276 @@ impl StackMapFrames {
             }
         };
 
-        for frame in smt.entries {
-            // Note: For some entries, data is stored within the frame_type
-            match frame {
-                // Has the same local variables but an empty operand stack
-                // So only loosely the same frame
-                StackMapFrameCF::SameFrame { frame_type } => {
-                    // The offset delta for this frame is just its frame type
-                    let offset_delta = frame_type;
-
-                    let frame = StackMapFrame::new_locals(
-                        stack_frames.get_new_index(offset_delta.into()),
-                        stack_frames.last_r().locals.clone(),
-                    );
-                    stack_frames.push(frame);
-                }
-                // Frame which has the same local variables as the previous frame and that the
-                // operand stack has 1 entry
-                StackMapFrameCF::SameLocals1StackItemFrame { frame_type, stack } => {
-                    // The start of the frame types for SameLocals1StackItemFrame
-                    const SAME_LOCALS_1_ITEM_START: u8 = 64;
-                    // TODO: checked sub
-                    let offset_delta = frame_type - SAME_LOCALS_1_ITEM_START;
-                    let stack = StackMapType::from_verif_type_info(stack, class_names, class_file)
-                        .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)?;
-                    let frame = StackMapFrame {
-                        at: stack_frames.get_new_index(offset_delta.into()),
-                        stack: smallvec![stack],
-                        locals: stack_frames.last_r().locals.clone(),
-                    };
-                    stack_frames.push(frame);
-                }
-                // Similar to the SameLocals1StackItemFrame, but this explicitly includes the
-                // offset_delta.
-                // This has the same local variables as the previous frame and the operand stack
-                // has 1 entry.
-                StackMapFrameCF::SameLocals1StackItemFrameExtended {
-                    offset_delta,
-                    stack,
-                    ..
-                } => {
-                    let stack = StackMapType::from_verif_type_info(stack, class_names, class_file)
-                        .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)?;
-                    let frame = StackMapFrame {
-                        at: stack_frames.get_new_index(offset_delta),
-                        stack: smallvec![stack],
-                        locals: stack_frames.last_r().locals.clone(),
-                    };
-                    stack_frames.push(frame);
-                }
-                // Same local variables as previous frame,
-                // except the last several local variables are absent
-                // operand staa=ck is empty
-                StackMapFrameCF::ChopFrame {
-                    frame_type,
-                    offset_delta,
-                } => {
-                    // The entry right after the frame types that chop frame occupies
-                    const CHOP_FRAME_END: u8 = 251;
-                    // TODO: checked_sub
-                    let missing = CHOP_FRAME_END - frame_type;
-                    let existing = stack_frames.last_r().locals.len();
-
-                    // TODO: Checked sub
-                    let new_count = existing - usize::from(missing);
-
-                    let locals = stack_frames
-                        .last_r()
-                        .locals
-                        .iter()
-                        .take(new_count)
-                        .cloned()
-                        .collect::<SmallVec<[_; 8]>>();
-                    debug_assert_eq!(locals.len(), new_count);
-
-                    let frame =
-                        StackMapFrame::new_locals(stack_frames.get_new_index(offset_delta), locals);
-                    stack_frames.push(frame);
-                }
-                // Same local variables
-                // Empty operand stack
-                // This is like SameFrame, except that the offset delta is given directly
-                StackMapFrameCF::SameFrameExtended { offset_delta, .. } => {
-                    let frame = StackMapFrame::new_locals(
-                        stack_frames.get_new_index(offset_delta),
-                        stack_frames.last_r().locals.clone(),
-                    );
-                    stack_frames.push(frame);
-                }
-                // Same locals, but with some additional locals
-                // Empty operand stack
-                StackMapFrameCF::AppendFrame {
-                    frame_type,
-                    offset_delta,
-                    locals,
-                } => {
-                    // The entry right before the start of the frame types for AppendFrame
-                    const APPEND_FRAME_PRE_START: u8 = 251;
-                    debug_assert_eq!((frame_type - APPEND_FRAME_PRE_START) as usize, locals.len());
-
-                    let frame =
-                        StackMapFrame::new_locals(stack_frames.get_new_index(offset_delta), {
-                            let mut new_locals = stack_frames.last_r().locals.clone();
-                            iter_verif_to_stack_map_types(
-                                locals.into_iter(),
-                                class_names,
-                                class_file,
-                                &mut new_locals,
-                            )?;
-                            new_locals
-                        });
-                    stack_frames.push(frame);
-                }
-                // Specifies all the information
-                StackMapFrameCF::FullFrame {
-                    frame_type: _frame_type,
-                    offset_delta,
-                    number_of_locals,
-                    locals,
-                    number_of_stack_items,
-                    stack,
-                } => {
-                    debug_assert_eq!(locals.len(), number_of_locals as usize);
-                    debug_assert_eq!(stack.len(), number_of_stack_items as usize);
-
-                    let mut out_locals = SmallVec::new();
-                    iter_verif_to_stack_map_types(
-                        locals.into_iter(),
-                        class_names,
-                        class_file,
-                        &mut out_locals,
-                    )?;
-                    let mut out_stack = SmallVec::new();
-                    iter_verif_to_stack_map_types(
-                        stack.into_iter(),
-                        class_names,
-                        class_file,
-                        &mut out_stack,
-                    )?;
-
-                    let frame = StackMapFrame {
-                        at: stack_frames.get_new_index(offset_delta),
-                        stack: out_stack,
-                        locals: out_locals,
-                    };
-                    stack_frames.push(frame);
-                }
-            }
-        }
-
-        // TODO: Don't expand here. It would probably be more efficient to expand in the frames
-        // but that requires special handling.
-
-        // We expand category two types, since they don't have `Top` written explicitly.
-        for frame in stack_frames.frames.iter_mut() {
-            let mut output = SmallVec::new();
-            let locals_iter = std::mem::take(&mut frame.locals).into_iter().peekable();
-            for local in locals_iter {
-                if matches!(local, StackMapType::Double | StackMapType::Long) {
-                    output.push(local);
-                    output.push(StackMapType::Top);
-                } else {
-                    output.push(local);
-                }
-            }
-            frame.locals = output;
-        }
-
-        Ok(Some(stack_frames))
-    }
-
-    /// Returns the last stack frame, which has to exist
-    fn last_r(&self) -> &StackMapFrame {
-        self.frames
-            .last()
-            .expect("Expected at least one stack frame")
-    }
-
-    fn push(&mut self, frame: StackMapFrame) {
-        self.frames.push(frame);
-    }
-
-    /// Get the new instruction index for a stack frame that would be added
-    fn get_new_index(&self, offset_delta: u16) -> InstructionIndex {
-        if self.frames.len() == 1 {
-            // Offsets from the initial stack frame are just the offset
-            InstructionIndex(offset_delta)
-        } else {
-            // TODO: checked add
-            let last = self.last_r();
-            InstructionIndex(last.at.0 + offset_delta + 1)
-        }
+        Ok(StackMapFramesProcessor {
+            table: smt,
+            current_frame: initial_frame,
+            next_instruction_index: Some(InstructionIndex(0)),
+            // Next is the initial frame!
+            next_table_index: None,
+        })
     }
 
     #[must_use]
-    pub fn iter(&self) -> std::slice::Iter<'_, StackMapFrame> {
-        self.frames.iter()
+    /// Check whether the next frame is at this index
+    /// Should likely be used to decide whether to call `next_frame`
+    /// Note that since this only checks the next index, this could have issues for
+    /// malformed class files where things are out of order, but they can't be out of order
+    /// due to the way it does the adding!
+    /// Though, it won't let you skip ahead, even if you really want to do that.
+    pub fn has_next_frame_at(&self, idx: InstructionIndex) -> bool {
+        self.next_instruction_index == Some(idx)
+    }
+
+    /// Updates the held next instruction index because it is likely to be checked
+    /// This also takes the job of skipping over any `SameFrame`'s that only affect the initial
+    /// frame, which are generated by the JVM at times
+    fn update_next_instruction_index(&mut self, is_direct_initial: bool, with_table_index: usize) {
+        let entry = if let Some(entry) = self.table.entries.get(with_table_index) {
+            entry
+        } else {
+            // Otherwise, there is no entry, so we set it to None
+            self.next_instruction_index = None;
+            return;
+        };
+
+        let offset_delta = match entry {
+            StackMapFrameCF::SameFrame { frame_type } => {
+                let offset_delta = u16::from(*frame_type);
+                if offset_delta == 0 && is_direct_initial {
+                    // TODO: This issue might imply that we also need to be more carefuly with other
+                    // types of frame-zero frames, since those could maybe be valid but we don't
+                    // currently handle them.
+                    // We may simply have to write some code that peeks forward and processes as
+                    // many frames that are after the initial frame if they're no-ops.
+
+                    // There can be a same frame that is at the first entry
+                    // and so its not advanced by 1
+                    // and so is at index 0, but we've already generated the initial frame
+                    // and it cannot even have the side effect of removing the stack
+                    // because initial frames don't get a stack!
+                    // So we skip past it to keep the implementation somewhat simpler
+
+                    self.next_table_index = self.next_table_index.map(|x| x + 1);
+                    self.update_next_instruction_index(false, with_table_index + 1);
+
+                    return;
+                }
+
+                offset_delta
+            }
+            // TODO: Checked sub
+            StackMapFrameCF::SameLocals1StackItemFrame { frame_type, .. } => {
+                u16::from(frame_type - SAME_LOCALS_1_ITEM_START)
+            }
+
+            StackMapFrameCF::ChopFrame { offset_delta, .. }
+            | StackMapFrameCF::SameLocals1StackItemFrameExtended { offset_delta, .. }
+            | StackMapFrameCF::SameFrameExtended { offset_delta, .. }
+            | StackMapFrameCF::AppendFrame { offset_delta, .. }
+            | StackMapFrameCF::FullFrame { offset_delta, .. } => *offset_delta,
+        };
+
+        let next_instruction_index = if is_direct_initial {
+            // Offsets from the initial stack frame are just the offset
+            InstructionIndex(offset_delta)
+        } else {
+            InstructionIndex(self.current_frame.at.0 + offset_delta + 1)
+        };
+
+        self.next_instruction_index = Some(next_instruction_index);
+    }
+
+    // TODO: In the code that uses this we could technically specialize the parsing code for the
+    // case where there are no more frames and so it doesn't need to check anymore.
+    /// Parses the next frame and returns a reference to it
+    /// The existing allocation is reused.
+    pub fn next_frame(
+        &mut self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+    ) -> Result<Option<&StackMapFrame>, StackMapError> {
+        let (self_table_index, next_frame) = if let Some(index) = self.next_table_index {
+            if let Some(frame) = self.table.entries.get(index) {
+                self.next_table_index = Some(index + 1);
+                (index, frame)
+            } else {
+                // We've finished
+                return Ok(None);
+            }
+        } else {
+            // Current frame is the initial frame.
+            self.next_table_index = Some(0);
+            self.update_next_instruction_index(true, 0);
+            return Ok(Some(&self.current_frame));
+        };
+
+        // TODO: We could make Rust generate two generic functions for whether it is directly
+        // after the initial frame or not, to avoid useless branching
+
+        // Get the last inst index for the previous frame, because we need that to compute
+        // this frames inst index
+        let last_index = self.current_frame.at;
+        // Whether this is the entry right after the initial entry
+        let is_direct_initial = self_table_index == 0;
+        let next_frame_index = |offset_delta: u16| {
+            if is_direct_initial {
+                // Offsets from the initial stack frame are just the offset
+                InstructionIndex(offset_delta)
+            } else {
+                InstructionIndex(last_index.0 + offset_delta + 1)
+            }
+        };
+
+        match next_frame {
+            StackMapFrameCF::SameFrame { frame_type } => {
+                let offset_delta = *frame_type;
+
+                self.current_frame.at = next_frame_index(u16::from(offset_delta));
+                // Despite being 'same frame', the stack is empty
+                self.current_frame.stack.clear()
+                // but the locals are unmodified
+            }
+            StackMapFrameCF::SameLocals1StackItemFrame { frame_type, stack } => {
+                // TODO: Checked subtraction
+                let offset_delta = frame_type - SAME_LOCALS_1_ITEM_START;
+                self.current_frame.at = next_frame_index(u16::from(offset_delta));
+                // There is a single value inside the frame
+                let stack = StackMapType::from_verif_type_info(*stack, class_names, class_file)
+                    .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)?;
+                self.current_frame.stack.clear();
+                self.current_frame.stack.push(stack);
+                // locals are unchanged
+            }
+            // Similar to the SameLocals1StackItemFrame, but this explicitly includes the offset
+            // This has the same local variables as the previous frame and the stack has one entry
+            StackMapFrameCF::SameLocals1StackItemFrameExtended {
+                offset_delta,
+                stack,
+                ..
+            } => {
+                self.current_frame.at = next_frame_index(*offset_delta);
+
+                let stack = StackMapType::from_verif_type_info(*stack, class_names, class_file)
+                    .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)?;
+                self.current_frame.stack.clear();
+                self.current_frame.stack.push(stack);
+
+                // locals are unchanged
+            }
+            // Removes a certain amount of local variables at the end
+            StackMapFrameCF::ChopFrame {
+                frame_type,
+                offset_delta,
+            } => {
+                const CHOP_FRAME_END: u8 = 251;
+
+                self.current_frame.at = next_frame_index(*offset_delta);
+
+                // TODO: checked sub
+                // The amount of entries that should be chopped off is stored in frame type
+                let missing = CHOP_FRAME_END - frame_type;
+
+                // This cuts off the expanded versions, since the chop frame refers to long/doubles
+                // as one entry, but we want to store them as the expanded because of how the code
+                // works.
+                // TODO: This could do better. Likely it could just count the amount needed to pop
+                // off, and then resize to smaller size, and it would work better
+                let mut consumed = 0;
+                while consumed < missing {
+                    // TODO: Don't unwrap on a missing value, that just means the frames are bad
+                    let last = self.current_frame.locals.last().unwrap();
+                    if matches!(last, StackMapType::Top) {
+                        if let Some(last_before_idx) =
+                            self.current_frame.locals.len().checked_sub(2)
+                        {
+                            // It has to exist
+                            let last_before =
+                                self.current_frame.locals.get(last_before_idx).unwrap();
+                            if matches!(last_before, StackMapType::Long | StackMapType::Double) {
+                                // Pop the top, the fall through will pop the cat2 type
+                                self.current_frame.locals.pop();
+                            }
+                        }
+                        // otherwise, it is a lone Top (which does occur), and is just popped
+                    }
+
+                    self.current_frame.locals.pop();
+                    consumed += 1;
+                }
+                // Stack is empty
+                self.current_frame.stack.clear()
+            }
+            // Same local variables
+            // but no stack
+            // SameFrame but with the offset delta given explicitly
+            StackMapFrameCF::SameFrameExtended { offset_delta, .. } => {
+                self.current_frame.at = next_frame_index(*offset_delta);
+                self.current_frame.stack.clear();
+            }
+            StackMapFrameCF::AppendFrame {
+                offset_delta,
+                locals,
+                ..
+            } => {
+                self.current_frame.at = next_frame_index(*offset_delta);
+                // Stack is empty
+                self.current_frame.stack.clear();
+
+                append_frame_verif_to_locals(
+                    class_names,
+                    class_file,
+                    &mut self.current_frame.locals,
+                    locals.as_slice(),
+                )?;
+            }
+            StackMapFrameCF::FullFrame {
+                offset_delta,
+                locals,
+                stack,
+                ..
+            } => {
+                self.current_frame.at = next_frame_index(*offset_delta);
+                // Both stack and locals are being overwritten
+                self.current_frame.stack.clear();
+                self.current_frame.locals.clear();
+
+                for verif in stack {
+                    let verif = StackMapType::from_verif_type_info(*verif, class_names, class_file)
+                        .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)?;
+                    self.current_frame.stack.push(verif);
+                }
+
+                append_frame_verif_to_locals(
+                    class_names,
+                    class_file,
+                    &mut self.current_frame.locals,
+                    locals,
+                )?;
+            }
+        }
+
+        self.update_next_instruction_index(false, self_table_index + 1);
+
+        Ok(Some(&self.current_frame))
     }
 }
 
-fn iter_verif_to_stack_map_types<const N: usize>(
-    iter: impl Iterator<Item = VerificationTypeInfo>,
+/// Append the verification types, expanding them as needed
+/// Should only be used for Locals, since that is where we expand.
+fn append_frame_verif_to_locals<const N: usize>(
     class_names: &mut ClassNames,
     class_file: &ClassFileData,
-    output: &mut SmallVec<[StackMapType; N]>,
+    data: &mut SmallVec<[StackMapType; N]>,
+    verif: &[VerificationTypeInfo],
 ) -> Result<(), StackMapError> {
-    let iter = iter.map(|v| {
-        StackMapType::from_verif_type_info(v, class_names, class_file)
-            .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)
-    });
-
-    for entry in iter {
-        let entry = entry?;
-        output.push(entry);
+    for v in verif {
+        let stack = StackMapType::from_verif_type_info(*v, class_names, class_file)
+            .ok_or(StackMapError::VerificationTypeToStackMapTypeFailure)?;
+        let is_category_2 = stack.is_category_2();
+        data.push(stack);
+        if is_category_2 {
+            data.push(StackMapType::Top);
+        }
     }
 
     Ok(())

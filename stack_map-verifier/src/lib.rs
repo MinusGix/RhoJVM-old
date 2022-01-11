@@ -18,7 +18,7 @@ use classfile_parser::{
     constant_pool::ConstantPoolIndexRaw,
 };
 use rhojvm_base::code::op::InstMapFunc;
-use rhojvm_base::code::stack_map::{StackMapError, StackMapFrames};
+use rhojvm_base::code::stack_map::{StackMapError, StackMapFramesProcessor};
 use rhojvm_base::code::types::{
     Category, Instruction, LocalVariableInType, LocalVariableIndex, LocalVariableType, LocalsIn,
     LocalsOutAt, StackSizes,
@@ -504,24 +504,8 @@ pub fn verify_type_safe_method_stack_map(
         tracing::info!("\tLocals: #{}", code.max_locals());
     }
 
-    let stack_frames = if let Some(stack_frames) =
-        StackMapFrames::parse_frames(class_names, class_file, method, code)
-            .map_err(VerifyStackMapGeneralError::StackMapError)?
-    {
-        stack_frames
-    } else {
-        // If there were no stack frames then there is no need to verify them
-        // This is because the types can be inferred easily, such as in a function
-        // without control flow
-        // FIXME: For methods without stack frames, we still need to type check them!
-        return Ok(());
-    };
-
-    // Assert that there is a first entry that starts at the very start of the method
-    debug_assert_eq!(
-        stack_frames.iter().next().map(|x| x.at),
-        Some(InstructionIndex(0))
-    );
+    let mut stack_frames = StackMapFramesProcessor::new(class_names, class_file, method, code)
+        .map_err(VerifyStackMapGeneralError::StackMapError)?;
 
     // TODO: Verify max stack size from code
     // TODO: Verify max stack size from state
@@ -562,7 +546,7 @@ pub fn verify_type_safe_method_stack_map(
     // Transformations of the type sthat the instructions have is done, because they encode more
     // information than the main code uses.
     for (idx, inst) in code.instructions() {
-        struct Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'ci, 'sf, 'af, 'it> {
+        struct Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it> {
             class_directories: &'cd ClassDirectories,
             class_names: &'cn mut ClassNames,
             class_files: &'cf mut ClassFiles,
@@ -571,14 +555,11 @@ pub fn verify_type_safe_method_stack_map(
             class_file: &'cfd ClassFileData,
             conf: StackMapVerificationLogging,
             method_id: MethodId,
-            code: &'ci CodeInfo,
-            stack_frames: &'sf StackMapFrames,
             act_frame: &'af mut Frame,
             inst_types: &'it mut InstTypes,
-            idx: InstructionIndex,
         }
-        impl<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'ci, 'sf, 'af, 'it> InstMapFunc<'_>
-            for Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'ci, 'sf, 'af, 'it>
+        impl<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it> InstMapFunc<'_>
+            for Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it>
         {
             type Output = Result<(), VerifyStackMapGeneralError>;
 
@@ -592,11 +573,8 @@ pub fn verify_type_safe_method_stack_map(
                     self.class_file,
                     self.conf,
                     self.method_id,
-                    self.code,
-                    self.stack_frames,
                     self.act_frame,
                     self.inst_types,
-                    self.idx,
                     inst,
                 )
             }
@@ -610,6 +588,21 @@ pub fn verify_type_safe_method_stack_map(
             );
         }
 
+        // Update the current frame if there is an injected one
+        check_frame(
+            class_names,
+            class_file,
+            &conf,
+            &code,
+            &mut stack_frames,
+            &mut act_frame,
+            *idx,
+            inst.name(),
+        )?;
+
+        // Check the instruction
+        // This maps the data to the generic version of check_instruction so that Rust
+        // can optimize each variant, since many can have statically known sizes and more
         inst.map(Data {
             class_directories,
             class_names,
@@ -619,11 +612,8 @@ pub fn verify_type_safe_method_stack_map(
             class_file,
             conf: conf.clone(),
             method_id,
-            code: &code,
-            stack_frames: &stack_frames,
             act_frame: &mut act_frame,
             inst_types: &mut inst_types,
-            idx: *idx,
         })?;
     }
 
@@ -635,14 +625,18 @@ fn check_frame(
     class_file: &ClassFileData,
     conf: &StackMapVerificationLogging,
     code: &CodeInfo,
-    stack_frames: &StackMapFrames,
+    stack_frames: &mut StackMapFramesProcessor,
     act_frame: &mut Frame,
     idx: InstructionIndex,
     inst_name: &'static str,
 ) -> Result<(), VerifyStackMapGeneralError> {
-    if let Some(frame) = stack_frames.iter().find(|x| x.at == idx) {
-        // The frame given by the JVM takes precedence over our frame
+    if stack_frames.has_next_frame_at(idx) {
+        let frame = stack_frames
+            .next_frame(class_names, class_file)
+            .map_err(VerifyStackMapGeneralError::StackMapError)?
+            .expect("has_next_frame_at was expected to not be incorrect about there being a frame");
 
+        // The frame given by the JVM takes precedence over our frame
         if conf.log_received_frame {
             tracing::info!("\t Received Frame: {:#?}", frame);
         }
@@ -1018,27 +1012,13 @@ fn check_instruction<T: Instruction>(
     class_file: &ClassFileData,
     conf: StackMapVerificationLogging,
     method_id: MethodId,
-    code: &CodeInfo,
-    stack_frames: &StackMapFrames,
     act_frame: &mut Frame,
     inst_types: &mut InstTypes,
-    idx: InstructionIndex,
     inst: &T,
 ) -> Result<(), VerifyStackMapGeneralError> {
     inst_types.clear();
 
     let inst_name = inst.name();
-
-    check_frame(
-        class_names,
-        class_file,
-        &conf,
-        code,
-        stack_frames,
-        act_frame,
-        idx,
-        inst_name,
-    )?;
 
     let stack_sizes: StackSizes = act_frame.stack_sizes();
 

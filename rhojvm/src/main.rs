@@ -269,6 +269,7 @@ fn main() {
         &mut state,
         entrypoint_id,
     ) {
+        tracing::error!("failed to initialized class: {:?}", err);
         return;
     }
 
