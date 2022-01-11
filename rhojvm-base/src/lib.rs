@@ -305,7 +305,6 @@ impl Classes {
         let class_name = class_names
             .name_from_gcid(class_file_id)
             .map_err(StepError::BadId)?;
-        let _span_ = span!(Level::TRACE, "C::load_class").entered();
         info!("Loading Class {:?}", class_name.path());
 
         if !class_name.has_class_file() {
@@ -449,41 +448,26 @@ impl Classes {
             return Ok(array_id);
         }
 
+        // If level > 1 then the component type isn't the above component type, but rather
+        // another array.
+        // We don't bother registering it, only registering the name
+        let component_type =
+            if let Some(level) = level.get().checked_sub(1).and_then(NonZeroUsize::new) {
+                let component_id = class_names.gcid_from_level_array_of_primitives(level, prim);
+                ArrayComponentType::Class(component_id)
+            } else {
+                prim.into()
+            };
+
         let array = ArrayClass::new_unchecked(
             array_id,
-            prim.into(),
+            component_type,
             class_names.object_id(),
             ClassAccessFlags::PUBLIC,
         );
         self.register_array_class(array);
 
         Ok(array_id)
-
-        // let mut prev_type = component_type;
-        // let mut last_id = None;
-        // for i in 0..level.get() {
-        //     let array_id = class_names.gcid_from_level_array_component_type(i_level);
-        //     name.insert(0, '[');
-        //     let id = class_names.gcid_from_str(&name);
-        //     if let Some(class) = self.get(&id) {
-        //         // It was already loaded, so do nothing
-        //         debug_assert!(matches!(class, ClassVariant::Array(_)));
-        //     } else {
-        //         let array = ArrayClass {
-        //             id,
-        //             super_class: object_id,
-        //             component_type: prev_type,
-        //             // All primitive types are public
-        //             access_flags: ClassAccessFlags::PUBLIC,
-        //         };
-        //         self.register_array_class(array);
-        //     }
-        //     prev_type = ArrayComponentType::Class(id);
-        //     last_id = Some(id);
-        // }
-
-        // // Last id must always be filled due to nonzero level
-        // Ok(last_id.unwrap())
     }
 
     pub fn load_level_array_of_desc_type_basic(
@@ -495,6 +479,15 @@ impl Classes {
         level: NonZeroUsize,
         component: DescriptorTypeBasic,
     ) -> Result<ClassId, StepError> {
+        let array_id = class_names
+            .gcid_from_level_array_of_desc_type_basic(level, component)
+            .map_err(StepError::BadId)?;
+        if let Some(class) = self.get(&array_id) {
+            // It was already loaded
+            debug_assert!(matches!(class, ClassVariant::Array(_)));
+            return Ok(array_id);
+        }
+
         let component_id = load_basic_descriptor_type(
             self,
             class_directories,
@@ -503,8 +496,6 @@ impl Classes {
             packages,
             &component,
         )?;
-
-        let object_id = class_names.object_id();
 
         let access_flags = if let Some(component_id) = component_id {
             // TODO: For normal classes, we only need to load the class file
@@ -523,39 +514,28 @@ impl Classes {
             component.access_flags().unwrap()
         };
 
-        let component_type = component.as_array_component_type();
-
-        let mut name = component
-            .to_desc_string(class_names)
-            .map_err(StepError::BadId)?;
-        let mut prev_type = component_type;
-        let mut last_id = None;
-        for _ in 0..level.get() {
-            // We store it like the descriptor type because that is what it appears as in other
-            // places. This does mean that we can't simply use this name as a java-equivalent
-            // access path, unfortunately, since an array of ints becomes [I.
-
-            name.insert(0, '[');
-            // This has custom handling to keep an array as a lone string
-            let id = class_names.gcid_from_str(&name);
-            if let Some(class) = self.get(&id) {
-                // It was already loaded, so do nothing
-                debug_assert!(matches!(class, ClassVariant::Array(_)));
+        // If level > 1 then the component type isn't the above component type, but rather
+        // another array.
+        // We don't bother registering it, only registering the name
+        let component_type =
+            if let Some(level) = level.get().checked_sub(1).and_then(NonZeroUsize::new) {
+                let component_id = class_names
+                    .gcid_from_level_array_of_desc_type_basic(level, component)
+                    .map_err(StepError::BadId)?;
+                ArrayComponentType::Class(component_id)
             } else {
-                let array = ArrayClass {
-                    id,
-                    super_class: object_id,
-                    component_type: prev_type,
-                    access_flags,
-                };
-                self.register_array_class(array);
-            }
-            prev_type = ArrayComponentType::Class(id);
-            last_id = Some(id)
-        }
+                component.as_array_component_type()
+            };
 
-        // level being NonZero means that this must be set
-        Ok(last_id.unwrap())
+        let array = ArrayClass {
+            id: array_id,
+            super_class: class_names.object_id(),
+            component_type,
+            access_flags,
+        };
+        self.register_array_class(array);
+
+        Ok(array_id)
     }
 
     pub fn load_level_array_of_class_id(
@@ -704,7 +684,7 @@ impl Classes {
         impl_interface_id: ClassId,
     ) -> Result<bool, StepError> {
         // Special handling for arrays
-        if let Some(ClassVariant::Array(_class)) = self.get(&class_id) {
+        if class_names.is_array(class_id).map_err(StepError::BadId)? {
             let cloneable = class_names.gcid_from_slice(&["java", "lang", "Cloneable"]);
             if impl_interface_id == cloneable {
                 return Ok(true);
@@ -919,14 +899,13 @@ impl Methods {
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         class_id: ClassId,
-        name: Cow<'static, str>,
+        name: &str,
         desc: &MethodDescriptor,
     ) -> Result<MethodId, StepError> {
         class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
         let class_file = class_files.get(&class_id).unwrap();
 
-        let (method_id, method_info) =
-            method_id_from_desc(class_names, class_file, name.as_ref(), desc)?;
+        let (method_id, method_info) = method_id_from_desc(class_names, class_file, name, desc)?;
 
         if self.contains_key(&method_id) {
             return Ok(method_id);
@@ -1006,6 +985,10 @@ impl ClassNames {
     /// Gets the id for `java.lang.Object`
     pub fn object_id(&mut self) -> GeneralClassId {
         self.gcid_from_slice(&["java", "lang", "Object"])
+    }
+
+    pub fn is_array(&self, id: ClassId) -> Result<bool, BadIdError> {
+        self.name_from_gcid(id).map(Name::is_array)
     }
 
     /// Store the class path hash if it doesn't already exist and get the id
@@ -1213,6 +1196,27 @@ impl ClassNames {
 
             id
         };
+
+        Ok(id)
+    }
+
+    pub fn gcid_from_level_array_of_desc_type_basic(
+        &mut self,
+        level: NonZeroUsize,
+        component: DescriptorTypeBasic,
+    ) -> Result<ClassId, BadIdError> {
+        let name_iter = component.to_desc_iter(self)?;
+        let name_iter = std::iter::repeat("[").take(level.get()).chain(name_iter);
+
+        let id = id::hash_access_path_iter(name_iter.clone(), true);
+        if !self.contains_key(&id) {
+            let name: String = name_iter.collect();
+            let name = Name {
+                internal_kind: Some(InternalKind::Array),
+                path: smallvec![name],
+            };
+            self.set_at(id, name);
+        }
 
         Ok(id)
     }
@@ -1476,11 +1480,10 @@ fn method_id_from_desc<'a>(
 pub fn direct_load_method_from_desc(
     class_names: &mut ClassNames,
     class_file: &ClassFileData,
-    name: Cow<'static, str>,
+    name: &str,
     desc: &MethodDescriptor,
 ) -> Result<Method, StepError> {
-    let (method_id, method_info) =
-        method_id_from_desc(class_names, class_file, name.as_ref(), desc)?;
+    let (method_id, method_info) = method_id_from_desc(class_names, class_file, name, desc)?;
 
     Ok(Method::new_from_info(
         method_id,

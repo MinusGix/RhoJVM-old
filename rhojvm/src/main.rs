@@ -269,7 +269,6 @@ fn main() {
         &mut state,
         entrypoint_id,
     ) {
-        tracing::error!("There was an error in initializing a class: {:?}", err);
         return;
     }
 
@@ -285,7 +284,7 @@ fn main() {
             &mut class_names,
             &mut class_files,
             entrypoint_id,
-            Cow::Borrowed(main_name),
+            main_name,
             &main_descriptor,
         )
         .unwrap();

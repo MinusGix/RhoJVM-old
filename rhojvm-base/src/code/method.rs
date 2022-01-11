@@ -1,6 +1,6 @@
+use std::borrow::Cow;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
-use std::{borrow::Cow, hash::Hasher};
 
 use classfile_parser::{
     attribute_info::code_attribute_parser,
@@ -16,6 +16,7 @@ use classfile_parser::{
     method_info::{MethodAccessFlags, MethodInfo},
     ClassAccessFlags,
 };
+use either::Either;
 use smallvec::SmallVec;
 
 use crate::{
@@ -269,6 +270,41 @@ impl DescriptorTypeBasic {
             DescriptorTypeBasic::Short => Ok("S".to_owned()),
             DescriptorTypeBasic::Boolean => Ok("Z".to_owned()),
         }
+    }
+
+    /// Returns an iterator over the desc type
+    /// Most of the returned strings are static, but class would have one that is owned by names
+    pub(crate) fn to_desc_iter<'cn>(
+        &self,
+        class_names: &'cn ClassNames,
+    ) -> Result<
+        Either<impl Iterator<Item = &'cn str> + Clone, impl Iterator<Item = &'cn str> + Clone>,
+        BadIdError,
+    > {
+        Ok(Either::Left(match self {
+            DescriptorTypeBasic::Byte => ["B"].into_iter(),
+            DescriptorTypeBasic::Char => ["C"].into_iter(),
+            DescriptorTypeBasic::Double => ["D"].into_iter(),
+            DescriptorTypeBasic::Float => ["F"].into_iter(),
+            DescriptorTypeBasic::Int => ["I"].into_iter(),
+            DescriptorTypeBasic::Long => ["J"].into_iter(),
+            DescriptorTypeBasic::Short => ["S"].into_iter(),
+            DescriptorTypeBasic::Boolean => ["Z"].into_iter(),
+            DescriptorTypeBasic::Class(class_id) => {
+                let name = class_names.name_from_gcid(*class_id)?;
+                let path = name.path();
+                if name.is_array() {
+                    [path[0].as_str()].into_iter()
+                } else {
+                    return Ok(Either::Right(
+                        ["L"]
+                            .into_iter()
+                            .chain(itertools::intersperse(path.iter().map(String::as_str), "/"))
+                            .chain([";"].into_iter()),
+                    ));
+                }
+            }
+        }))
     }
 
     pub(crate) fn from_class_file_desc(
