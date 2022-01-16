@@ -21,11 +21,6 @@ use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError
 use tracing::info;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 
-use dhat::{Dhat, DhatAlloc};
-
-#[global_allocator]
-static ALLOCATOR: DhatAlloc = DhatAlloc;
-
 mod formatter;
 
 const ENV_TRACING_LEVEL: &str = "RHO_LOG_LEVEL";
@@ -209,8 +204,6 @@ fn init_logging(conf: &StateConfig) {
 }
 
 fn main() {
-    let _dhat = Dhat::start_heap_profiling();
-    
     let mut conf = StateConfig::new();
     conf.stack_map_verification_logging = StackMapVerificationLogging {
         log_method_name: true,
@@ -583,7 +576,14 @@ fn verify_type_safe_methods(
 
     let class = classes.get(&class_id).unwrap();
     let method_id_iter = match class {
-        ClassVariant::Class(class) => class.iter_method_ids(),
+        ClassVariant::Class(class) => {
+            let class_file = class_files.get(&class_id).unwrap();
+            methods
+                .load_all_methods_from(class_names, class_file)
+                .map_err(StepError::from)?;
+
+            class.iter_method_ids()
+        }
         ClassVariant::Array(_) => {
             tracing::warn!("TODO: Skipped verifying ArrayClass methods");
             return Ok(());
@@ -643,9 +643,6 @@ fn verify_type_safe_method(
         methods,
         method_id,
     )?;
-
-    let method = methods.get_mut(&method_id).unwrap();
-    method.load_code(class_files)?;
 
     let method = methods.get_mut(&method_id).unwrap();
     method.load_code(class_files)?;

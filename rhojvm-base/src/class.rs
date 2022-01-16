@@ -11,9 +11,9 @@ use classfile_parser::{
 pub use classfile_parser::ClassAccessFlags;
 
 use crate::{
-    code::types::PrimitiveType,
+    code::{method::Method, types::PrimitiveType},
     id::{ClassFileId, ClassId, MethodId, MethodIndex, PackageId},
-    BadIdError, ClassNames,
+    BadIdError, ClassNames, LoadMethodError, Methods,
 };
 
 #[derive(Debug, Clone)]
@@ -100,6 +100,13 @@ impl ClassFileData {
     /// This is guaranteed to be in order
     pub fn load_method_info_opt_iter(&self) -> impl Iterator<Item = MethodInfoOpt> + '_ {
         self.class_file.load_method_opt_iter(&self.class_file_data)
+    }
+
+    /// Load all the methods from the class file into memory
+    /// This should be used if you're going to be iterating over all/most methods
+    /// Since the individual seeking methods would be slower if they were not laoded at all
+    pub fn load_all_methods_backing(&mut self) {
+        self.class_file.load_all_methods_mut(&self.class_file_data);
     }
 
     #[must_use]

@@ -916,6 +916,24 @@ impl Methods {
         self.set_at(method_id, method);
         Ok(method_id)
     }
+
+    /// Load all methods from the classfile into methods
+    /// This avoids filling the backing, but uses it if it is already filled
+    pub fn load_all_methods_from(
+        &mut self,
+        class_names: &mut ClassNames,
+        class_file: &ClassFileData,
+    ) -> Result<(), LoadMethodError> {
+        let class_id = class_file.id();
+        let methods_opt_iter = class_file.load_method_info_opt_iter();
+        for (method_index, method_info) in methods_opt_iter.enumerate() {
+            let method_id = MethodId::unchecked_compose(class_id, method_index as u16);
+            let method = Method::new_from_info(method_id, class_file, class_names, method_info)?;
+            self.set_at(method_id, method);
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
