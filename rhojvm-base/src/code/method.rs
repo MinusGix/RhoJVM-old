@@ -432,11 +432,10 @@ impl DescriptorType {
                 // TODO: We could replace to_desc_string with something that returns an iterator
                 // over T: AsRef<str>
                 // TODO: This could also avoid extra string allocs by hashing the parts directly.
-                let name = component.to_desc_string(class_names)?;
-                let class_name = std::iter::repeat("[")
-                    .take(level.get())
-                    .chain([name.as_str()].into_iter());
-                let id = class_names.gcid_from_iter_single(class_name);
+                let name = component.as_desc_iter(class_names)?;
+                let class_name = std::iter::repeat("[").take(level.get()).chain(name);
+                let key = class_names.insert_key_from_iter_single(class_name);
+                let id = class_names.insert_trusted_insert(key);
                 Ok(Some(id))
             }
         }

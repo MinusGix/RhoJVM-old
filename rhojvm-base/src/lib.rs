@@ -707,7 +707,9 @@ impl Classes {
 
                 // Get all the interfaces. This is collected to a vec because we will invalidate the
                 // class file reference
-                let interfaces = class_file.interfaces_indices_iter().collect::<Vec<_>>();
+                let interfaces = class_file
+                    .interfaces_indices_iter()
+                    .collect::<SmallVec<[_; 8]>>();
 
                 // Check all the topmost indices first
                 for interface_index in interfaces.iter().copied() {
@@ -997,6 +999,14 @@ impl Name {
         matches!(self.internal_kind, Some(InternalKind::Array))
     }
 }
+
+/// An insert into [`ClassNames`] that is trusted, aka it has all the right values
+/// and is computed to be inserted when we have issues getting borrowing right.
+pub(crate) struct TrustedClassNameInsert {
+    id: GeneralClassId,
+    name: Option<Name>,
+}
+
 __make_map!(pub ClassNames<GeneralClassId, Name>; access);
 impl ClassNames {
     /// Gets the id for `java.lang.Object`
@@ -1080,6 +1090,71 @@ impl ClassNames {
         });
         id
     }
+
+    pub(crate) fn insert_key_from_iter_single<'a>(
+        &self,
+        class_path: impl Iterator<Item = &'a str> + Clone,
+    ) -> TrustedClassNameInsert {
+        let id = id::hash_access_path_iter(class_path.clone(), true);
+        if self.map.contains_key(&id) {
+            TrustedClassNameInsert { id, name: None }
+        } else {
+            let kind = InternalKind::from_iter(class_path.clone());
+            TrustedClassNameInsert {
+                id,
+                name: Some(Name {
+                    internal_kind: kind,
+                    path: itertools::intersperse(class_path, "/").collect(),
+                }),
+            }
+        }
+    }
+
+    pub(crate) fn insert_trusted_insert(
+        &mut self,
+        TrustedClassNameInsert { id, name }: TrustedClassNameInsert,
+    ) -> GeneralClassId {
+        if let Some(name) = name {
+            self.map.entry(id).or_insert_with(|| name);
+        }
+
+        id
+    }
+
+    // TODO: Having this would remove the need for at least some uses of the
+    // [`TrustedClassNameInsert`]
+    // pub(crate) fn gcid_from_fn_single<
+    //     'a,
+    //     F: FnOnce(&ClassNames) -> Result<I, E>,
+    //     I: Iterator<Item = &'a str> + Clone,
+    //     E,
+    // >(
+    //     &mut self,
+    //     class_path_fn: F,
+    // ) -> Result<GeneralClassId, E> {
+    //     // This weird path computation is because of borrow checker not recognizing that class path
+    //     // isn't used later
+    //     let (id, kind, path) = {
+    //         let class_path = class_path_fn(self)?;
+    //         let kind = InternalKind::from_iter(class_path.clone());
+    //         let id = id::hash_access_path_iter(class_path.clone(), true);
+    //         let path = if self.map.contains_key(&id) {
+    //             Some(itertools::intersperse(class_path, "/").collect())
+    //         } else {
+    //             None
+    //         };
+    //         (id, kind, path)
+    //     };
+
+    //     if let Some(path) = path {
+    //         self.map.entry(id).or_insert_with(|| Name {
+    //             internal_kind: kind,
+    //             path,
+    //         });
+    //     }
+
+    //     Ok(id)
+    // }
 
     pub fn path_from_gcid(&self, id: GeneralClassId) -> Result<&str, BadIdError> {
         self.name_from_gcid(id).map(Name::path)

@@ -6,29 +6,25 @@ use classfile_parser::constant_pool::{ConstantPoolIndex, ConstantPoolIndexRaw};
 // distinguish between a class path and a package path
 /// Convert the access path for a class into a relative path
 pub(crate) fn class_path_slice_to_relative_path<T: AsRef<str>>(class_path: &[T]) -> PathBuf {
-    let mut path = PathBuf::new();
-    for (i, path_part) in class_path.iter().enumerate() {
-        if (i + 1) < class_path.len() {
-            path.push(path_part.as_ref());
-        } else {
-            path.push(format!("{}.class", path_part.as_ref()));
-        }
+    let mut path = PathBuf::with_capacity(class_path.len());
+    for path_part in class_path.iter() {
+        path.push(path_part.as_ref());
     }
+
+    path.set_extension("class");
 
     path
 }
 pub(crate) fn class_path_iter_to_relative_path<'a>(
     class_path: impl Iterator<Item = &'a str> + Clone,
 ) -> PathBuf {
-    let mut path = PathBuf::new();
     let count = class_path.clone().count();
-    for (i, path_part) in class_path.enumerate() {
-        if (i + 1) < count {
-            path.push(path_part);
-        } else {
-            path.push(format!("{}.class", path_part));
-        }
+    let mut path = PathBuf::with_capacity(count);
+    for path_part in class_path {
+        path.push(path_part);
     }
+
+    path.set_extension("class");
 
     path
 }
