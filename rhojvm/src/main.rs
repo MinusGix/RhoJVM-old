@@ -641,11 +641,13 @@ fn verify_type_safe_method(
     method.load_code(class_files)?;
 
     let method = methods.get(&method_id).unwrap();
-    if method.should_have_code() {
-        if method.code().is_none() {
-            // We should have code but there was no code!
-            return Err(VerificationError::NoMethodCode { method_id }.into());
-        }
+    let method_code = method.direct_load_owned_code(class_files)?;
+    if method_code.is_none() && method.should_have_code() {
+        // We should have code but there was no code!
+        return Err(VerificationError::NoMethodCode { method_id }.into());
+    }
+
+    if let Some(method_code) = method_code {
         stack_map_verifier::verify_type_safe_method_stack_map(
             class_directories,
             class_names,
@@ -656,6 +658,7 @@ fn verify_type_safe_method(
             state.conf().stack_map_verification_logging.clone(),
             &class_file,
             method_index,
+            &method_code,
         )?;
     }
 

@@ -456,6 +456,14 @@ impl Frame {
 }
 
 /// Verify the type safety of a method's code using stack maps
+/// `class_names` should have the name of the class file within it
+/// `class_files` does not have to have `class_file` in it (or a duplicate, since mut/immut can't
+/// be merged anyway)
+/// `methods` has `method_id` loaded from it
+/// `method_code` MUST be the same code that the method would have.
+///   You may note that it wouldn't be possible to load the method from `methods` and pass it in
+///   Due to the design of the code, you will possibly have to clone it.
+///   If there is no code, then the code is verified (assuming that it shouldn't have code)
 /// # Panics
 pub fn verify_type_safe_method_stack_map(
     class_directories: &ClassDirectories,
@@ -467,6 +475,7 @@ pub fn verify_type_safe_method_stack_map(
     conf: StackMapVerificationLogging,
     class_file: &ClassFileData,
     method_index: MethodIndex,
+    method_code: &CodeInfo,
 ) -> Result<(), VerifyStackMapGeneralError> {
     let _span = tracing::span!(tracing::Level::TRACE, "stackmap verification").entered();
 
@@ -492,20 +501,13 @@ pub fn verify_type_safe_method_stack_map(
         );
     }
 
-    let code = if let Some(code) = method.code() {
-        code
-    } else {
-        // We tried loading the code but there wasn't any.
-        // Thus, there is no stack map to validate
-        return Ok(());
-    };
-
     if conf.log_method_name {
-        tracing::info!("\tLocals: #{}", code.max_locals());
+        tracing::info!("\tLocals: #{}", method_code.max_locals());
     }
 
-    let mut stack_frames = StackMapFramesProcessor::new(class_names, class_file, method, code)
-        .map_err(VerifyStackMapGeneralError::StackMapError)?;
+    let mut stack_frames =
+        StackMapFramesProcessor::new(class_names, class_file, method, method_code)
+            .map_err(VerifyStackMapGeneralError::StackMapError)?;
 
     // TODO: Verify max stack size from code
     // TODO: Verify max stack size from state
@@ -520,14 +522,6 @@ pub fn verify_type_safe_method_stack_map(
     // information extractable from stack maps and instruction behavior, but it is the proper way
     // of doing JVM stack map frame verification, and thus should verify anything that the official
     // JVM verifies.
-
-    // Clone the code instance, because we need to load classes, and Rust isn't smart enough
-    // to let us borrow the inInstExpectedTypeInStackGotstructions, which being heap allocated, would not move
-    // TODO: Don't clone? We could presumably reget the class file, method, and then code
-    // and continue at some indice. As well, to make that less extreme, constant size chunks
-    // could be copied out of the instructions to process before needing to reget the code
-    // Either way would avoid an alloc
-    let code = code.clone();
 
     // The acting frame, which is used to keep track of what is active, and thus do the checking
     // if an instruction requries an int at the top of the stack and it isn't there, then that's
@@ -545,7 +539,7 @@ pub fn verify_type_safe_method_stack_map(
     // stack frame.
     // Transformations of the type sthat the instructions have is done, because they encode more
     // information than the main code uses.
-    for (idx, inst) in code.instructions() {
+    for (idx, inst) in method_code.instructions() {
         struct Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it> {
             class_directories: &'cd ClassDirectories,
             class_names: &'cn mut ClassNames,
@@ -593,7 +587,7 @@ pub fn verify_type_safe_method_stack_map(
             class_names,
             class_file,
             &conf,
-            &code,
+            &method_code,
             &mut stack_frames,
             &mut act_frame,
             *idx,

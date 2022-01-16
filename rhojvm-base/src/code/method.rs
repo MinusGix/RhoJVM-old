@@ -164,34 +164,7 @@ impl Method {
         &mut self,
         class_file: &ClassFileData,
     ) -> Result<(), StepError> {
-        debug_assert_eq!(self.id().decompose().0, class_file.id());
-
-        // TODO: Check for code for native/abstract methods to allow malformed
-        // versions of them?
-        if !self.should_have_code() {
-            return Ok(());
-        }
-
-        if self.code().is_some() {
-            // It already loaded
-            return Ok(());
-        }
-
-        let (_, method_index) = self.id.decompose();
-        let code_attr_range =
-            class_file.load_method_attribute_info_range_by_name(method_index, "Code");
-
-        if let Some(code_attr_range) = code_attr_range {
-            let (data_rem, code_attr) =
-                code_attribute_parser(class_file.parse_data_for(code_attr_range))
-                    .map_err(|_| LoadCodeError::InvalidCodeAttribute)?;
-            debug_assert!(data_rem.is_empty(), "The remaining data after parsing the code attribute was non-empty. This indicates a bug.");
-
-            // TODO: A config for code parsing that includes information like the class file
-            // version?
-            // or we could _try_ making it not care and make that a verification step?
-            let code = code::parse_code(code_attr).map_err(LoadCodeError::InstructionParse)?;
-
+        if let Some(code) = self.direct_load_code_with_unchecked(class_file)? {
             self.code = Some(code);
         }
 
@@ -210,6 +183,87 @@ impl Method {
             ))?;
 
         self.load_code_with_unchecked(class_file)
+    }
+
+    pub fn direct_load_code_with_unchecked(
+        &self,
+        class_file: &ClassFileData,
+    ) -> Result<Option<CodeInfo>, StepError> {
+        debug_assert_eq!(self.id().decompose().0, class_file.id());
+
+        // TODO: Check for code for native/abstract methods to allow malformed
+        // versions of them?
+        if !self.should_have_code() {
+            return Ok(None);
+        }
+
+        if self.code().is_some() {
+            // It already loaded
+            return Ok(None);
+        }
+
+        let (_, method_index) = self.id.decompose();
+        let code_attr_range =
+            class_file.load_method_attribute_info_range_by_name(method_index, "Code");
+
+        if let Some(code_attr_range) = code_attr_range {
+            let (data_rem, code_attr) =
+                code_attribute_parser(class_file.parse_data_for(code_attr_range))
+                    .map_err(|_| LoadCodeError::InvalidCodeAttribute)?;
+            debug_assert!(data_rem.is_empty(), "The remaining data after parsing the code attribute was non-empty. This indicates a bug.");
+
+            // TODO: A config for code parsing that includes information like the class file
+            // version?
+            // or we could _try_ making it not care and make that a verification step?
+            let code = code::parse_code(code_attr).map_err(LoadCodeError::InstructionParse)?;
+
+            return Ok(Some(code));
+        }
+
+        Ok(None)
+    }
+
+    /// Loads code if it isn't already loaded and it should exist
+    /// The class that contains the method should already be loaded
+    /// If the code already exists, it returns None, and you should check for that if you want to do
+    /// a full cone
+    /// If it does not exist then it is parsed and returned
+    pub fn direct_load_code(
+        &self,
+        class_files: &mut ClassFiles,
+    ) -> Result<Option<CodeInfo>, StepError> {
+        let (class_id, _) = self.id().decompose();
+
+        let class_file = class_files
+            .get(&class_id)
+            .ok_or(StepError::MissingLoadedValue(
+                "load_method_code : class_file",
+            ))?;
+
+        self.direct_load_code_with_unchecked(class_file)
+    }
+
+    pub fn direct_load_owned_code_with_unchecked(
+        &self,
+        class_file: &ClassFileData,
+    ) -> Result<Option<CodeInfo>, StepError> {
+        if self.code.is_some() {
+            return Ok(self.code.clone());
+        }
+
+        self.direct_load_code_with_unchecked(class_file)
+    }
+
+    /// Same as direct_load_code except it clones if the code already exists
+    pub fn direct_load_owned_code(
+        &self,
+        class_files: &mut ClassFiles,
+    ) -> Result<Option<CodeInfo>, StepError> {
+        if self.code.is_some() {
+            return Ok(self.code.clone());
+        }
+
+        self.direct_load_code(class_files)
     }
 }
 
