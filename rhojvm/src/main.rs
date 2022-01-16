@@ -640,8 +640,9 @@ fn verify_type_safe_method(
     let method = methods.get_mut(&method_id).unwrap();
     method.load_code(class_files)?;
 
-    let method = methods.get(&method_id).unwrap();
-    let method_code = method.direct_load_owned_code(class_files)?;
+    let method = methods.get_mut(&method_id).unwrap();
+    method.load_code(class_files)?;
+    let method_code = method.take_code_info();
     if method_code.is_none() && method.should_have_code() {
         // We should have code but there was no code!
         return Err(VerificationError::NoMethodCode { method_id }.into());
@@ -660,6 +661,10 @@ fn verify_type_safe_method(
             method_index,
             &method_code,
         )?;
+
+        // Restore the method's code since we have not modified it
+        let method = methods.get_mut(&method_id).unwrap();
+        method.unchecked_insert_code(method_code);
     }
 
     Ok(())

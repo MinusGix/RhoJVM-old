@@ -146,6 +146,20 @@ impl Method {
     }
 
     #[must_use]
+    /// Take the code info from this so that you can use it directly
+    pub fn take_code_info(&mut self) -> Option<CodeInfo> {
+        self.code.take()
+    }
+
+    /// Insert the code info to be used. This will replace the code if it hasn't already been loaded
+    /// This _must_ have come from `take_code_info` from the same method from the same class file
+    /// It _must_ not have been modified.
+    /// If the method should not have code, then you should not insert code.
+    pub fn unchecked_insert_code(&mut self, code: CodeInfo) {
+        self.code = Some(code);
+    }
+
+    #[must_use]
     /// Whether the method should have code or not.
     /// Note that this does not determine if there actually is code, there could be a malformed
     /// class file, but it does tell us if there _should_ be.
@@ -185,7 +199,7 @@ impl Method {
         self.load_code_with_unchecked(class_file)
     }
 
-    pub fn direct_load_code_with_unchecked(
+    fn direct_load_code_with_unchecked(
         &self,
         class_file: &ClassFileData,
     ) -> Result<Option<CodeInfo>, StepError> {
@@ -221,49 +235,6 @@ impl Method {
         }
 
         Ok(None)
-    }
-
-    /// Loads code if it isn't already loaded and it should exist
-    /// The class that contains the method should already be loaded
-    /// If the code already exists, it returns None, and you should check for that if you want to do
-    /// a full cone
-    /// If it does not exist then it is parsed and returned
-    pub fn direct_load_code(
-        &self,
-        class_files: &mut ClassFiles,
-    ) -> Result<Option<CodeInfo>, StepError> {
-        let (class_id, _) = self.id().decompose();
-
-        let class_file = class_files
-            .get(&class_id)
-            .ok_or(StepError::MissingLoadedValue(
-                "load_method_code : class_file",
-            ))?;
-
-        self.direct_load_code_with_unchecked(class_file)
-    }
-
-    pub fn direct_load_owned_code_with_unchecked(
-        &self,
-        class_file: &ClassFileData,
-    ) -> Result<Option<CodeInfo>, StepError> {
-        if self.code.is_some() {
-            return Ok(self.code.clone());
-        }
-
-        self.direct_load_code_with_unchecked(class_file)
-    }
-
-    /// Same as direct_load_code except it clones if the code already exists
-    pub fn direct_load_owned_code(
-        &self,
-        class_files: &mut ClassFiles,
-    ) -> Result<Option<CodeInfo>, StepError> {
-        if self.code.is_some() {
-            return Ok(self.code.clone());
-        }
-
-        self.direct_load_code(class_files)
     }
 }
 
