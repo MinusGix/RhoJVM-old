@@ -29,6 +29,7 @@ use std::{
     io::Read,
     num::NonZeroUsize,
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
 use class::{
@@ -1454,6 +1455,7 @@ pub fn direct_load_class_file_from_rel_path(
         let mut data = Vec::new();
         file.read_to_end(&mut data)
             .map_err(LoadClassFileError::ReadError)?;
+        let data = Rc::new(data);
 
         // TODO: Better errors
         let (rem_data, class_file) = class_parser_opt(ParseData::new(&data))

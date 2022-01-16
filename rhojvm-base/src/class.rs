@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ops::Range, path::PathBuf};
+use std::{borrow::Cow, ops::Range, path::PathBuf, rc::Rc};
 
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo, Utf8Constant},
@@ -11,9 +11,9 @@ use classfile_parser::{
 pub use classfile_parser::ClassAccessFlags;
 
 use crate::{
-    code::{method::Method, types::PrimitiveType},
+    code::types::PrimitiveType,
     id::{ClassFileId, ClassId, MethodId, MethodIndex, PackageId},
-    BadIdError, ClassNames, LoadMethodError, Methods,
+    BadIdError, ClassNames,
 };
 
 #[derive(Debug, Clone)]
@@ -36,7 +36,7 @@ pub struct ClassFileData {
     /// out (that we haven't parsed and collected, because doing that for everything is excessive)
     /// As well, an optimization for memory could throw away parts that we always parse, but that
     /// complicates the implementation, and so has not yet been done.
-    pub(crate) class_file_data: Vec<u8>,
+    pub(crate) class_file_data: Rc<Vec<u8>>,
     pub(crate) class_file: ClassFileOpt,
 }
 impl ClassFileData {
