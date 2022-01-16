@@ -3,9 +3,9 @@ use std::{borrow::Cow, ops::Range, path::PathBuf};
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo, Utf8Constant},
     constant_pool::{ConstantPoolIndex, ConstantPoolIndexRaw},
-    method_info::MethodInfo,
+    method_info::{MethodInfo, MethodInfoOpt},
     parser::ParseData,
-    ClassFile, ClassFileVersion,
+    ClassFileOpt, ClassFileVersion,
 };
 
 pub use classfile_parser::ClassAccessFlags;
@@ -37,14 +37,14 @@ pub struct ClassFileData {
     /// As well, an optimization for memory could throw away parts that we always parse, but that
     /// complicates the implementation, and so has not yet been done.
     pub(crate) class_file_data: Vec<u8>,
-    pub(crate) class_file: ClassFile,
+    pub(crate) class_file: ClassFileOpt,
 }
 impl ClassFileData {
     #[must_use]
     /// Gets the classfile directly.
     /// There is _no_ guarantee that this is stable, and it may be removed without a major version
     /// change.
-    pub fn get_class_file_unstable(&self) -> &ClassFile {
+    pub fn get_class_file_unstable(&self) -> &ClassFileOpt {
         &self.class_file
     }
 
@@ -86,15 +86,45 @@ impl ClassFileData {
         self.get_t(i).map(|x| x.as_text(&self.class_file_data))
     }
 
-    #[must_use]
-    pub fn get_method(&self, index: usize) -> Option<&MethodInfo> {
-        self.class_file.methods.get(index)
+    pub fn load_method_info_by_index(&self, index: MethodIndex) -> Option<Cow<MethodInfo>> {
+        self.class_file.load_method_at(&self.class_file_data, index)
     }
 
-    #[must_use]
-    pub fn methods(&self) -> &[MethodInfo] {
-        self.class_file.methods.as_slice()
+    pub fn load_method_info_opt_by_index(&self, index: MethodIndex) -> Option<MethodInfoOpt> {
+        self.class_file
+            .load_method_opt_at(&self.class_file_data, index)
     }
+
+    /// This is guaranteed to be in order
+    pub fn load_method_info_opt_iter<'a>(&'a self) -> impl Iterator<Item = MethodInfoOpt> + 'a {
+        self.class_file.load_method_opt_iter(&self.class_file_data)
+    }
+
+    // TODO: Give this a better name and/or make it more consistent with the underlying version
+    pub fn load_method_attribute_info_range_by_name(
+        &self,
+        index: MethodIndex,
+        name: &str,
+    ) -> Option<Range<usize>> {
+        self.class_file
+            .load_method_attribute_info_at_with_name(&self.class_file_data, index, name)
+            .ok()
+            .flatten()
+    }
+
+    pub fn methods_len(&self) -> u16 {
+        self.class_file.methods.len() as u16
+    }
+
+    // #[must_use]
+    // pub fn get_method(&self, index: usize) -> Option<&MethodInfo> {
+    //     self.class_file.methods.get(index)
+    // }
+
+    // #[must_use]
+    // pub fn methods(&self) -> &[MethodInfo] {
+    //     self.class_file.methods.as_slice()
+    // }
 
     #[must_use]
     pub fn access_flags(&self) -> ClassAccessFlags {

@@ -13,7 +13,7 @@ use classfile_parser::{
         },
         DescriptorType as DescriptorTypeCF, DescriptorTypeBasic as DescriptorTypeBasicCF,
     },
-    method_info::{MethodAccessFlags, MethodInfo},
+    method_info::{MethodAccessFlags, MethodInfoOpt},
     ClassAccessFlags,
 };
 use either::Either;
@@ -79,7 +79,7 @@ impl Method {
         id: MethodId,
         class_file: &ClassFileData,
         class_names: &mut ClassNames,
-        method: &MethodInfo,
+        method: MethodInfoOpt,
     ) -> Result<Self, LoadMethodError> {
         let descriptor_text = class_file.get_text_t(method.descriptor_index).ok_or(
             LoadMethodError::InvalidDescriptorIndex {
@@ -178,24 +178,12 @@ impl Method {
         }
 
         let (_, method_index) = self.id.decompose();
-        let attributes = class_file
-            .get_method(method_index)
-            .map(|x| x.attributes.as_slice())
-            .ok_or(LoadCodeError::BadMethodIndex)?;
-        let code_attr_idx = attributes
-            .iter()
-            .enumerate()
-            .find(|(_, x)| {
-                class_file
-                    .get_text_t(x.attribute_name_index)
-                    .map_or(false, |x| x == "Code")
-            })
-            .map(|(i, _)| i);
+        let code_attr_range =
+            class_file.load_method_attribute_info_range_by_name(method_index, "Code");
 
-        if let Some(attr_idx) = code_attr_idx {
-            let code_attr = &attributes[attr_idx];
+        if let Some(code_attr_range) = code_attr_range {
             let (data_rem, code_attr) =
-                code_attribute_parser(class_file.parse_data_for(code_attr.info.clone()))
+                code_attribute_parser(class_file.parse_data_for(code_attr_range))
                     .map_err(|_| LoadCodeError::InvalidCodeAttribute)?;
             debug_assert!(data_rem.is_empty(), "The remaining data after parsing the code attribute was non-empty. This indicates a bug.");
 

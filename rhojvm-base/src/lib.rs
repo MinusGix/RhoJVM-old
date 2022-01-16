@@ -35,10 +35,10 @@ use class::{
     ArrayClass, ArrayComponentType, Class, ClassFileData, ClassFileIndexError, ClassVariant,
 };
 use classfile_parser::{
-    class_parser,
+    class_parser_opt,
     constant_info::{ClassConstant, Utf8Constant},
     constant_pool::ConstantPoolIndexRaw,
-    method_info::{MethodAccessFlags, MethodInfo},
+    method_info::{MethodAccessFlags, MethodInfo, MethodInfoOpt},
     ClassAccessFlags,
 };
 use code::{
@@ -359,7 +359,7 @@ impl Classes {
             super_class_id,
             package,
             class_file.access_flags(),
-            class_file.methods().len(),
+            class_file.methods_len(),
         );
 
         self.set_at(class_file_id, ClassVariant::Class(class));
@@ -1397,7 +1397,7 @@ pub fn direct_load_class_file_from_rel_path(
             .map_err(LoadClassFileError::ReadError)?;
 
         // TODO: Better errors
-        let (rem_data, class_file) = class_parser(ParseData::new(&data))
+        let (rem_data, class_file) = class_parser_opt(ParseData::new(&data))
             .map_err(|x| format!("{:?}", x))
             .map_err(LoadClassFileError::ClassFileParseError)?;
         // TODO: Don't assert
@@ -1433,7 +1433,7 @@ pub fn direct_load_method_from_index(
 ) -> Result<Method, StepError> {
     let method_id = MethodId::unchecked_compose(class_file.id(), method_index);
     let method = class_file
-        .get_method(method_index)
+        .load_method_info_opt_by_index(method_index)
         .ok_or(LoadMethodError::NonexistentMethod { id: method_id })?;
     let method = Method::new_from_info(method_id, class_file, class_names, method)?;
 
@@ -1445,14 +1445,14 @@ fn method_id_from_desc<'a>(
     class_file: &'a ClassFileData,
     name: &str,
     desc: &MethodDescriptor,
-) -> Result<(MethodId, &'a MethodInfo), StepError> {
-    let methods = class_file
-        .methods()
-        .iter()
-        .enumerate()
-        .filter(|(_, x)| class_file.get_text_t(x.name_index) == Some(Cow::Borrowed(name)));
+) -> Result<(MethodId, MethodInfoOpt), StepError> {
+    for (method_index, method_info) in class_file.load_method_info_opt_iter().enumerate() {
+        let name_index = method_info.name_index;
+        let name_text = class_file.get_text_t(name_index);
+        if name_text != Some(Cow::Borrowed(name)) {
+            continue;
+        }
 
-    for (i, method_info) in methods {
         let descriptor_index = method_info.descriptor_index;
         let descriptor_text = class_file.get_text_t(descriptor_index).ok_or(
             LoadMethodError::InvalidDescriptorIndex {
@@ -1464,7 +1464,7 @@ fn method_id_from_desc<'a>(
             .is_equal_to_descriptor(class_names, descriptor_text.as_ref())
             .map_err(LoadMethodError::MethodDescriptorError)?
         {
-            let method_id = MethodId::unchecked_compose(class_file.id(), i);
+            let method_id = MethodId::unchecked_compose(class_file.id(), method_index as u16);
 
             return Ok((method_id, method_info));
         }
@@ -1565,7 +1565,7 @@ fn helper_get_overrided_method(
             .ok_or(StepError::MissingLoadedValue(
                 "helper_get_overrided_method : super_class_file",
             ))?;
-    for (i, method) in super_class_file.methods().iter().enumerate() {
+    for (i, method) in super_class_file.load_method_info_opt_iter().enumerate() {
         let flags = method.access_flags;
         let is_public = flags.contains(MethodAccessFlags::PUBLIC);
         let is_protected = flags.contains(MethodAccessFlags::PROTECTED);
@@ -1645,7 +1645,7 @@ fn helper_get_overrided_method(
                     // that had a non-final version since we're extending the class with the
                     // final version.
                     if is_overridable {
-                        return Ok(Some(MethodId::unchecked_compose(super_class.id, i)));
+                        return Ok(Some(MethodId::unchecked_compose(super_class.id, i as u16)));
                     }
                 }
             }

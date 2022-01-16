@@ -12,7 +12,7 @@ pub type PackageId = HashId;
 
 /// This is an index into the methods
 /// This is not meaningful without a class
-pub type MethodIndex = usize;
+pub type MethodIndex = u16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MethodId {
