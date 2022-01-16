@@ -591,7 +591,7 @@ impl Classes {
         let descriptor: DescriptorTypeCF<'static> = {
             // TODO: Return an error if this doesn't exist, but if it does not then that is sign
             // of an internal bug
-            let path = name.path()[0].as_str();
+            let path = name.path();
             let (descriptor, remaining) =
                 DescriptorTypeCF::parse(path).map_err(StepError::DescriptorTypeError)?;
             // TODO: This should actually be a runtime error
@@ -973,13 +973,12 @@ pub struct Name {
     /// Indicates that the class is for an internal type which does not have an actual backing
     /// classfile.
     internal_kind: Option<InternalKind>,
-    /// internal arrays only have one entry in this
-    path: SmallVec<[String; 10]>,
+    path: String,
 }
 impl Name {
     #[must_use]
-    pub fn path(&self) -> &[String] {
-        self.path.as_slice()
+    pub fn path(&self) -> &str {
+        &self.path
     }
 
     #[must_use]
@@ -1025,11 +1024,7 @@ impl ClassNames {
         let id = id::hash_access_path_slice(class_path);
         self.map.entry(id).or_insert_with(move || Name {
             internal_kind: kind,
-            path: class_path
-                .iter()
-                .map(AsRef::as_ref)
-                .map(ToOwned::to_owned)
-                .collect(),
+            path: itertools::intersperse(class_path.iter().map(AsRef::as_ref), "/").collect(),
         });
         id
     }
@@ -1044,15 +1039,13 @@ impl ClassNames {
                 match kind {
                     InternalKind::Array => Name {
                         internal_kind: Some(kind),
-                        path: smallvec![class_path.to_string()],
+                        path: class_path.to_string(),
                     },
                 }
             } else {
                 Name {
                     internal_kind: kind,
-                    path: util::access_path_iter(class_path)
-                        .map(ToOwned::to_owned)
-                        .collect(),
+                    path: class_path.to_string(),
                 }
             }
         });
@@ -1067,7 +1060,7 @@ impl ClassNames {
         let id = id::hash_access_path_iter(class_path.clone(), false);
         self.map.entry(id).or_insert_with(|| Name {
             internal_kind: kind,
-            path: class_path.map(ToOwned::to_owned).collect(),
+            path: itertools::intersperse(class_path, "/").collect(),
         });
         id
     }
@@ -1083,15 +1076,12 @@ impl ClassNames {
         let id = id::hash_access_path_iter(class_path.clone(), true);
         self.map.entry(id).or_insert_with(|| Name {
             internal_kind: kind,
-            path: smallvec![class_path.fold(String::new(), |mut acc, x| {
-                acc.push_str(x);
-                acc
-            })],
+            path: itertools::intersperse(class_path, "/").collect(),
         });
         id
     }
 
-    pub fn path_from_gcid(&self, id: GeneralClassId) -> Result<&[String], BadIdError> {
+    pub fn path_from_gcid(&self, id: GeneralClassId) -> Result<&str, BadIdError> {
         self.name_from_gcid(id).map(Name::path)
     }
 
@@ -1099,27 +1089,9 @@ impl ClassNames {
         self.get(&id).ok_or(BadIdError { id })
     }
 
-    /// A more nicely formatted path from the gcid
-    pub fn display_path_from_gcid(&self, id: GeneralClassId) -> Result<String, BadIdError> {
-        let path = self.path_from_gcid(id)?;
-        let mut result = String::new();
-        for (i, part) in path.iter().enumerate() {
-            result.push_str(part.as_str());
-            if i + 1 < path.len() {
-                result.push('.');
-            }
-        }
-
-        Ok(result)
-    }
-
     /// Used for getting nice traces without boilerplate
-    pub(crate) fn tpath(&self, id: GeneralClassId) -> &[String] {
-        // TODO: Once once_cell or static string alloc is stabilized, we could
-        // replace this with a String constant that is more visible like
-        // "UNKNOWN_CLASS_NAME"
-        const EMPTY_PATH: &[String] = &[String::new()];
-        self.path_from_gcid(id).unwrap_or(EMPTY_PATH)
+    pub(crate) fn tpath(&self, id: GeneralClassId) -> &str {
+        self.path_from_gcid(id).unwrap_or("UNKNOWN_CLASS_NAME")
     }
 
     pub fn gcid_from_array_of_primitives(&mut self, prim: PrimitiveType) -> ClassId {
@@ -1131,7 +1103,7 @@ impl ClassNames {
             let name: String = iter.collect();
             let name = Name {
                 internal_kind: Some(InternalKind::Array),
-                path: smallvec![name],
+                path: name,
             };
             self.set_at(id, name);
         }
@@ -1153,7 +1125,7 @@ impl ClassNames {
             let name: String = iter.collect();
             let name = Name {
                 internal_kind: Some(InternalKind::Array),
-                path: smallvec![name],
+                path: name,
             };
             self.set_at(id, name);
         }
@@ -1175,7 +1147,7 @@ impl ClassNames {
         // We have to do a branching path here because the type changes..
         let id = if class_name.is_array() {
             // An array only has one entry in the class path
-            let component_desc = class_path[0].as_str();
+            let component_desc = class_path;
             let iter = first_iter.chain([component_desc]);
             let id = id::hash_access_path_iter(iter.clone(), true);
 
@@ -1184,7 +1156,7 @@ impl ClassNames {
                 let name: String = iter.collect();
                 let name = Name {
                     internal_kind: Some(InternalKind::Array),
-                    path: smallvec![name],
+                    path: name,
                 };
                 self.set_at(id, name);
             }
@@ -1193,13 +1165,7 @@ impl ClassNames {
         } else {
             // To avoid allocations, we have to be a bit rough here
             // Add the opening L for object
-            let iter = first_iter.chain(["L"]);
-            let class_path_iter = class_path.iter().map(String::as_str);
-            let class_path_iter = itertools::intersperse(class_path_iter, "/");
-            // Add the object's path
-            let iter = iter.chain(class_path_iter);
-            // Add the semicolon, indicating the end of the object
-            let iter = iter.chain([";"]);
+            let iter = first_iter.chain(["L", class_path, ";"]);
             let id = id::hash_access_path_iter(iter.clone(), true);
 
             // Now, we have to check if it already exists
@@ -1207,7 +1173,7 @@ impl ClassNames {
                 let name: String = iter.collect();
                 let name = Name {
                     internal_kind: Some(InternalKind::Array),
-                    path: smallvec![name],
+                    path: name,
                 };
                 self.set_at(id, name);
             }
@@ -1231,7 +1197,7 @@ impl ClassNames {
             let name: String = name_iter.collect();
             let name = Name {
                 internal_kind: Some(InternalKind::Array),
-                path: smallvec![name],
+                path: name,
             };
             self.set_at(id, name);
         }
@@ -1312,7 +1278,9 @@ impl ClassFiles {
             return Ok(());
         }
 
-        let rel_path = util::class_path_slice_to_relative_path(class_name.path());
+        let path = class_name.path();
+        let path = util::access_path_iter(path);
+        let rel_path = util::class_path_iter_to_relative_path(path);
         self.load_from_rel_path(class_directories, class_file_id, rel_path)?;
         Ok(())
     }
@@ -1335,10 +1303,6 @@ impl ClassFiles {
     }
 }
 
-// pub fn direct_load_class_non_array() -> Result<Class, StepError> {
-
-// }
-
 /// The id must be defined inside of the given class names
 pub fn direct_load_class_file_by_id(
     class_directories: &ClassDirectories,
@@ -1355,7 +1319,9 @@ pub fn direct_load_class_file_by_id(
         return Ok(None);
     }
 
-    let rel_path = util::class_path_slice_to_relative_path(class_name.path());
+    let path = class_name.path();
+    let path = util::access_path_iter(path);
+    let rel_path = util::class_path_iter_to_relative_path(path);
     direct_load_class_file_from_rel_path(class_directories, class_file_id, rel_path).map(Some)
 }
 

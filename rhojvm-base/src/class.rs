@@ -363,9 +363,9 @@ impl ArrayComponentType {
                 if name.is_array() {
                     // If we have the id for an array then we just use the singular path it has
                     // because writing it as an object is incorrect.
-                    Ok(path[0].clone())
+                    Ok(path.to_owned())
                 } else {
-                    Ok(format!("L{path};", path = path.join("/")))
+                    Ok(format!("L{};", path))
                 }
             }
             ArrayComponentType::Short => Ok("S".to_owned()),

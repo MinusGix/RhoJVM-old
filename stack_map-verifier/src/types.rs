@@ -666,14 +666,14 @@ impl ComplexFrameType {
     fn as_pretty_string(&self, class_names: &ClassNames) -> String {
         match self {
             ComplexFrameType::ReferenceClass(id) => {
-                if let Ok(name) = class_names.display_path_from_gcid(*id) {
+                if let Ok(name) = class_names.path_from_gcid(*id) {
                     format!("#{}", name)
                 } else {
                     format!("#[{}]", *id)
                 }
             }
             ComplexFrameType::UninitializedReferenceClass(id) => {
-                if let Ok(name) = class_names.display_path_from_gcid(*id) {
+                if let Ok(name) = class_names.path_from_gcid(*id) {
                     format!("!#{}", name)
                 } else {
                     format!("!#[{}]", *id)

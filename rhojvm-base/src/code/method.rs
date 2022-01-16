@@ -275,9 +275,9 @@ impl DescriptorTypeBasic {
                 if name.is_array() {
                     // If we have the id for an array then we just use the singular path it has
                     // because writing it as an object is incorrect.
-                    Ok(path[0].clone())
+                    Ok(path.to_owned())
                 } else {
-                    Ok(format!("L{path};", path = path.join("/")))
+                    Ok(format!("L{};", path))
                 }
             }
             DescriptorTypeBasic::Short => Ok("S".to_owned()),
@@ -307,14 +307,10 @@ impl DescriptorTypeBasic {
                 let name = class_names.name_from_gcid(*class_id)?;
                 let path = name.path();
                 if name.is_array() {
-                    [path[0].as_str()].into_iter()
+                    // Arrays already have leading [
+                    [path].into_iter()
                 } else {
-                    return Ok(Either::Right(
-                        ["L"]
-                            .into_iter()
-                            .chain(itertools::intersperse(path.iter().map(String::as_str), "/"))
-                            .chain([";"].into_iter()),
-                    ));
+                    return Ok(Either::Right(["L", path, ";"].into_iter()));
                 }
             }
         }))
@@ -387,8 +383,8 @@ impl DescriptorTypeBasic {
     pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
         match self {
             DescriptorTypeBasic::Class(id) => {
-                if let Ok(name) = class_names.display_path_from_gcid(*id) {
-                    name
+                if let Ok(name) = class_names.path_from_gcid(*id) {
+                    name.to_owned()
                 } else {
                     format!("[BadClassId #{}]", *id)
                 }

@@ -6,6 +6,7 @@
 
 use std::{borrow::Cow, num::NonZeroUsize, path::Path};
 
+use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
     class::{ClassAccessFlags, ClassVariant},
     code::{
@@ -20,6 +21,9 @@ use rhojvm_base::{
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use tracing::info;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+
+// #[global_allocator]
+// static ALLOCATOR: DhatAlloc = DhatAlloc;
 
 mod formatter;
 
@@ -204,6 +208,8 @@ fn init_logging(conf: &StateConfig) {
 }
 
 fn main() {
+    // let _dhat = Dhat::start_heap_profiling();
+
     let mut conf = StateConfig::new();
     conf.stack_map_verification_logging = StackMapVerificationLogging {
         log_method_name: true,

@@ -492,8 +492,8 @@ pub fn verify_type_safe_method_stack_map(
         tracing::info!(
             "! Checking {} :: {}{}",
             class_names
-                .display_path_from_gcid(class_id)
-                .unwrap_or_else(|_| "[BadIdError]".to_owned()),
+                .path_from_gcid(class_id)
+                .unwrap_or_else(|_| "[BadIdError]"),
             class_file
                 .get_text_t(method.name_index())
                 .unwrap_or_else(|| std::borrow::Cow::Owned("[BadMethodNameIndex]".to_owned())),
