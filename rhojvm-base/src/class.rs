@@ -86,20 +86,23 @@ impl ClassFileData {
         self.get_t(i).map(|x| x.as_text(&self.class_file_data))
     }
 
+    #[must_use]
     pub fn load_method_info_by_index(&self, index: MethodIndex) -> Option<Cow<MethodInfo>> {
         self.class_file.load_method_at(&self.class_file_data, index)
     }
 
+    #[must_use]
     pub fn load_method_info_opt_by_index(&self, index: MethodIndex) -> Option<MethodInfoOpt> {
         self.class_file
             .load_method_opt_at(&self.class_file_data, index)
     }
 
     /// This is guaranteed to be in order
-    pub fn load_method_info_opt_iter<'a>(&'a self) -> impl Iterator<Item = MethodInfoOpt> + 'a {
+    pub fn load_method_info_opt_iter(&self) -> impl Iterator<Item = MethodInfoOpt> + '_ {
         self.class_file.load_method_opt_iter(&self.class_file_data)
     }
 
+    #[must_use]
     // TODO: Give this a better name and/or make it more consistent with the underlying version
     pub fn load_method_attribute_info_range_by_name(
         &self,
@@ -112,6 +115,7 @@ impl ClassFileData {
             .flatten()
     }
 
+    #[must_use]
     pub fn methods_len(&self) -> u16 {
         self.class_file.methods.len() as u16
     }

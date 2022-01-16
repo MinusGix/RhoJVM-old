@@ -21,6 +21,11 @@ use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError
 use tracing::info;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 
+use dhat::{Dhat, DhatAlloc};
+
+#[global_allocator]
+static ALLOCATOR: DhatAlloc = DhatAlloc;
+
 mod formatter;
 
 const ENV_TRACING_LEVEL: &str = "RHO_LOG_LEVEL";
@@ -204,6 +209,8 @@ fn init_logging(conf: &StateConfig) {
 }
 
 fn main() {
+    let _dhat = Dhat::start_heap_profiling();
+    
     let mut conf = StateConfig::new();
     conf.stack_map_verification_logging = StackMapVerificationLogging {
         log_method_name: true,

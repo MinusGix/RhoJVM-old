@@ -86,9 +86,8 @@ impl Method {
                 index: method.descriptor_index,
             },
         )?;
-        let desc = MethodDescriptorCF::parse(descriptor_text.as_ref())
+        let desc = MethodDescriptor::from_text(descriptor_text.as_ref(), class_names)
             .map_err(LoadMethodError::MethodDescriptorError)?;
-        let desc = MethodDescriptor::from_class_file_parser_md(desc, class_names);
 
         let name_index = method.name_index;
         // TODO: We could do slightly better by just getting a slice of the bytes and then
@@ -108,6 +107,7 @@ impl Method {
         ))
     }
 
+    #[must_use]
     pub fn name_index(&self) -> ConstantPoolIndexRaw<Utf8Constant> {
         self.name_index
     }
@@ -287,7 +287,7 @@ impl DescriptorTypeBasic {
 
     /// Returns an iterator over the desc type
     /// Most of the returned strings are static, but class would have one that is owned by names
-    pub(crate) fn to_desc_iter<'cn>(
+    pub(crate) fn as_desc_iter<'cn>(
         &self,
         class_names: &'cn ClassNames,
     ) -> Result<
@@ -525,28 +525,22 @@ impl MethodDescriptor {
         class_names: &mut ClassNames,
     ) -> Result<Self, MethodDescriptorError> {
         let desc = desc.as_ref();
-        let desc = classfile_parser::descriptor::method::MethodDescriptor::parse(desc)?;
-        Ok(MethodDescriptor::from_class_file_parser_md(
-            desc,
-            class_names,
-        ))
-    }
-
-    pub(crate) fn from_class_file_parser_md(
-        desc: MethodDescriptorCF,
-        class_names: &mut ClassNames,
-    ) -> Self {
-        let MethodDescriptorCF {
-            parameter_types,
-            return_type,
-        } = desc;
-        Self {
-            parameters: parameter_types
-                .into_iter()
-                .map(|x| DescriptorType::from_class_file_desc(class_names, x))
-                .collect(),
-            return_type: return_type.map(|x| DescriptorType::from_class_file_desc(class_names, x)),
+        let mut desc_iter = MethodDescriptorCF::parse_iter(desc)?;
+        let mut parameters = SmallVec::new();
+        #[allow(clippy::while_let_on_iterator)]
+        while let Some(parameter) = desc_iter.next() {
+            let parameter = parameter?;
+            let parameter = DescriptorType::from_class_file_desc(class_names, parameter);
+            parameters.push(parameter);
         }
+
+        let return_type = desc_iter
+            .finish_return_type()?
+            .map(|x| DescriptorType::from_class_file_desc(class_names, x));
+        Ok(Self {
+            parameters,
+            return_type,
+        })
     }
 
     #[must_use]

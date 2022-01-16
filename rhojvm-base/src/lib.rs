@@ -38,7 +38,7 @@ use classfile_parser::{
     class_parser_opt,
     constant_info::{ClassConstant, Utf8Constant},
     constant_pool::ConstantPoolIndexRaw,
-    method_info::{MethodAccessFlags, MethodInfo, MethodInfoOpt},
+    method_info::{MethodAccessFlags, MethodInfoOpt},
     ClassAccessFlags,
 };
 use code::{
@@ -956,7 +956,7 @@ pub struct Name {
     /// classfile.
     internal_kind: Option<InternalKind>,
     /// internal arrays only have one entry in this
-    path: SmallVec<[String; 6]>,
+    path: SmallVec<[String; 10]>,
 }
 impl Name {
     #[must_use]
@@ -1205,7 +1205,7 @@ impl ClassNames {
         level: NonZeroUsize,
         component: DescriptorTypeBasic,
     ) -> Result<ClassId, BadIdError> {
-        let name_iter = component.to_desc_iter(self)?;
+        let name_iter = component.as_desc_iter(self)?;
         let name_iter = std::iter::repeat("[").take(level.get()).chain(name_iter);
 
         let id = id::hash_access_path_iter(name_iter.clone(), true);

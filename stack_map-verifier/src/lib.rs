@@ -587,7 +587,7 @@ pub fn verify_type_safe_method_stack_map(
             class_names,
             class_file,
             &conf,
-            &method_code,
+            method_code,
             &mut stack_frames,
             &mut act_frame,
             *idx,
