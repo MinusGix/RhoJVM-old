@@ -1907,7 +1907,8 @@ pub fn verify_code_exceptions(
             let exc = &code.exception_table()[exc_i];
             debug_assert_eq!(code.exception_table().len(), exception_table_len);
 
-            code.check_exception(class_file, method, exc)?;
+            code.instructions()
+                .check_exception(class_file, method, exc)?;
         }
     }
 

@@ -54,6 +54,14 @@ impl ClassFileData {
         ParseData::from_range(&self.class_file_data, r)
     }
 
+    pub(crate) fn parse_data_at(&self, pos: usize) -> ParseData {
+        ParseData::from_pos(&self.class_file_data, pos)
+    }
+
+    pub(crate) fn backing_data(&self) -> &[u8] {
+        &self.class_file_data
+    }
+
     #[must_use]
     pub fn id(&self) -> ClassFileId {
         self.id

@@ -20,14 +20,33 @@ pub mod types;
 pub type InstL = (InstructionIndex, Inst);
 
 #[derive(Debug, Clone)]
-pub struct CodeInfo {
-    pub(crate) instructions: Vec<InstL>,
-    pub(crate) max_locals: u16,
-    pub(crate) max_stack: u16,
-    pub(crate) exception_table: Vec<ExceptionEntry>,
-    pub(crate) attributes: Vec<AttributeInfo>,
+pub struct Instructions {
+    instructions: Vec<InstL>,
 }
-impl CodeInfo {
+impl Instructions {
+    fn new(instructions: Vec<InstL>) -> Instructions {
+        Instructions { instructions }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.instructions.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.instructions.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &InstL> {
+        self.instructions.iter()
+    }
+
+    #[must_use]
+    pub fn get(&self, i: usize) -> Option<&InstL> {
+        self.instructions.get(i)
+    }
+
     #[must_use]
     /// Get an index into the insts vec from an index into the code array
     fn get_instruction_idx(&self, idx: InstructionIndex) -> Option<usize> {
@@ -44,31 +63,6 @@ impl CodeInfo {
 
         // We failed to find the instruction
         None
-    }
-
-    #[must_use]
-    pub fn instructions(&self) -> &[InstL] {
-        &self.instructions
-    }
-
-    #[must_use]
-    pub fn max_locals(&self) -> u16 {
-        self.max_locals
-    }
-
-    #[must_use]
-    pub fn max_stack(&self) -> u16 {
-        self.max_stack
-    }
-
-    #[must_use]
-    pub fn exception_table(&self) -> &[ExceptionEntry] {
-        &self.exception_table
-    }
-
-    #[must_use]
-    pub fn attributes(&self) -> &[AttributeInfo] {
-        &self.attributes
     }
 
     #[must_use]
@@ -212,6 +206,41 @@ impl CodeInfo {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct CodeInfo {
+    pub(crate) instructions: Instructions,
+    pub(crate) max_locals: u16,
+    pub(crate) max_stack: u16,
+    pub(crate) exception_table: Vec<ExceptionEntry>,
+    pub(crate) attributes: Vec<AttributeInfo>,
+}
+impl CodeInfo {
+    #[must_use]
+    pub fn instructions(&self) -> &Instructions {
+        &self.instructions
+    }
+
+    #[must_use]
+    pub fn max_locals(&self) -> u16 {
+        self.max_locals
+    }
+
+    #[must_use]
+    pub fn max_stack(&self) -> u16 {
+        self.max_stack
+    }
+
+    #[must_use]
+    pub fn exception_table(&self) -> &[ExceptionEntry] {
+        &self.exception_table
+    }
+
+    #[must_use]
+    pub fn attributes(&self) -> &[AttributeInfo] {
+        &self.attributes
+    }
+}
+
 pub(crate) fn parse_code(
     mut code_attr: classfile_parser::attribute_info::CodeAttribute,
 ) -> Result<CodeInfo, InstructionParseError> {
@@ -232,6 +261,8 @@ pub(crate) fn parse_code(
         idx += size;
     }
 
+    let instructions = Instructions::new(instructions);
+
     Ok(CodeInfo {
         instructions,
         max_locals: code_attr.max_locals,
@@ -239,4 +270,35 @@ pub(crate) fn parse_code(
         exception_table: std::mem::take(&mut code_attr.exception_table),
         attributes: std::mem::take(&mut code_attr.attributes),
     })
+}
+
+pub(crate) struct ParseInstructionIterator<'a> {
+    code: &'a [u8],
+    idx: u16,
+}
+impl<'a> ParseInstructionIterator<'a> {
+    pub(crate) fn new(code: &'a [u8]) -> ParseInstructionIterator<'a> {
+        ParseInstructionIterator { code, idx: 0 }
+    }
+}
+impl<'a> Iterator for ParseInstructionIterator<'a> {
+    type Item = Result<InstL, InstructionParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx as usize >= self.code.len() {
+            return None;
+        }
+
+        let inst_idx = InstructionIndex(self.idx);
+        let inst = Inst::parse(self.code, inst_idx);
+        if let Ok(inst) = &inst {
+            let size: u16 = inst
+                .memory_size()
+                .try_into()
+                .expect("All inst memory sizes should fit into a u16");
+            self.idx += size;
+        }
+
+        Some(inst.map(|inst| (inst_idx, inst)))
+    }
 }

@@ -316,6 +316,7 @@ impl Locals {
                     // TODO(recover-faulty-stack-map): We could theoretically
                     // lossily recover from this
                     let inst = code
+                        .instructions()
                         .get_instruction_at(*idx)
                         .ok_or(VerifyStackMapError::UninitializedVariableBadIndex { idx: *idx })?;
                     let new_inst = if let Inst::New(new_inst) = inst {
@@ -539,7 +540,7 @@ pub fn verify_type_safe_method_stack_map(
     // stack frame.
     // Transformations of the type sthat the instructions have is done, because they encode more
     // information than the main code uses.
-    for (idx, inst) in method_code.instructions() {
+    for (idx, inst) in method_code.instructions().iter() {
         struct Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it> {
             class_directories: &'cd ClassDirectories,
             class_names: &'cn mut ClassNames,

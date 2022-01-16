@@ -205,6 +205,7 @@ impl FrameType {
                     // TODO(recover-faulty-stack-map): We could theoretically
                     // lossily recover from this
                     let inst = code
+                        .instructions()
                         .get_instruction_at(*idx)
                         .ok_or(VerifyStackMapError::UninitializedVariableBadIndex { idx: *idx })?;
                     let new_inst = if let Inst::New(new_inst) = inst {

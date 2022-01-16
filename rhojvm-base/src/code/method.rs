@@ -21,7 +21,7 @@ use smallvec::SmallVec;
 
 use crate::{
     class::{ArrayComponentType, ClassFileData},
-    code,
+    code::{self},
     id::{ClassId, MethodId},
     BadIdError, ClassFiles, ClassNames, LoadCodeError, LoadMethodError, StepError,
     VerifyMethodError,
