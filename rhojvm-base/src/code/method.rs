@@ -229,7 +229,8 @@ impl Method {
             // TODO: A config for code parsing that includes information like the class file
             // version?
             // or we could _try_ making it not care and make that a verification step?
-            let code = code::parse_code(code_attr).map_err(LoadCodeError::InstructionParse)?;
+            let code =
+                code::parse_code(code_attr, class_file).map_err(LoadCodeError::InstructionParse)?;
 
             return Ok(Some(code));
         }

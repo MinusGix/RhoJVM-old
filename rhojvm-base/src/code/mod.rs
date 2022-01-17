@@ -2,6 +2,7 @@ use classfile_parser::{
     attribute_info::{AttributeInfo, ExceptionEntry},
     constant_info::ConstantInfo,
 };
+use smallvec::SmallVec;
 
 use crate::{class::ClassFileData, util::MemorySize, VerifyCodeExceptionError};
 
@@ -211,8 +212,8 @@ pub struct CodeInfo {
     pub(crate) instructions: Instructions,
     pub(crate) max_locals: u16,
     pub(crate) max_stack: u16,
-    pub(crate) exception_table: Vec<ExceptionEntry>,
-    pub(crate) attributes: Vec<AttributeInfo>,
+    pub(crate) exception_table: SmallVec<[ExceptionEntry; 6]>,
+    pub(crate) attributes: SmallVec<[AttributeInfo; 6]>,
 }
 impl CodeInfo {
     #[must_use]
@@ -243,9 +244,12 @@ impl CodeInfo {
 
 pub(crate) fn parse_code(
     mut code_attr: classfile_parser::attribute_info::CodeAttribute,
+    class_file: &ClassFileData,
 ) -> Result<CodeInfo, InstructionParseError> {
     // TODO: if the class file version number is >=51.0 then neither JSR or JSR_W can appear
-    let code = code_attr.code.as_slice();
+    let code_range = code_attr.code.clone();
+    let code = class_file.parse_data_for(code_range);
+    let code = code.data();
     let mut instructions = Vec::new();
 
     let mut idx: u16 = 0;
