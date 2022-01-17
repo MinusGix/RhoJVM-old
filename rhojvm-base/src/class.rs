@@ -36,7 +36,7 @@ pub struct ClassFileData {
     /// out (that we haven't parsed and collected, because doing that for everything is excessive)
     /// As well, an optimization for memory could throw away parts that we always parse, but that
     /// complicates the implementation, and so has not yet been done.
-    pub(crate) class_file_data: Rc<Vec<u8>>,
+    pub(crate) class_file_data: Rc<[u8]>,
     pub(crate) class_file: ClassFileOpt,
 }
 impl ClassFileData {
@@ -77,16 +77,6 @@ impl ClassFileData {
         &'a T: TryFrom<&'a ConstantInfo>,
     {
         self.class_file.const_pool.get_t(i)
-    }
-
-    pub fn get_t_mut<'a, T>(
-        &'a mut self,
-        i: impl TryInto<ConstantPoolIndex<T>>,
-    ) -> Option<&'a mut T>
-    where
-        &'a mut T: TryFrom<&'a mut ConstantInfo>,
-    {
-        self.class_file.const_pool.get_t_mut(i)
     }
 
     // TODO: Add a cache for these!
