@@ -96,7 +96,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
                 if let Some(class_name) = class_file.get_text_t(class.name_index) {
                     format!(
                         "Class({} = {})",
-                        class_name,
+                        class_name.as_ref(),
                         class_names.gcid_from_str(class_name.as_ref())
                     )
                 } else {

@@ -4,9 +4,9 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
 
-use std::{borrow::Cow, num::NonZeroUsize, path::Path};
+use std::{num::NonZeroUsize, path::Path};
 
-use dhat::{Dhat, DhatAlloc};
+// use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
     class::{ClassAccessFlags, ClassVariant},
     code::{

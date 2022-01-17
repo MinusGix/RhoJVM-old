@@ -47,38 +47,54 @@ impl<T: StaticMemorySize> MemorySize for T {
         T::MEMORY_SIZE
     }
 }
-impl StaticMemorySize for bool {
-    const MEMORY_SIZE: usize = 1;
+
+/// Memory size but for types that are always less than [`u16::MAX`]
+pub trait MemorySizeU16 {
+    fn memory_size_u16(&self) -> u16;
 }
-impl StaticMemorySize for u8 {
-    const MEMORY_SIZE: usize = 1;
+pub trait StaticMemorySizeU16 {
+    const MEMORY_SIZE_U16: u16;
 }
-impl StaticMemorySize for i8 {
-    const MEMORY_SIZE: usize = 1;
+impl<T: StaticMemorySizeU16> MemorySizeU16 for T {
+    fn memory_size_u16(&self) -> u16 {
+        T::MEMORY_SIZE_U16
+    }
 }
-impl StaticMemorySize for u16 {
-    const MEMORY_SIZE: usize = 2;
+impl<T: StaticMemorySizeU16> StaticMemorySize for T {
+    const MEMORY_SIZE: usize = T::MEMORY_SIZE_U16 as usize;
 }
-impl StaticMemorySize for i16 {
-    const MEMORY_SIZE: usize = 2;
+impl StaticMemorySizeU16 for bool {
+    const MEMORY_SIZE_U16: u16 = 1;
 }
-impl StaticMemorySize for u32 {
-    const MEMORY_SIZE: usize = 4;
+impl StaticMemorySizeU16 for u8 {
+    const MEMORY_SIZE_U16: u16 = 1;
 }
-impl StaticMemorySize for i32 {
-    const MEMORY_SIZE: usize = 4;
+impl StaticMemorySizeU16 for i8 {
+    const MEMORY_SIZE_U16: u16 = 1;
 }
-impl StaticMemorySize for u64 {
-    const MEMORY_SIZE: usize = 8;
+impl StaticMemorySizeU16 for u16 {
+    const MEMORY_SIZE_U16: u16 = 2;
 }
-impl StaticMemorySize for i64 {
-    const MEMORY_SIZE: usize = 8;
+impl StaticMemorySizeU16 for i16 {
+    const MEMORY_SIZE_U16: u16 = 2;
 }
-impl<T> StaticMemorySize for ConstantPoolIndexRaw<T> {
-    const MEMORY_SIZE: usize = u16::MEMORY_SIZE;
+impl StaticMemorySizeU16 for u32 {
+    const MEMORY_SIZE_U16: u16 = 4;
 }
-impl<T> StaticMemorySize for ConstantPoolIndex<T> {
-    const MEMORY_SIZE: usize = u16::MEMORY_SIZE;
+impl StaticMemorySizeU16 for i32 {
+    const MEMORY_SIZE_U16: u16 = 4;
+}
+impl StaticMemorySizeU16 for u64 {
+    const MEMORY_SIZE_U16: u16 = 8;
+}
+impl StaticMemorySizeU16 for i64 {
+    const MEMORY_SIZE_U16: u16 = 8;
+}
+impl<T> StaticMemorySizeU16 for ConstantPoolIndexRaw<T> {
+    const MEMORY_SIZE_U16: u16 = u16::MEMORY_SIZE_U16;
+}
+impl<T> StaticMemorySizeU16 for ConstantPoolIndex<T> {
+    const MEMORY_SIZE_U16: u16 = u16::MEMORY_SIZE_U16;
 }
 
 // We wrap this because the alternative hasher is not generic

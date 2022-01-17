@@ -19,3 +19,6 @@ tracing-subscriber = { version = "0.2.0", default-features = false, features = [
     "registry",
     "smallvec",
 ] }
+# Used for profiling allocations and memory usage.
+# Useful, but has many dependencies and runtime-expensive
+#dhat = "0.2.4"

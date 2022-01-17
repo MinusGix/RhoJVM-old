@@ -14,7 +14,7 @@ use crate::code::types::{
     PrimitiveType, PushIndex, PushType, PushTypeAt, Short, StackInfo, StackSizes, UnsignedByte,
     UnsignedShort, WithType,
 };
-use crate::util::{MemorySize, StaticMemorySize};
+use crate::util::{MemorySizeU16, StaticMemorySizeU16};
 use crate::ClassNames;
 
 use super::types::ConstantPoolIndexRawU8;
@@ -188,7 +188,7 @@ macro_rules! define_instruction {
                 #[allow(unused_variables, unused_mut, unused_assignments)]
                 pub(crate) fn parse(data: &[u8], idx: InstructionIndex) -> Result<$name, InstructionParseError> {
                     let data = &data[idx.0 as usize..];
-                    let needed_size: usize = $name::MEMORY_SIZE;
+                    let needed_size: usize = $name::MEMORY_SIZE_U16 as usize;
                     if data.len() < needed_size {
                         return Err(InstructionParseError::NotEnoughData {
                             opcode: Self::OPCODE,
@@ -200,7 +200,7 @@ macro_rules! define_instruction {
                     // Skip over the
                     let mut idx = 1;
                     $(
-                        let size = <$arg_ty>::MEMORY_SIZE;
+                        let size = <$arg_ty>::MEMORY_SIZE_U16 as usize;
                         let $arg = <$arg_ty>::parse(&data[idx..(idx + size)]);
                         idx += size;
                     )*
@@ -220,8 +220,8 @@ macro_rules! define_instruction {
                 pub const OPCODE: RawOpcode = $opcode;
             }
             // The size of themselves in the code
-            impl StaticMemorySize for $name {
-                const MEMORY_SIZE: usize = 1 + $(<$arg_ty>::MEMORY_SIZE +)* 0;
+            impl StaticMemorySizeU16 for $name {
+                const MEMORY_SIZE_U16: u16 = 1 + $(<$arg_ty>::MEMORY_SIZE_U16 +)* 0;
             }
             define_pop!($name, [$($pop_data)*]);
             define_push!($name, [$($push_data)*]);
@@ -462,11 +462,11 @@ macro_rules! define_instructions {
         //         })
         //     }
         // }
-        impl MemorySize for InstM {
-            fn memory_size(&self) -> usize {
+        impl MemorySizeU16 for InstM {
+            fn memory_size_u16(&self) -> u16 {
                 match self {
                     $(
-                        InstM::$name(v) => v.memory_size(),
+                        InstM::$name(v) => v.memory_size_u16(),
                     )*
                     // The macro enjoys erroring
                     #[allow(unreachable_patterns)]
@@ -652,11 +652,11 @@ macro_rules! define_instructions {
                 })
             }
         }
-        impl MemorySize for WideInstM {
-            fn memory_size(&self) -> usize {
+        impl MemorySizeU16 for WideInstM {
+            fn memory_size_u16(&self) -> u16 {
                 match self {
                     $(
-                        WideInstM::$wide_name(v) => v.memory_size(),
+                        WideInstM::$wide_name(v) => v.memory_size_u16(),
                     )*
                     // The macro enjoys erroring
                     #[allow(unreachable_patterns)]
@@ -2953,13 +2953,13 @@ impl LookupSwitch {
         let padding = if padding == 0 { padding } else { 4 - padding };
         let data = &data[padding as usize..];
         let default = Int::parse(data);
-        let data = &data[Int::MEMORY_SIZE..];
+        let data = &data[Int::MEMORY_SIZE_U16 as usize..];
         let npairs = Int::parse(data);
-        let mut data = &data[Int::MEMORY_SIZE..];
+        let mut data = &data[Int::MEMORY_SIZE_U16 as usize..];
         let mut pairs = Vec::new();
         for _ in 0..npairs {
             let val = LookupSwitchPair::parse(data)?;
-            data = &data[LookupSwitchPair::MEMORY_SIZE..];
+            data = &data[LookupSwitchPair::MEMORY_SIZE_U16 as usize..];
             pairs.push(val);
         }
         // TODO: is this correct?
@@ -3001,14 +3001,14 @@ impl PushTypeAt for LookupSwitch {
 define_locals_out!(LookupSwitch, []);
 define_locals_in!(LookupSwitch, []);
 self_sinfo!(LookupSwitch);
-impl MemorySize for LookupSwitch {
-    fn memory_size(&self) -> usize {
-        1 + self.padding as usize
+impl MemorySizeU16 for LookupSwitch {
+    fn memory_size_u16(&self) -> u16 {
+        1 + self.padding as u16
             // default
-            + Int::MEMORY_SIZE
+            + Int::MEMORY_SIZE_U16
             // npairs
-            + Int::MEMORY_SIZE
-            + (self.pairs.len() * LookupSwitchPair::MEMORY_SIZE)
+            + Int::MEMORY_SIZE_U16
+            + (self.pairs.len() as u16 * LookupSwitchPair::MEMORY_SIZE_U16)
     }
 }
 
@@ -3020,13 +3020,13 @@ pub struct LookupSwitchPair {
 impl LookupSwitchPair {
     pub(crate) fn parse(data: &[u8]) -> Result<LookupSwitchPair, InstructionParseError> {
         let match_v = Int::parse(data);
-        let data = &data[Int::MEMORY_SIZE..];
+        let data = &data[Int::MEMORY_SIZE_U16 as usize..];
         let offset = Int::parse(data);
         Ok(Self { match_v, offset })
     }
 }
-impl StaticMemorySize for LookupSwitchPair {
-    const MEMORY_SIZE: usize = Int::MEMORY_SIZE + Int::MEMORY_SIZE;
+impl StaticMemorySizeU16 for LookupSwitchPair {
+    const MEMORY_SIZE_U16: u16 = Int::MEMORY_SIZE_U16 + Int::MEMORY_SIZE_U16;
 }
 
 #[derive(Debug, Clone)]
@@ -3057,16 +3057,16 @@ impl TableSwitch {
         let padding = if padding == 0 { padding } else { 4 - padding };
         let data = &data[padding as usize..];
         let default = Int::parse(data);
-        let data = &data[Int::MEMORY_SIZE..];
+        let data = &data[Int::MEMORY_SIZE_U16 as usize..];
         let low = Int::parse(data);
-        let data = &data[Int::MEMORY_SIZE..];
+        let data = &data[Int::MEMORY_SIZE_U16 as usize..];
         let high = Int::parse(data);
-        let mut data = &data[Int::MEMORY_SIZE..];
+        let mut data = &data[Int::MEMORY_SIZE_U16 as usize..];
         let jump_table_count = high - low + 1;
         let mut jump_offsets = Vec::new();
         for _ in 0..jump_table_count {
             jump_offsets.push(Int::parse(data));
-            data = &data[Int::MEMORY_SIZE..];
+            data = &data[Int::MEMORY_SIZE_U16 as usize..];
         }
 
         Ok(Self {
@@ -3108,13 +3108,13 @@ impl PushTypeAt for TableSwitch {
 define_locals_out!(TableSwitch, []);
 define_locals_in!(TableSwitch, []);
 self_sinfo!(TableSwitch);
-impl MemorySize for TableSwitch {
-    fn memory_size(&self) -> usize {
-        1 + self.padding as usize
-            + Int::MEMORY_SIZE
-            + Int::MEMORY_SIZE
-            + Int::MEMORY_SIZE
-            + (self.jump_offsets.len() * Int::MEMORY_SIZE)
+impl MemorySizeU16 for TableSwitch {
+    fn memory_size_u16(&self) -> u16 {
+        1 + self.padding as u16
+            + Int::MEMORY_SIZE_U16
+            + Int::MEMORY_SIZE_U16
+            + Int::MEMORY_SIZE_U16
+            + (self.jump_offsets.len() as u16 * Int::MEMORY_SIZE_U16)
     }
 }
 
@@ -3151,9 +3151,9 @@ impl HasStackInfo for Wide {
             .stack_info(class_names, class_file, method_id, stack_sizes)
     }
 }
-impl MemorySize for Wide {
-    fn memory_size(&self) -> usize {
-        1 + self.0.memory_size()
+impl MemorySizeU16 for Wide {
+    fn memory_size_u16(&self) -> u16 {
+        1 + self.0.memory_size_u16()
     }
 }
 

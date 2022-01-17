@@ -111,7 +111,7 @@ impl StackMapType {
             VerificationTypeInfo::Object { class } => {
                 let class = class_file.get_t(class)?;
                 let class_name = class_file.get_text_t(class.name_index)?;
-                let class_id = class_names.gcid_from_str(class_name);
+                let class_id = class_names.gcid_from_cow(class_name);
                 StackMapType::Object(class_id)
             }
             VerificationTypeInfo::Uninitialized { offset } => {

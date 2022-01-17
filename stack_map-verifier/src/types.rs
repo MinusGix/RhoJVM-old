@@ -229,7 +229,7 @@ impl FrameType {
                             index: class.name_index,
                         },
                     )?;
-                    let class_id = class_names.gcid_from_str(class_name);
+                    let class_id = class_names.gcid_from_cow(class_name);
 
                     ComplexFrameType::UninitializedReferenceClass(class_id).into()
                 }

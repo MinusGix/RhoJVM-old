@@ -141,7 +141,7 @@ impl HasStackInfo for ANewArray {
         let elem_name = class_file.get_text_t(elem_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(elem_class.name_index.into_generic()),
         )?;
-        let elem_id = class_names.gcid_from_str(elem_name);
+        let elem_id = class_names.gcid_from_cow(elem_name);
 
         let array_id = class_names
             .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), elem_id)
@@ -204,7 +204,7 @@ impl HasStackInfo for MultiANewArray {
         let array_name = class_file.get_text_t(array_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(array_class.name_index.into_generic()),
         )?;
-        let array_id = class_names.gcid_from_str(array_name);
+        let array_id = class_names.gcid_from_cow(array_name);
         Ok(MultiANewArrayInfo {
             array_id,
             dimensions: self.dimensions,
@@ -296,7 +296,7 @@ impl HasStackInfo for CheckCast {
         let name = class_file.get_text_t(class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(class.name_index.into_generic()),
         )?;
-        let id = class_names.gcid_from_str(name);
+        let id = class_names.gcid_from_cow(name);
         Ok(CheckCastInfo { id })
     }
 }
@@ -592,7 +592,7 @@ impl HasStackInfo for InvokeSpecial {
         let rec_class_name = class_file.get_text_t(rec_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(rec_class.name_index.into_generic()),
         )?;
-        let rec_class_id = class_names.gcid_from_str(rec_class_name);
+        let rec_class_id = class_names.gcid_from_cow(rec_class_name);
 
         RefMethodInfo::from_nat_index(class_names, class_file, Some(rec_class_id), nat_index)
     }
@@ -624,7 +624,7 @@ impl HasStackInfo for InvokeInterface {
         let rec_class_name = class_file.get_text_t(rec_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(rec_class.name_index.into_generic()),
         )?;
-        let rec_class_id = class_names.gcid_from_str(rec_class_name);
+        let rec_class_id = class_names.gcid_from_cow(rec_class_name);
 
         RefMethodInfo::from_nat_index(class_names, class_file, Some(rec_class_id), nat_index)
     }
@@ -725,7 +725,7 @@ impl HasStackInfo for InvokeVirtual {
         let rec_class_name = class_file.get_text_t(rec_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(rec_class.name_index.into_generic()),
         )?;
-        let rec_class_id = class_names.gcid_from_str(rec_class_name);
+        let rec_class_id = class_names.gcid_from_cow(rec_class_name);
 
         RefMethodInfo::from_nat_index(class_names, class_file, Some(rec_class_id), nat_index)
     }
@@ -1156,7 +1156,7 @@ impl HasStackInfo for New {
         let name = class_file.get_text_t(class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(class.name_index.into_generic()),
         )?;
-        let id = class_names.gcid_from_str(name);
+        let id = class_names.gcid_from_cow(name);
 
         Ok(NewInfo { id })
     }

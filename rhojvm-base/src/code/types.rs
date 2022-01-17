@@ -9,7 +9,7 @@ use classfile_parser::{constant_info::ConstantInfo, constant_pool::ConstantPoolI
 use crate::{
     class::ClassFileData,
     id::{ClassFileId, MethodId},
-    util::{MemorySize, StaticMemorySize},
+    util::{MemorySizeU16, StaticMemorySizeU16},
     ClassNames, StepError,
 };
 
@@ -39,8 +39,8 @@ macro_rules! create_primitive_types {
                     $parse
                 }
             }
-            impl StaticMemorySize for $name {
-                const MEMORY_SIZE: usize = $mem_size;
+            impl StaticMemorySizeU16 for $name {
+                const MEMORY_SIZE_U16: u16 = $mem_size;
             }
             impl From<$name> for PrimitiveType {
                 fn from(_: $name) -> PrimitiveType {
@@ -70,11 +70,11 @@ macro_rules! create_primitive_types {
                 $name,
             )*
         }
-        impl MemorySize for PrimitiveTypeM {
-            fn memory_size(&self) -> usize {
+        impl MemorySizeU16 for PrimitiveTypeM {
+            fn memory_size_u16(&self) -> u16 {
                 match self {
                     $(
-                        Self::$name => $name::MEMORY_SIZE,
+                        Self::$name => $name::MEMORY_SIZE_U16,
                     )*
                 }
             }
@@ -161,8 +161,8 @@ impl<T> ParseOutput for ConstantPoolIndexRaw<T> {
 /// Used for [`ConstantPoolIndexRaw`]s that are are stored as a single byte
 /// Parses as that, rather than itself
 pub struct ConstantPoolIndexRawU8<T>(PhantomData<*const T>);
-impl<T> StaticMemorySize for ConstantPoolIndexRawU8<T> {
-    const MEMORY_SIZE: usize = u8::MEMORY_SIZE;
+impl<T> StaticMemorySizeU16 for ConstantPoolIndexRawU8<T> {
+    const MEMORY_SIZE_U16: u16 = u8::MEMORY_SIZE_U16;
 }
 impl<T> ParseOutput for ConstantPoolIndexRawU8<T> {
     type Output = ConstantPoolIndexRaw<T>;

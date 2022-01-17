@@ -40,6 +40,20 @@ pub struct ClassFileData {
     pub(crate) class_file: ClassFileOpt,
 }
 impl ClassFileData {
+    pub(crate) fn new(
+        id: ClassFileId,
+        path: PathBuf,
+        class_file_data: Rc<[u8]>,
+        class_file: ClassFileOpt,
+    ) -> ClassFileData {
+        ClassFileData {
+            id,
+            path,
+            class_file_data,
+            class_file,
+        }
+    }
+
     #[must_use]
     /// Gets the classfile directly.
     /// There is _no_ guarantee that this is stable, and it may be removed without a major version

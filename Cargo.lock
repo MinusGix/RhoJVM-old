@@ -41,7 +41,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "classfile-parser"
 version = "0.5.6"
-source = "git+https://github.com/MinusGix/classfile-parser#30d3fd0db3b283b6e2ba6d91b68ee4b8e1aa0a26"
+source = "git+https://github.com/MinusGix/classfile-parser#8e481fb74aecef25c63b8ba2b0b9f44205f8df1d"
 dependencies = [
  "bitflags",
  "cesu8",
@@ -148,6 +148,7 @@ name = "rhojvm-base"
 version = "0.1.0"
 dependencies = [
  "classfile-parser",
+ "either",
  "itertools",
  "nohash-hasher",
  "siphasher",

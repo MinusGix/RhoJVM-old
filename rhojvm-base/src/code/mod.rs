@@ -4,7 +4,7 @@ use classfile_parser::{
 };
 use smallvec::SmallVec;
 
-use crate::{class::ClassFileData, util::MemorySize, VerifyCodeExceptionError};
+use crate::{class::ClassFileData, util::MemorySizeU16, VerifyCodeExceptionError};
 
 use self::{method::Method, op::Inst, op_ex::InstructionParseError};
 
@@ -97,10 +97,7 @@ impl Instructions {
     #[must_use]
     pub fn code_length(&self) -> u16 {
         if let Some((idx, inst)) = self.last() {
-            let size: u16 = inst
-                .memory_size()
-                .try_into()
-                .expect("Inst memory size to fit within u16");
+            let size: u16 = inst.memory_size_u16();
             idx.0 + size
         } else {
             0
@@ -257,10 +254,7 @@ pub(crate) fn parse_code(
         // We don't need to give the entirety of the code to the instructions but it does not
         // harm anything.
         let inst = Inst::parse(code, InstructionIndex(idx))?;
-        let size: u16 = inst
-            .memory_size()
-            .try_into()
-            .expect("All inst memory sizes should fit into a u16");
+        let size: u16 = inst.memory_size_u16();
         instructions.push((InstructionIndex(idx), inst));
         idx += size;
     }
@@ -296,10 +290,7 @@ impl<'a> Iterator for ParseInstructionIterator<'a> {
         let inst_idx = InstructionIndex(self.idx);
         let inst = Inst::parse(self.code, inst_idx);
         if let Ok(inst) = &inst {
-            let size: u16 = inst
-                .memory_size()
-                .try_into()
-                .expect("All inst memory sizes should fit into a u16");
+            let size: u16 = inst.memory_size_u16();
             self.idx += size;
         }
 

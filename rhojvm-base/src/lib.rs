@@ -333,9 +333,9 @@ impl Classes {
         let super_class_name = class_file
             .get_super_class_name()
             .map_err(LoadClassError::ClassFileIndex)?;
-        let super_class_name = super_class_name.as_ref().map(AsRef::as_ref);
+        let super_class_name = super_class_name;
+        let super_class_id = super_class_name.map(|x| class_names.gcid_from_cow(x));
 
-        let super_class_id = super_class_name.map(|x| class_names.gcid_from_str(x));
         let package = {
             let mut package = util::access_path_iter(this_class_name.as_ref()).peekable();
             // TODO: Don't unwrap
@@ -349,11 +349,6 @@ impl Classes {
 
             package
         };
-
-        info!(
-            "Got Class Info: {} : {:?}",
-            this_class_name, super_class_name
-        );
 
         let class = Class::new(
             class_file_id,
@@ -721,7 +716,7 @@ impl Classes {
                         class_file.get_text_t(interface_constant.name_index).ok_or(
                             LoadClassError::BadInterfaceNameIndex(interface_constant.name_index),
                         )?;
-                    let interface_id = class_names.gcid_from_str(interface_name);
+                    let interface_id = class_names.gcid_from_cow(interface_name);
 
                     if interface_id == impl_interface_id {
                         return Ok(true);
@@ -749,7 +744,7 @@ impl Classes {
                 let interface_name = class_file.get_text_t(interface_constant.name_index).ok_or(
                     LoadClassError::BadInterfaceNameIndex(interface_constant.name_index),
                 )?;
-                let interface_id = class_names.gcid_from_str(interface_name);
+                let interface_id = class_names.gcid_from_cow(interface_name);
 
                 if self.implements_interface(
                     class_directories,
@@ -1045,22 +1040,30 @@ impl ClassNames {
         let kind = InternalKind::from_str(class_path);
 
         let id = id::hash_access_path(class_path);
-        self.map.entry(id).or_insert_with(|| {
-            if let Some(kind) = kind {
-                match kind {
-                    InternalKind::Array => Name {
-                        internal_kind: Some(kind),
-                        path: class_path.to_string(),
-                    },
-                }
-            } else {
-                Name {
-                    internal_kind: kind,
-                    path: class_path.to_string(),
-                }
-            }
+        self.map.entry(id).or_insert_with(|| Name {
+            internal_kind: kind,
+            path: class_path.to_string(),
         });
         id
+    }
+
+    pub fn gcid_from_string(&mut self, class_path: String) -> GeneralClassId {
+        let kind = InternalKind::from_str(&class_path);
+        let id = id::hash_access_path(&class_path);
+
+        self.map.entry(id).or_insert_with(|| Name {
+            internal_kind: kind,
+            path: class_path,
+        });
+
+        id
+    }
+
+    pub fn gcid_from_cow(&mut self, class_path: Cow<str>) -> GeneralClassId {
+        match class_path {
+            Cow::Borrowed(class_path) => self.gcid_from_str(class_path),
+            Cow::Owned(class_path) => self.gcid_from_string(class_path),
+        }
     }
 
     pub fn gcid_from_iter<'a>(
@@ -1464,12 +1467,7 @@ pub fn direct_load_class_file_from_rel_path(
         // TODO: Don't assert
         debug_assert!(rem_data.is_empty());
 
-        Ok(ClassFileData {
-            id,
-            class_file,
-            class_file_data: data,
-            path: file_path,
-        })
+        Ok(ClassFileData::new(id, file_path, data, class_file))
     } else {
         Err(LoadClassFileError::NonexistentFile(rel_path))
     }
@@ -1886,7 +1884,7 @@ pub fn verify_code_exceptions(
                 let catch_type_name = class_file
                     .get_text_t(catch_type.name_index)
                     .ok_or(VerifyCodeExceptionError::InvalidCatchTypeNameIndex)?;
-                let catch_type_id = class_names.gcid_from_str(catch_type_name);
+                let catch_type_id = class_names.gcid_from_cow(catch_type_name);
 
                 if !does_extend_class(
                     class_directories,

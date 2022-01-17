@@ -328,9 +328,7 @@ impl DescriptorTypeBasic {
             DescriptorTypeBasicCF::Float => Self::Float,
             DescriptorTypeBasicCF::Int => Self::Int,
             DescriptorTypeBasicCF::Long => Self::Long,
-            DescriptorTypeBasicCF::ClassName(name) => {
-                Self::Class(class_names.gcid_from_str(name.as_ref()))
-            }
+            DescriptorTypeBasicCF::ClassName(name) => Self::Class(class_names.gcid_from_cow(name)),
             DescriptorTypeBasicCF::Short => Self::Short,
             DescriptorTypeBasicCF::Boolean => Self::Boolean,
         }
