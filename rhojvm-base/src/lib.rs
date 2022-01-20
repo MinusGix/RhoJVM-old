@@ -685,14 +685,12 @@ impl Classes {
     ) -> Result<bool, StepError> {
         // Special handling for arrays
         if class_names.is_array(class_id).map_err(StepError::BadId)? {
-            let cloneable = class_names.gcid_from_slice(&["java", "lang", "Cloneable"]);
-            if impl_interface_id == cloneable {
-                return Ok(true);
-            }
-
-            let serializable = class_names.gcid_from_slice(&["java", "io", "Serializable"]);
-            if impl_interface_id == serializable {
-                return Ok(true);
+            let interfaces = ArrayClass::get_interface_names();
+            for interface_name in interfaces {
+                let id = class_names.gcid_from_slice(interface_name);
+                if impl_interface_id == id {
+                    return Ok(true);
+                }
             }
 
             return Ok(false);

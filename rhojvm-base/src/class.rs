@@ -234,6 +234,11 @@ impl ClassVariant {
     }
 
     #[must_use]
+    pub fn is_array(&self) -> bool {
+        matches!(self, Self::Array(_))
+    }
+
+    #[must_use]
     pub fn as_class(&self) -> Option<&Class> {
         match self {
             Self::Class(x) => Some(x),
@@ -341,6 +346,14 @@ impl ArrayClass {
             access_flags,
             package,
         }
+    }
+
+    #[must_use]
+    pub fn get_interface_names() -> &'static [&'static [&'static str]] {
+        &[
+            &["java", "lang", "Cloneable"],
+            &["java", "io", "Serializable"],
+        ]
     }
 
     #[must_use]
