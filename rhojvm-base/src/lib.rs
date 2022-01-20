@@ -384,7 +384,7 @@ impl Classes {
             return Ok(id);
         }
 
-        let access_flags = {
+        let (package, access_flags) = {
             // TODO: For normal classes, we only need to load the class file
             self.load_class(
                 class_directories,
@@ -394,13 +394,14 @@ impl Classes {
                 class_id,
             )?;
             let class = self.get(&class_id).unwrap();
-            class.access_flags()
+            (class.package(), class.access_flags())
         };
         let array = ArrayClass {
             id,
             super_class: class_names.object_id(),
             component_type,
             access_flags,
+            package,
         };
         self.register_array_class(array);
         Ok(id)
@@ -426,6 +427,7 @@ impl Classes {
             class_names.object_id(),
             // Since all the types are primitive, we can simply use this
             ClassAccessFlags::PUBLIC,
+            None,
         );
         self.register_array_class(array);
         Ok(array_id)
@@ -460,6 +462,7 @@ impl Classes {
             component_type,
             class_names.object_id(),
             ClassAccessFlags::PUBLIC,
+            None,
         );
         self.register_array_class(array);
 
@@ -493,7 +496,7 @@ impl Classes {
             &component,
         )?;
 
-        let access_flags = if let Some(component_id) = component_id {
+        let (package, access_flags) = if let Some(component_id) = component_id {
             // TODO: For normal classes, we only need to load the class file
             self.load_class(
                 class_directories,
@@ -503,11 +506,11 @@ impl Classes {
                 component_id,
             )?;
             let class = self.get(&component_id).unwrap();
-            class.access_flags()
+            (class.package(), class.access_flags())
         } else {
             // These methods only return none if it was a class, but if it was then it would
             // be in the other branch
-            component.access_flags().unwrap()
+            (None, component.access_flags().unwrap())
         };
 
         // If level > 1 then the component type isn't the above component type, but rather
@@ -528,6 +531,7 @@ impl Classes {
             super_class: class_names.object_id(),
             component_type,
             access_flags,
+            package,
         };
         self.register_array_class(array);
 

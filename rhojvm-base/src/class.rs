@@ -224,6 +224,16 @@ impl ClassVariant {
     }
 
     #[must_use]
+    /// Returns the id of the package that contains this class
+    /// `None` means that it is the topmost package
+    pub fn package(&self) -> Option<PackageId> {
+        match self {
+            ClassVariant::Class(x) => x.package(),
+            ClassVariant::Array(x) => x.package(),
+        }
+    }
+
+    #[must_use]
     pub fn as_class(&self) -> Option<&Class> {
         match self {
             Self::Class(x) => Some(x),
@@ -236,6 +246,14 @@ impl ClassVariant {
         match self {
             Self::Class(_) => None,
             Self::Array(x) => Some(x),
+        }
+    }
+
+    #[must_use]
+    pub fn is_interface(&self) -> bool {
+        match self {
+            ClassVariant::Class(x) => x.is_interface(),
+            ClassVariant::Array(_) => false,
         }
     }
 }
@@ -282,6 +300,11 @@ impl Class {
         self.package
     }
 
+    #[must_use]
+    pub fn is_interface(&self) -> bool {
+        self.access_flags.contains(ClassAccessFlags::INTERFACE)
+    }
+
     /// Iterate over all method ids that this method has.
     /// Note that this is just the ids, they are not guaranteed to be loaded.
     pub fn iter_method_ids(&self) -> impl Iterator<Item = MethodId> {
@@ -298,6 +321,8 @@ pub struct ArrayClass {
     /// Always "java/lang/Object"
     pub(crate) super_class: ClassId,
     pub(crate) access_flags: ClassAccessFlags,
+    /// The package id of the innermost component type, if it has one
+    pub(crate) package: Option<PackageId>,
 }
 impl ArrayClass {
     // TODO: provide more libsound ways of creating this
@@ -307,12 +332,14 @@ impl ArrayClass {
         component_type: ArrayComponentType,
         super_class: ClassId,
         access_flags: ClassAccessFlags,
+        package: Option<PackageId>,
     ) -> Self {
         ArrayClass {
             id,
             component_type,
             super_class,
             access_flags,
+            package,
         }
     }
 
@@ -329,6 +356,13 @@ impl ArrayClass {
     #[must_use]
     pub fn super_id(&self) -> ClassId {
         self.super_class
+    }
+
+    #[must_use]
+    /// Returns the package id
+    /// If there is none, then it is of some class that is rootmost package
+    pub fn package(&self) -> Option<PackageId> {
+        self.package
     }
 }
 
