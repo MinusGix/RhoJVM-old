@@ -73,6 +73,7 @@ impl Method {
         }
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     /// Construct the method with an already known name
     /// NOTE: This should _always_ be the same as the method's actual name.
     pub(crate) fn new_from_info(
@@ -632,6 +633,10 @@ impl MethodOverride {
     }
 }
 
+// Clippy's suggestion is less immediately clear
+// This also has to be on the function itself since it doesn't seem to see if it is put before the
+// if block
+#[allow(clippy::nonminimal_bool)]
 pub(crate) fn verify_method_access_flags(
     flags: MethodAccessFlags,
 ) -> Result<(), VerifyMethodError> {

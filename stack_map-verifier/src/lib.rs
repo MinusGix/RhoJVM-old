@@ -271,7 +271,7 @@ impl Locals {
         self.locals.resize(len, Local::Unfilled);
     }
 
-    fn from_stack_map_types(
+    fn ingest_stack_map_types(
         &mut self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
@@ -494,7 +494,7 @@ pub fn verify_type_safe_method_stack_map(
             "! Checking {} :: {}{}",
             class_names
                 .path_from_gcid(class_id)
-                .unwrap_or_else(|_| "[BadIdError]"),
+                .unwrap_or("[BadIdError]"),
             class_file
                 .get_text_t(method.name_index())
                 .unwrap_or_else(|| std::borrow::Cow::Owned("[BadMethodNameIndex]".to_owned())),
@@ -646,7 +646,7 @@ fn check_frame(
         )?;
         act_frame
             .locals
-            .from_stack_map_types(class_names, class_file, code, &frame.locals)?;
+            .ingest_stack_map_types(class_names, class_file, code, &frame.locals)?;
         if act_frame.locals.len() > usize::from(code.max_locals()) {
             return Err(VerifyStackMapError::ReceivedFrameTooManyLocals {
                 inst_name,

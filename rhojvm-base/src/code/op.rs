@@ -3002,8 +3002,9 @@ define_locals_out!(LookupSwitch, []);
 define_locals_in!(LookupSwitch, []);
 self_sinfo!(LookupSwitch);
 impl MemorySizeU16 for LookupSwitch {
+    #[allow(clippy::cast_possible_truncation)]
     fn memory_size_u16(&self) -> u16 {
-        1 + self.padding as u16
+        1 + u16::from(self.padding)
             // default
             + Int::MEMORY_SIZE_U16
             // npairs
@@ -3109,8 +3110,9 @@ define_locals_out!(TableSwitch, []);
 define_locals_in!(TableSwitch, []);
 self_sinfo!(TableSwitch);
 impl MemorySizeU16 for TableSwitch {
+    #[allow(clippy::cast_possible_truncation)]
     fn memory_size_u16(&self) -> u16 {
-        1 + self.padding as u16
+        1 + u16::from(self.padding)
             + Int::MEMORY_SIZE_U16
             + Int::MEMORY_SIZE_U16
             + Int::MEMORY_SIZE_U16

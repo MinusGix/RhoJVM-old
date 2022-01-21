@@ -925,9 +925,9 @@ impl Methods {
         class_file: &ClassFileData,
     ) -> Result<(), LoadMethodError> {
         let class_id = class_file.id();
-        let methods_opt_iter = class_file.load_method_info_opt_iter();
-        for (method_index, method_info) in methods_opt_iter.enumerate() {
-            let method_id = MethodId::unchecked_compose(class_id, method_index as u16);
+        let methods_opt_iter = class_file.load_method_info_opt_iter_with_index();
+        for (method_index, method_info) in methods_opt_iter {
+            let method_id = MethodId::unchecked_compose(class_id, method_index);
             let method = Method::new_from_info(method_id, class_file, class_names, method_info)?;
             self.set_at(method_id, method);
         }
@@ -1515,7 +1515,7 @@ fn method_id_from_desc<'a>(
     name: &str,
     desc: &MethodDescriptor,
 ) -> Result<(MethodId, MethodInfoOpt), StepError> {
-    for (method_index, method_info) in class_file.load_method_info_opt_iter().enumerate() {
+    for (method_index, method_info) in class_file.load_method_info_opt_iter_with_index() {
         let name_index = method_info.name_index;
         let name_text = class_file.get_text_t(name_index);
         if name_text != Some(Cow::Borrowed(name)) {
@@ -1533,7 +1533,7 @@ fn method_id_from_desc<'a>(
             .is_equal_to_descriptor(class_names, descriptor_text.as_ref())
             .map_err(LoadMethodError::MethodDescriptorError)?
         {
-            let method_id = MethodId::unchecked_compose(class_file.id(), method_index as u16);
+            let method_id = MethodId::unchecked_compose(class_file.id(), method_index);
 
             return Ok((method_id, method_info));
         }
@@ -1634,7 +1634,7 @@ fn helper_get_overrided_method(
             .ok_or(StepError::MissingLoadedValue(
                 "helper_get_overrided_method : super_class_file",
             ))?;
-    for (i, method) in super_class_file.load_method_info_opt_iter().enumerate() {
+    for (i, method) in super_class_file.load_method_info_opt_iter_with_index() {
         let flags = method.access_flags;
         let is_public = flags.contains(MethodAccessFlags::PUBLIC);
         let is_protected = flags.contains(MethodAccessFlags::PROTECTED);
@@ -1714,7 +1714,7 @@ fn helper_get_overrided_method(
                     // that had a non-final version since we're extending the class with the
                     // final version.
                     if is_overridable {
-                        return Ok(Some(MethodId::unchecked_compose(super_class.id, i as u16)));
+                        return Ok(Some(MethodId::unchecked_compose(super_class.id, i)));
                     }
                 }
             }

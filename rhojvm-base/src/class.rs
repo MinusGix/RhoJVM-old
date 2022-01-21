@@ -68,14 +68,6 @@ impl ClassFileData {
         ParseData::from_range(&self.class_file_data, r)
     }
 
-    pub(crate) fn parse_data_at(&self, pos: usize) -> ParseData {
-        ParseData::from_pos(&self.class_file_data, pos)
-    }
-
-    pub(crate) fn backing_data(&self) -> &[u8] {
-        &self.class_file_data
-    }
-
     #[must_use]
     pub fn id(&self) -> ClassFileId {
         self.id
@@ -107,6 +99,16 @@ impl ClassFileData {
     pub fn load_method_info_opt_by_index(&self, index: MethodIndex) -> Option<MethodInfoOpt> {
         self.class_file
             .load_method_opt_at(&self.class_file_data, index)
+    }
+
+    pub fn load_method_info_opt_iter_with_index(
+        &self,
+    ) -> impl Iterator<Item = (MethodIndex, MethodInfoOpt)> + '_ {
+        // The number of methods from the file will always be less than a u16
+        #[allow(clippy::cast_possible_truncation)]
+        self.load_method_info_opt_iter()
+            .enumerate()
+            .map(|(i, info)| (i as u16, info))
     }
 
     /// This is guaranteed to be in order

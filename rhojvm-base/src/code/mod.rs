@@ -269,31 +269,3 @@ pub(crate) fn parse_code(
         attributes: std::mem::take(&mut code_attr.attributes),
     })
 }
-
-pub(crate) struct ParseInstructionIterator<'a> {
-    code: &'a [u8],
-    idx: u16,
-}
-impl<'a> ParseInstructionIterator<'a> {
-    pub(crate) fn new(code: &'a [u8]) -> ParseInstructionIterator<'a> {
-        ParseInstructionIterator { code, idx: 0 }
-    }
-}
-impl<'a> Iterator for ParseInstructionIterator<'a> {
-    type Item = Result<InstL, InstructionParseError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx as usize >= self.code.len() {
-            return None;
-        }
-
-        let inst_idx = InstructionIndex(self.idx);
-        let inst = Inst::parse(self.code, inst_idx);
-        if let Ok(inst) = &inst {
-            let size: u16 = inst.memory_size_u16();
-            self.idx += size;
-        }
-
-        Some(inst.map(|inst| (inst_idx, inst)))
-    }
-}
