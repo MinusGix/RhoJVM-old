@@ -1475,6 +1475,12 @@ pub fn direct_load_class_file_from_rel_path(
     }
 }
 
+// TODO: Will this behave incorrectly for classes which extend arrays? Those are incorrect, but
+// should be properly handled.
+// TODO: Should we rename these two iteration functions to something else to better represent
+// that they include the base class?
+/// Provides an 'iterator' over classes as it crawls up from the `class_id` given
+/// Note that this *includes* the `class_id` given, and so you may want to skip over it.
 #[must_use]
 pub fn load_super_classes_iter(class_id: ClassId) -> SuperClassIterator {
     SuperClassIterator {
@@ -1482,6 +1488,8 @@ pub fn load_super_classes_iter(class_id: ClassId) -> SuperClassIterator {
     }
 }
 
+/// Provides an 'iterator' over class files as it crawls up from the `class_id` given
+/// Note that this *includes* the `class_id` given, and so you may want to skip over it.
 #[must_use]
 pub fn load_super_class_files_iter(class_file_id: ClassFileId) -> SuperClassFileIterator {
     SuperClassFileIterator::new(class_file_id)
