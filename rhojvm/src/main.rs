@@ -22,7 +22,7 @@ use rhojvm_base::{
 use smallvec::SmallVec;
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use tracing::info;
-use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+use tracing_subscriber::layer::SubscriberExt;
 
 // #[global_allocator]
 // static ALLOCATOR: DhatAlloc = DhatAlloc;
