@@ -996,15 +996,15 @@ fn load_constant_info(
         ConstantInfo::Integer(_) => PrimitiveType::Int.into(),
         ConstantInfo::Float(_) => PrimitiveType::Float.into(),
         ConstantInfo::Class(_) => {
-            ComplexType::ReferenceClass(class_names.gcid_from_slice(&["java", "lang", "Class"]))
+            ComplexType::ReferenceClass(class_names.gcid_from_array(&["java", "lang", "Class"]))
                 .into()
         }
         ConstantInfo::String(_) => {
-            ComplexType::ReferenceClass(class_names.gcid_from_slice(&["java", "lang", "String"]))
+            ComplexType::ReferenceClass(class_names.gcid_from_array(&["java", "lang", "String"]))
                 .into()
         }
         ConstantInfo::MethodHandle(_) => {
-            ComplexType::ReferenceClass(class_names.gcid_from_slice(&[
+            ComplexType::ReferenceClass(class_names.gcid_from_array(&[
                 "java",
                 "lang",
                 "invoke",
@@ -1012,7 +1012,7 @@ fn load_constant_info(
             ]))
             .into()
         }
-        ConstantInfo::MethodType(_) => ComplexType::ReferenceClass(class_names.gcid_from_slice(&[
+        ConstantInfo::MethodType(_) => ComplexType::ReferenceClass(class_names.gcid_from_array(&[
             "java",
             "lang",
             "invoke",

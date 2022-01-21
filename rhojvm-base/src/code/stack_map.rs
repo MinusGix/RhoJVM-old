@@ -169,10 +169,7 @@ impl StackMapFramesProcessor {
         // TODO: Should we skip adding the initial frame if it is empty? Some code may rely on it
         // being nonempty
         let initial_frame = {
-            let this_type = if class_file.id()
-                == class_names.gcid_from_slice(&["java", "lang", "Object"])
-                && method.is_init()
-            {
+            let this_type = if class_file.id() == class_names.object_id() && method.is_init() {
                 // Object's init has some special handling
                 Some(StackMapType::Object(class_file.id()))
             } else if method.is_init() {

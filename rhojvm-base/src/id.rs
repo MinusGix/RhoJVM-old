@@ -71,6 +71,22 @@ pub(crate) fn hash_access_path_slice<T: AsRef<str>>(path: &[T]) -> HashId {
     state.finish()
 }
 
+// TODO: Check how well this optimizes
+pub(crate) fn hash_access_path_array<T: AsRef<str>, const N: usize>(path: &[T; N]) -> HashId {
+    let mut state = make_hasher();
+    if path.get(0).map_or(false, |x| is_array_class(x.as_ref())) && path.len() > 1 {
+        tracing::warn!(
+            "hash_access_path_slice received slice of array type with more than one entry"
+        );
+        panic!("");
+    }
+    for entry in itertools::intersperse(path.iter().map(AsRef::as_ref), "/") {
+        state.write(entry.as_bytes());
+    }
+    state.write_u8(0xff);
+    state.finish()
+}
+
 #[must_use]
 /// NOTE: Currently all hashing should go through this
 /// because hashing a string is not the same as hashing the individual

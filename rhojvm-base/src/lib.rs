@@ -687,6 +687,9 @@ impl Classes {
         if class_names.is_array(class_id).map_err(StepError::BadId)? {
             let interfaces = ArrayClass::get_interface_names();
             for interface_name in interfaces {
+                // TODO: We could avoid the hashing for
+                // interfaces implemented by arrays since they're always known at compile time.
+                // Sadly, the optimizer probably can't do this itself.
                 let id = class_names.gcid_from_slice(interface_name);
                 if impl_interface_id == id {
                     return Ok(true);
@@ -1009,11 +1012,34 @@ __make_map!(pub ClassNames<GeneralClassId, Name>; access);
 impl ClassNames {
     /// Gets the id for `java.lang.Object`
     pub fn object_id(&mut self) -> GeneralClassId {
-        self.gcid_from_slice(&["java", "lang", "Object"])
+        self.gcid_from_array(&["java", "lang", "Object"])
     }
 
     pub fn is_array(&self, id: ClassId) -> Result<bool, BadIdError> {
         self.name_from_gcid(id).map(Name::is_array)
+    }
+
+    // TODO: Investigate how well this optimizes down, because this would typically be used in
+    // cases where the name is given explicitly
+    pub fn gcid_from_array<T: AsRef<str>, const N: usize>(
+        &mut self,
+        class_path: &[T; N],
+    ) -> GeneralClassId {
+        let kind = InternalKind::from_slice(class_path);
+        if let Some(kind) = &kind {
+            if kind.is_array() && class_path.len() > 1 {
+                tracing::error!(
+                    "gcid_from_array had internal-kind but had more entries than expected"
+                );
+            }
+        }
+
+        let id = id::hash_access_path_array(class_path);
+        self.map.entry(id).or_insert_with(move || Name {
+            internal_kind: kind,
+            path: itertools::intersperse(class_path.iter().map(AsRef::as_ref), "/").collect(),
+        });
+        id
     }
 
     /// Store the class path hash if it doesn't already exist and get the id
@@ -1872,7 +1898,7 @@ pub fn verify_code_exceptions(
         return Ok(());
     }
 
-    let throwable_id = class_names.gcid_from_slice(&["java", "lang", "Throwable"]);
+    let throwable_id = class_names.gcid_from_array(&["java", "lang", "Throwable"]);
 
     let exception_table_len = code.exception_table().len();
     for exc_i in 0..exception_table_len {
