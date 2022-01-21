@@ -138,6 +138,7 @@ version = "0.1.0"
 dependencies = [
  "classfile-parser",
  "rhojvm-base",
+ "smallvec",
  "stack_map-verifier",
  "tracing",
  "tracing-subscriber",

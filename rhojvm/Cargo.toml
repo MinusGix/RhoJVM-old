@@ -19,6 +19,7 @@ tracing-subscriber = { version = "0.2.0", default-features = false, features = [
     "registry",
     "smallvec",
 ] }
+smallvec = { version = "1.7", features = ["const_generics"] }
 # Used for profiling allocations and memory usage.
 # Useful, but has many dependencies and runtime-expensive
 #dhat = "0.2.4"
