@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use rhojvm_base::{id::ClassId, util::MemorySize};
 
-use crate::{rv::RuntimeValue, util::JavaString};
+use crate::{
+    rv::{RuntimeType, RuntimeValue},
+    util::JavaString,
+};
 
 macro_rules! try_from_instance {
     ($variant_name:ident => $name:ty) => {
@@ -32,6 +35,7 @@ macro_rules! try_from_instance {
 pub enum Instance {
     Class(ClassInstance),
     StaticClass(StaticClassInstance),
+    Array(ArrayInstance),
     String(StringInstance),
 }
 impl Instance {
@@ -41,6 +45,7 @@ impl Instance {
         match self {
             Instance::Class(x) => x.fields.iter(),
             Instance::StaticClass(x) => x.fields.iter(),
+            Instance::Array(x) => x.fields.iter(),
             // TODO: If we fake some of the fields a string holds then we have to fake them here too
             Instance::String(x) => x.fields.iter(),
         }
@@ -48,10 +53,11 @@ impl Instance {
 }
 impl MemorySize for Instance {
     fn memory_size(&self) -> usize {
-        // TODO: This could be better..
+        // TODO: Our current memory size implementations don't include their sub-fields
         match self {
             Instance::Class(x) => x.memory_size(),
             Instance::StaticClass(x) => x.memory_size(),
+            Instance::Array(x) => x.memory_size(),
             Instance::String(x) => x.memory_size(),
         }
     }
@@ -99,6 +105,22 @@ try_from_instance!(String => StringInstance);
 impl MemorySize for StringInstance {
     fn memory_size(&self) -> usize {
         self.value.memory_size()
+    }
+}
+
+// TODO: Specialized array instances for each kind of value?
+#[derive(Debug, Clone)]
+pub struct ArrayInstance {
+    pub element_type: RuntimeType,
+    pub elements: Vec<RuntimeValue>,
+    // TODO: This only exists so that we can return an empty iterator over it that is the same type
+    // as those returned in the impl iterator for instance. We should simply make an empty version.
+    fields: Fields,
+}
+try_from_instance!(Array => ArrayInstance);
+impl MemorySize for ArrayInstance {
+    fn memory_size(&self) -> usize {
+        std::mem::size_of::<Self>()
     }
 }
 
