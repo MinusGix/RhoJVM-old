@@ -4,6 +4,30 @@ use rhojvm_base::{id::ClassId, util::MemorySize};
 
 use crate::{rv::RuntimeValue, util::JavaString};
 
+macro_rules! try_from_instance {
+    ($variant_name:ident => $name:ty) => {
+        impl<'a> TryFrom<&'a Instance> for &'a $name {
+            type Error = ();
+            fn try_from(i: &'a Instance) -> Result<&'a $name, ()> {
+                match i {
+                    Instance::$variant_name(x) => Ok(x),
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl<'a> TryFrom<&'a mut Instance> for &'a mut $name {
+            type Error = ();
+            fn try_from(i: &'a mut Instance) -> Result<&'a mut $name, ()> {
+                match i {
+                    Instance::$variant_name(x) => Ok(x),
+                    _ => Err(()),
+                }
+            }
+        }
+    };
+}
+
 /// An instance of a class, made generic over several common variants
 pub enum Instance {
     Class(ClassInstance),
@@ -41,6 +65,7 @@ pub struct ClassInstance {
     /// Fields that it owns
     pub fields: Fields,
 }
+try_from_instance!(Class => ClassInstance);
 impl MemorySize for ClassInstance {
     fn memory_size(&self) -> usize {
         std::mem::size_of::<Self>()
@@ -55,6 +80,7 @@ pub struct StaticClassInstance {
     /// Static fields
     pub fields: Fields,
 }
+try_from_instance!(StaticClass => StaticClassInstance);
 impl MemorySize for StaticClassInstance {
     fn memory_size(&self) -> usize {
         std::mem::size_of::<Self>()
@@ -69,6 +95,7 @@ pub struct StringInstance {
     // to handle it ourselves, such as the length and data
     fields: Fields,
 }
+try_from_instance!(String => StringInstance);
 impl MemorySize for StringInstance {
     fn memory_size(&self) -> usize {
         self.value.memory_size()
