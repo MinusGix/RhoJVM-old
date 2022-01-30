@@ -92,22 +92,28 @@ impl Gc {
         GcRef::new_unchecked(index)
     }
 
-    // TODO: We can GcRef a type parameter that is a specific subvariant so that we can have
-    // more specific types, even if they are all Instance at the top level
     #[must_use]
-    pub fn deref(&self, reference: GcRef<Instance>) -> Option<&Instance> {
+    pub fn deref<'a, T>(&'a self, reference: GcRef<T>) -> Option<&'a T>
+    where
+        &'a T: TryFrom<&'a Instance>,
+    {
         self.objects
             .get(reference.index)
             .and_then(Option::as_ref)
             .map(|obj| &obj.value)
+            .and_then(|obj| <&T>::try_from(obj).ok())
     }
 
     #[must_use]
-    pub fn deref_mut(&mut self, reference: GcRef<Instance>) -> Option<&mut Instance> {
+    pub fn deref_mut<'a, T>(&'a mut self, reference: GcRef<T>) -> Option<&'a mut T>
+    where
+        &'a mut T: TryFrom<&'a mut Instance>,
+    {
         self.objects
             .get_mut(reference.index)
             .and_then(Option::as_mut)
             .map(|obj| &mut obj.value)
+            .and_then(|obj| <&mut T>::try_from(obj).ok())
     }
 
     pub fn mark_object(&mut self, obj: GcRef<Instance>) {
