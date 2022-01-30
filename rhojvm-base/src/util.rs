@@ -36,7 +36,6 @@ pub fn access_path_iter(package: &str) -> impl DoubleEndedIterator<Item = &str> 
 }
 
 pub trait MemorySize {
-    /// Note: this only applies to the *direct* memory size
     fn memory_size(&self) -> usize;
 }
 pub trait StaticMemorySize {
@@ -45,6 +44,12 @@ pub trait StaticMemorySize {
 impl<T: StaticMemorySize> MemorySize for T {
     fn memory_size(&self) -> usize {
         T::MEMORY_SIZE
+    }
+}
+
+impl MemorySize for String {
+    fn memory_size(&self) -> usize {
+        std::mem::size_of::<String>() + self.as_bytes().len() * u8::MEMORY_SIZE
     }
 }
 

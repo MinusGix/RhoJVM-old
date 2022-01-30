@@ -6,10 +6,12 @@
 // Unfortunately, Clippy isn't smart enough to notice if a function call is trivial and so likely
 // does not have an issue in being used in this position.
 #![allow(clippy::or_fun_call)]
+#![allow(clippy::module_name_repetitions)]
 
 use std::{collections::HashMap, num::NonZeroUsize, path::Path};
 
 use classfile_parser::{constant_info::ConstantInfo, constant_pool::ConstantPoolIndexRaw};
+use eval::EvalError;
 // use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
     class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassVariant},
@@ -27,7 +29,12 @@ use tracing_subscriber::layer::SubscriberExt;
 // #[global_allocator]
 // static ALLOCATOR: DhatAlloc = DhatAlloc;
 
+pub mod class_instance;
+pub mod eval;
 mod formatter;
+pub mod gc;
+pub mod rv;
+pub mod util;
 
 const ENV_TRACING_LEVEL: &str = "RHO_LOG_LEVEL";
 const DEFAULT_TRACING_LEVEL: tracing::Level = tracing::Level::WARN;
@@ -167,7 +174,7 @@ struct ClassInfo {
     pub verified: Status,
 }
 
-pub(crate) struct State {
+pub struct State {
     entry_point_class: Option<ClassId>,
     conf: StateConfig,
 
@@ -201,7 +208,7 @@ impl ClassesInfo {
 #[derive(Debug)]
 pub enum GeneralError {
     Step(StepError),
-    RunInst(RunInstError),
+    Eval(EvalError),
     Verification(VerificationError),
     Resolve(ResolveError),
     /// We expected the class at this id to exist
@@ -220,9 +227,9 @@ impl From<StepError> for GeneralError {
         Self::Step(err)
     }
 }
-impl From<RunInstError> for GeneralError {
-    fn from(err: RunInstError) -> Self {
-        Self::RunInst(err)
+impl From<EvalError> for GeneralError {
+    fn from(err: EvalError) -> Self {
+        Self::Eval(err)
     }
 }
 impl From<VerificationError> for GeneralError {
@@ -287,17 +294,6 @@ pub enum VerificationError {
 #[derive(Debug)]
 pub enum ResolveError {
     InaccessibleClass { from: ClassId, target: ClassId },
-}
-
-#[derive(Debug)]
-pub enum RunInstError {
-    NoClassFile(ClassFileId),
-    NoMethod(MethodId),
-    NoCode(MethodId),
-    NoInst(MethodId, usize),
-    InvalidGetStaticField,
-    InvalidFieldRefClass,
-    InvalidClassNameIndex,
 }
 
 struct EmptyWriter;
@@ -434,6 +430,13 @@ fn main() {
     ) {
         tracing::error!("failed to initialized class: {:?}", err);
         return;
+    }
+
+    // We get the main method's id so then we can execute it.
+    // We could check this early to make so errors from a missing main show up faster, but that is
+    // an edge-case, and doesn't matter.
+    {
+        let string_id = class_names.gcid_from_array(&["java", "lang", "String"]);
     }
 
     // if let Err(err) = initialize_class(
