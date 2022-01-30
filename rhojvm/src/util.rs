@@ -23,3 +23,17 @@ impl MemorySize for JavaString {
         self.0.memory_size()
     }
 }
+
+pub(crate) const fn signed_offset_16(lhs: u16, rhs: i16) -> Option<u16> {
+    if rhs.is_negative() {
+        if rhs == i16::MIN {
+            None
+        } else {
+            lhs.checked_sub(rhs.abs() as u16)
+        }
+    } else {
+        // It was not negative so it fits inside a u16
+        #[allow(clippy::cast_sign_loss)]
+        lhs.checked_add(rhs as u16)
+    }
+}
