@@ -19,6 +19,12 @@ use super::method::{DescriptorType, DescriptorTypeBasic};
 // The classfile lib already does this.
 #[derive(Debug, Clone, Copy)]
 pub struct JavaChar(pub [u8; 4]);
+impl JavaChar {
+    #[must_use]
+    pub fn as_int(&self) -> i32 {
+        i32::from_be_bytes(self.0)
+    }
+}
 
 /// Internal
 pub trait ParseOutput {
