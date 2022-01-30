@@ -255,6 +255,12 @@ pub struct GcObject {
     size: usize,
     value: Instance,
 }
+impl GcObject {
+    #[must_use]
+    pub fn value(&self) -> &Instance {
+        &self.value
+    }
+}
 
 // TODO: We could do some odd optimizations, like holding a pointer?
 /// A reference to an object in the Gc
