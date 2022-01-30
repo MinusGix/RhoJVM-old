@@ -107,6 +107,16 @@ pub struct Fields {
     fields: HashMap<String, Field>,
 }
 impl Fields {
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&Field> {
+        self.fields.get(name)
+    }
+
+    #[must_use]
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Field> {
+        self.fields.get_mut(name)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Field)> {
         self.fields.iter().map(|x| (x.0.as_ref(), x.1))
     }
