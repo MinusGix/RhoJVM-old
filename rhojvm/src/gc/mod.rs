@@ -282,6 +282,14 @@ impl<T> GcRef<T> {
             _marker: PhantomData,
         }
     }
+
+    #[must_use]
+    pub fn into_generic(self) -> GcRef<Instance> {
+        GcRef {
+            index: self.index,
+            _marker: PhantomData,
+        }
+    }
 }
 impl<T> Copy for GcRef<T> {}
 impl<T> Clone for GcRef<T> {
