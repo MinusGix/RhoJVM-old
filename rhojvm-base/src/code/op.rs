@@ -397,22 +397,22 @@ macro_rules! define_instructions {
         }
 
         #[derive(Clone)]
-        pub enum InstM {
+        pub enum Inst {
             $(
                 $(#[$name_outer])*
                 $name ($name)
             ),+
         }
-        impl InstM {
+        impl Inst {
             #[allow(unused_variables)]
-            pub fn parse(code: &[u8], idx: InstructionIndex) -> Result<InstM, InstructionParseError> {
+            pub fn parse(code: &[u8], idx: InstructionIndex) -> Result<Inst, InstructionParseError> {
                 let opcode: RawOpcode = code
                     .get(idx.0 as usize).copied()
                     .ok_or(InstructionParseError::ExpectedOpCodeAt(idx))?;
                 match opcode {
                     $(
                         $name::OPCODE => {
-                            Ok(InstM::$name($name::parse(code, idx)?))
+                            Ok(Inst::$name($name::parse(code, idx)?))
                         }
                     )+
                     _ => return Err(InstructionParseError::UnknownOpcode {
@@ -425,7 +425,7 @@ macro_rules! define_instructions {
             pub fn map<'a, F: InstMapFunc<'a>>(&'a self, f: F) -> F::Output {
                 match self {
                     $(
-                        InstM::$name(x) => f.call(x),
+                        Inst::$name(x) => f.call(x),
                     )+
                     #[allow(unreachable_patterns)]
                     _ => unreachable!()
@@ -437,7 +437,7 @@ macro_rules! define_instructions {
             pub fn name(&self) -> &'static str {
                 match self {
                     $(
-                        InstM::$name(inst) => inst.name(),
+                        Inst::$name(inst) => inst.name(),
                     )+
                     #[allow(unreachable_patterns)]
                     _ => unreachable!()
@@ -462,11 +462,11 @@ macro_rules! define_instructions {
         //         })
         //     }
         // }
-        impl MemorySizeU16 for InstM {
+        impl MemorySizeU16 for Inst {
             fn memory_size_u16(&self) -> u16 {
                 match self {
                     $(
-                        InstM::$name(v) => v.memory_size_u16(),
+                        Inst::$name(v) => v.memory_size_u16(),
                     )*
                     // The macro enjoys erroring
                     #[allow(unreachable_patterns)]
@@ -475,11 +475,11 @@ macro_rules! define_instructions {
             }
         }
         // Custom formatting to only print the struct, which is nicer to see
-        impl std::fmt::Debug for InstM {
+        impl std::fmt::Debug for Inst {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
                     $(
-                        InstM::$name(v) => std::fmt::Debug::fmt(v, f),
+                        Inst::$name(v) => std::fmt::Debug::fmt(v, f),
                     )*
                     #[allow(unreachable_patterns)]
                     _ => unreachable!(),
@@ -598,22 +598,22 @@ macro_rules! define_instructions {
         }
 
         #[derive(Clone)]
-        pub enum WideInstM {
+        pub enum WideInst {
             $(
                 $(#[$wide_name_outer])*
                 $wide_name ($wide_name)
             ),+
         }
-        impl WideInstM {
+        impl WideInst {
             #[allow(unused_variables)]
-            pub fn parse(code: &[u8], idx: InstructionIndex) -> Result<WideInstM, InstructionParseError> {
+            pub fn parse(code: &[u8], idx: InstructionIndex) -> Result<WideInst, InstructionParseError> {
                 let opcode: RawOpcode = code
                     .get(idx.0 as usize).copied()
                     .ok_or(InstructionParseError::ExpectedOpCodeAt(idx))?;
                 match opcode {
                     $(
                         $wide_name::OPCODE => {
-                            Ok(WideInstM::$wide_name($wide_name::parse(code, idx)?))
+                            Ok(WideInst::$wide_name($wide_name::parse(code, idx)?))
                         }
                     )+
                     _ => return Err(InstructionParseError::UnknownWideOpcode {
@@ -623,18 +623,18 @@ macro_rules! define_instructions {
                 }
             }
         }
-        impl Instruction for WideInstM {
+        impl Instruction for WideInst {
             fn name(&self) -> &'static str {
                 match self {
                     $(
-                        WideInstM::$wide_name(inst) => inst.name(),
+                        WideInst::$wide_name(inst) => inst.name(),
                     )+
                     #[allow(unreachable_patterns)]
                     _ => unreachable!()
                 }
             }
         }
-        impl HasStackInfo for WideInstM {
+        impl HasStackInfo for WideInst {
             type Output = WideStackInfosM;
 
             fn stack_info(&self,
@@ -645,18 +645,18 @@ macro_rules! define_instructions {
             ) -> Result<WideStackInfosM, $crate::StepError> {
                 Ok(match self {
                     $(
-                        WideInstM::$wide_name(inst) => WideStackInfosM::$wide_name(inst.stack_info(class_names, class_file, method_id, stack_sizes)?),
+                        WideInst::$wide_name(inst) => WideStackInfosM::$wide_name(inst.stack_info(class_names, class_file, method_id, stack_sizes)?),
                     )*
                     #[allow(unreachable_patterns)]
                     _ => unimplemented!(),
                 })
             }
         }
-        impl MemorySizeU16 for WideInstM {
+        impl MemorySizeU16 for WideInst {
             fn memory_size_u16(&self) -> u16 {
                 match self {
                     $(
-                        WideInstM::$wide_name(v) => v.memory_size_u16(),
+                        WideInst::$wide_name(v) => v.memory_size_u16(),
                     )*
                     // The macro enjoys erroring
                     #[allow(unreachable_patterns)]
@@ -665,11 +665,11 @@ macro_rules! define_instructions {
             }
         }
         // Custom formatting to only print the struct, which is nicer to see
-        impl std::fmt::Debug for WideInstM {
+        impl std::fmt::Debug for WideInst {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
                     $(
-                        WideInstM::$wide_name(v) => std::fmt::Debug::fmt(v, f),
+                        WideInst::$wide_name(v) => std::fmt::Debug::fmt(v, f),
                     )*
                     #[allow(unreachable_patterns)]
                     _ => unreachable!(),
@@ -2919,10 +2919,6 @@ macro_rules! self_sinfo {
     };
 }
 
-// Redeclaration so Rust analyzer picks up on it properly
-pub type Inst = InstM;
-pub type WideInst = WideInstM;
-
 /// pop: [key: Int]
 /// push: []
 /// exceptions: []
@@ -3121,7 +3117,7 @@ impl MemorySizeU16 for TableSwitch {
 }
 
 #[derive(Debug, Clone)]
-pub struct Wide(pub WideInstM);
+pub struct Wide(pub WideInst);
 impl Wide {
     pub const OPCODE: RawOpcode = 0xC4;
 
@@ -3131,7 +3127,7 @@ impl Wide {
     ) -> Result<Self, InstructionParseError> {
         // skip over opcode
         idx.0 += 1;
-        Ok(Self(WideInstM::parse(data, idx)?))
+        Ok(Self(WideInst::parse(data, idx)?))
     }
 }
 impl Instruction for Wide {
