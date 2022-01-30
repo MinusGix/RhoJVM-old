@@ -279,117 +279,6 @@ macro_rules! define_instructions {
             }
         }
 
-        // pub enum StackInfosM {
-        //     $(
-        //         $name(<$name as HasStackInfo>::Output)
-        //     ),+
-        // }
-        // impl StackInfo for StackInfosM {}
-        // impl PopTypeAt for StackInfosM {
-        //     fn pop_type_at(&self, i: usize) -> Option<PopType> {
-        //         match self {
-        //             $(
-        //                 StackInfosM::$name(x) => x.pop_type_at(i),
-        //             )+
-        //             #[allow(unreachable_patterns)]
-        //             _ => return None,
-        //         }
-        //     }
-
-        //     fn pop_count(&self) -> usize {
-        //         match self {
-        //             $(
-        //                 StackInfosM::$name(x) => x.pop_count(),
-        //             )+
-        //             #[allow(unreachable_patterns)]
-        //             _ => unreachable!(),
-        //         }
-        //     }
-        // }
-        // impl PushTypeAt for StackInfosM {
-        //     fn push_type_at(&self, i: usize) -> Option<PushType> {
-        //         match self {
-        //             $(
-        //                 StackInfosM::$name(x) => x.push_type_at(i),
-        //             )+
-        //             #[allow(unreachable_patterns)]
-        //             _ => return None,
-        //         }
-        //     }
-
-        //     fn push_count(&self) -> usize {
-        //         match self {
-        //             $(
-        //                 StackInfosM::$name(x) => x.push_count(),
-        //             )+
-        //             #[allow(unreachable_patterns)]
-        //             _ => unreachable!(),
-        //         }
-        //     }
-        // }
-
-        // pub enum LocalsOutIter {
-        //     $(
-        //         $name(<<$name as HasStackInfo>::Output as LocalsOutAt>::Iter)
-        //     ),+
-        // }
-        // impl Iterator for LocalsOutIter {
-        //     type Item = (LocalVariableIndex, LocalVariableType);
-        //     fn next(&mut self) -> Option<Self::Item> {
-        //         match self {
-        //             $(
-        //                 LocalsOutIter::$name(x) => x.next(),
-        //             )+
-        //             #[allow(unreachable_patterns)]
-        //             _ => unreachable!(),
-        //         }
-        //     }
-        // }
-        // impl LocalsOutAt for StackInfosM {
-        //     type Iter = LocalsOutIter;
-
-        //     fn locals_out_type_iter(&self) -> Self::Iter {
-        //         match self {
-        //             $(
-        //                 StackInfosM::$name(x) => LocalsOutIter::$name(x.locals_out_type_iter()),
-        //             )+
-        //             #[allow(unreachable_patterns)]
-        //             _ => unreachable!(),
-        //         }
-        //     }
-        // }
-
-        // pub enum LocalsInIter {
-        //     $(
-        //         $name(<<$name as HasStackInfo>::Output as LocalsIn>::Iter)
-        //     ),+
-        // }
-        // impl Iterator for LocalsInIter {
-        //     type Item = (LocalVariableIndex, LocalVariableInType);
-        //     fn next(&mut self) -> Option<Self::Item> {
-        //         match self {
-        //             $(
-        //                 LocalsInIter::$name(x) => x.next(),
-        //             )+
-        //             #[allow(unreachable_patterns)]
-        //             _ => unreachable!(),
-        //         }
-        //     }
-        // }
-        // impl LocalsIn for StackInfosM {
-        //     type Iter = LocalsInIter;
-
-        //     fn locals_in_type_iter(&self) -> Self::Iter {
-        //         match self {
-        //             $(
-        //                 StackInfosM::$name(x) => LocalsInIter::$name(x.locals_in_type_iter()),
-        //             )+
-        //             #[allow(unreachable_patterns)]
-        //             _ => unreachable!(),
-        //         }
-        //     }
-        // }
-
         pub trait InstMapFunc<'a> {
             type Output;
 
@@ -431,8 +320,7 @@ macro_rules! define_instructions {
                     _ => unreachable!()
                 }
             }
-        // }
-        // impl Instruction for InstM {
+
             #[must_use]
             pub fn name(&self) -> &'static str {
                 match self {
@@ -444,24 +332,6 @@ macro_rules! define_instructions {
                 }
             }
         }
-        // impl HasStackInfo for InstM {
-        //     type Output = StackInfosM;
-
-        //     fn stack_info(&self,
-        //         class_names: &mut ClassNames,
-        //         class_file: &ClassFileData,
-        //         method_id: $crate::id::MethodId,
-        //         stack_sizes: StackSizes
-        //     ) -> Result<StackInfosM, $crate::StepError> {
-        //         Ok(match self {
-        //             $(
-        //                 InstM::$name(inst) => StackInfosM::$name(inst.stack_info(class_names, class_file, method_id, stack_sizes)?),
-        //             )*
-        //             #[allow(unreachable_patterns)]
-        //             _ => unimplemented!(),
-        //         })
-        //     }
-        // }
         impl MemorySizeU16 for Inst {
             fn memory_size_u16(&self) -> u16 {
                 match self {
@@ -680,6 +550,228 @@ macro_rules! define_instructions {
 }
 
 pub type RawOpcode = u8;
+
+/// A macro meant for mapping all instructions with a specific function
+/// This has to exist for usability. Rust for some reason doesn't have any ability
+/// to apply a function to even enum variants with the same held type,
+/// and also does not have the ability to do so for functions that are generic over some
+/// trait that it requires the instructions to implement.
+/// Once can approximate it with a mapping function that takes a thing implementing a trait
+/// with the trait having a call function (which is generic by virtue of the trait being generic)
+/// but that only works if you can declare the requirements of that trait in the original decl.
+/// Sadly, that is not feasible in scenarios where you don't have 100% control of code
+/// or do not want to forcefully interlink it like that.
+/// As well, even if you do have that level of control, it is undesirable because it requires
+/// duplicating it for any differences in generics restriction.
+/// Ex: stack map verifier wants each instruction to implement [`StackInfo`]
+///     While the code which runs instructions wants them to implement [`RunInst`]
+///     The mapping method would either require us to require that both of those be implemented
+///         (which is invasive)
+///     or to duplicate the mapping
+///         (which is what the goal of generic mapping is to avoid!)
+#[macro_export]
+macro_rules! map_inst {
+    ($inst:ident; $x:ident; $f:expr) => {
+        match $inst {
+            Inst::AALoad($x) => $f,
+            Inst::AAStore($x) => $f,
+            Inst::AConstNull($x) => $f,
+            Inst::ALoad($x) => $f,
+            Inst::ALoad0($x) => $f,
+            Inst::ALoad1($x) => $f,
+            Inst::ALoad2($x) => $f,
+            Inst::ALoad3($x) => $f,
+            Inst::ANewArray($x) => $f,
+            Inst::MultiANewArray($x) => $f,
+            Inst::NewArray($x) => $f,
+            Inst::AReturn($x) => $f,
+            Inst::ArrayLength($x) => $f,
+            Inst::AStore($x) => $f,
+            Inst::AStore0($x) => $f,
+            Inst::AStore1($x) => $f,
+            Inst::AStore2($x) => $f,
+            Inst::AStore3($x) => $f,
+            Inst::InvokeSpecial($x) => $f,
+            Inst::InvokeInterface($x) => $f,
+            Inst::InvokeDynamic($x) => $f,
+            Inst::Return($x) => $f,
+            Inst::IntReturn($x) => $f,
+            Inst::LongReturn($x) => $f,
+            Inst::DoubleReturn($x) => $f,
+            Inst::FloatReturn($x) => $f,
+            Inst::GetStatic($x) => $f,
+            Inst::LoadConstant($x) => $f,
+            Inst::LoadConstantWide($x) => $f,
+            Inst::LoadConstant2Wide($x) => $f,
+            Inst::New($x) => $f,
+            Inst::AThrow($x) => $f,
+            Inst::InvokeStatic($x) => $f,
+            Inst::InvokeVirtual($x) => $f,
+            Inst::Goto($x) => $f,
+            Inst::IfIntCmpEq($x) => $f,
+            Inst::IfIntCmpNe($x) => $f,
+            Inst::IfIntCmpLt($x) => $f,
+            Inst::IfIntCmpGe($x) => $f,
+            Inst::IfIntCmpGt($x) => $f,
+            Inst::IfIntCmpLe($x) => $f,
+            Inst::IfACmpEq($x) => $f,
+            Inst::IfACmpNe($x) => $f,
+            Inst::IfEqZero($x) => $f,
+            Inst::IfNeZero($x) => $f,
+            Inst::IfLtZero($x) => $f,
+            Inst::IfGeZero($x) => $f,
+            Inst::IfGtZero($x) => $f,
+            Inst::IfLeZero($x) => $f,
+            Inst::IfNonNull($x) => $f,
+            Inst::IfNull($x) => $f,
+            Inst::Dup($x) => $f,
+            Inst::Dup2($x) => $f,
+            Inst::DupX1($x) => $f,
+            Inst::DupX2($x) => $f,
+            Inst::Dup2X1($x) => $f,
+            Inst::Dup2X2($x) => $f,
+            Inst::FloatArrayStore($x) => $f,
+            Inst::FloatArrayLoad($x) => $f,
+            Inst::DoubleArrayStore($x) => $f,
+            Inst::DoubleArrayLoad($x) => $f,
+            Inst::ShortArrayStore($x) => $f,
+            Inst::ShortArrayLoad($x) => $f,
+            Inst::IConstNeg1($x) => $f,
+            Inst::IntConst0($x) => $f,
+            Inst::IntConst1($x) => $f,
+            Inst::IntConst2($x) => $f,
+            Inst::IntConst3($x) => $f,
+            Inst::IntConst4($x) => $f,
+            Inst::IntConst5($x) => $f,
+            Inst::IntLoad($x) => $f,
+            Inst::IntStore($x) => $f,
+            Inst::IntStore0($x) => $f,
+            Inst::IntStore1($x) => $f,
+            Inst::IntStore2($x) => $f,
+            Inst::IntStore3($x) => $f,
+            Inst::IntIncrement($x) => $f,
+            Inst::IntAdd($x) => $f,
+            Inst::IntSubtract($x) => $f,
+            Inst::IntALoad($x) => $f,
+            Inst::IntLoad0($x) => $f,
+            Inst::IntLoad1($x) => $f,
+            Inst::IntLoad2($x) => $f,
+            Inst::IntLoad3($x) => $f,
+            Inst::LongLoad($x) => $f,
+            Inst::LongLoad0($x) => $f,
+            Inst::LongLoad1($x) => $f,
+            Inst::LongLoad2($x) => $f,
+            Inst::LongLoad3($x) => $f,
+            Inst::LongConst0($x) => $f,
+            Inst::LongConst1($x) => $f,
+            Inst::DoubleLoad($x) => $f,
+            Inst::DoubleLoad0($x) => $f,
+            Inst::DoubleLoad1($x) => $f,
+            Inst::DoubleLoad2($x) => $f,
+            Inst::DoubleLoad3($x) => $f,
+            Inst::DoubleStore($x) => $f,
+            Inst::DoubleStore0($x) => $f,
+            Inst::DoubleStore1($x) => $f,
+            Inst::DoubleStore2($x) => $f,
+            Inst::DoubleStore3($x) => $f,
+            Inst::DoubleConst0($x) => $f,
+            Inst::DoubleConst1($x) => $f,
+            Inst::DoubleMultiply($x) => $f,
+            Inst::DoubleAdd($x) => $f,
+            Inst::DoubleSubtract($x) => $f,
+            Inst::DoubleNegate($x) => $f,
+            Inst::DoubleDivide($x) => $f,
+            Inst::DoubleRemainder($x) => $f,
+            Inst::DoubleToInt($x) => $f,
+            Inst::DoubleToLong($x) => $f,
+            Inst::DoubleToFloat($x) => $f,
+            Inst::LongCmp($x) => $f,
+            Inst::FloatNegate($x) => $f,
+            Inst::FloatAdd($x) => $f,
+            Inst::FloatSub($x) => $f,
+            Inst::FloatDivide($x) => $f,
+            Inst::FloatRemainder($x) => $f,
+            Inst::FloatMultiply($x) => $f,
+            Inst::FloatLoad($x) => $f,
+            Inst::FloatLoad0($x) => $f,
+            Inst::FloatLoad1($x) => $f,
+            Inst::FloatLoad2($x) => $f,
+            Inst::FloatLoad3($x) => $f,
+            Inst::FloatStore($x) => $f,
+            Inst::FloatStore0($x) => $f,
+            Inst::FloatStore1($x) => $f,
+            Inst::FloatStore2($x) => $f,
+            Inst::FloatStore3($x) => $f,
+            Inst::FloatConst0($x) => $f,
+            Inst::FloatConst1($x) => $f,
+            Inst::FloatConst2($x) => $f,
+            Inst::FloatCmpL($x) => $f,
+            Inst::FloatCmpG($x) => $f,
+            Inst::FloatToInt($x) => $f,
+            Inst::FloatToLong($x) => $f,
+            Inst::FloatToDouble($x) => $f,
+            Inst::DoubleCmpL($x) => $f,
+            Inst::DoubleCmpG($x) => $f,
+            Inst::LongAdd($x) => $f,
+            Inst::LongStore($x) => $f,
+            Inst::LongStore0($x) => $f,
+            Inst::LongStore1($x) => $f,
+            Inst::LongStore2($x) => $f,
+            Inst::LongStore3($x) => $f,
+            Inst::LongToFloat($x) => $f,
+            Inst::LongToDouble($x) => $f,
+            Inst::PutField($x) => $f,
+            Inst::GetField($x) => $f,
+            Inst::PutStaticField($x) => $f,
+            Inst::IntToDouble($x) => $f,
+            Inst::IntToLong($x) => $f,
+            Inst::IntToFloat($x) => $f,
+            Inst::IntToByte($x) => $f,
+            Inst::IntToChar($x) => $f,
+            Inst::IntToShort($x) => $f,
+            Inst::LongToInt($x) => $f,
+            Inst::ByteArrayLoad($x) => $f,
+            Inst::ByteArrayStore($x) => $f,
+            Inst::CharArrayStore($x) => $f,
+            Inst::CharArrayLoad($x) => $f,
+            Inst::Pop($x) => $f,
+            Inst::Pop2($x) => $f,
+            Inst::PushByte($x) => $f,
+            Inst::PushShort($x) => $f,
+            Inst::IntMultiply($x) => $f,
+            Inst::IntDivide($x) => $f,
+            Inst::IntRemainder($x) => $f,
+            Inst::IntNegate($x) => $f,
+            Inst::IntAnd($x) => $f,
+            Inst::IntOr($x) => $f,
+            Inst::IntXor($x) => $f,
+            Inst::IntShiftLeft($x) => $f,
+            Inst::IntArithmeticShiftRight($x) => $f,
+            Inst::IntLogicalShiftRight($x) => $f,
+            Inst::IntArrayStore($x) => $f,
+            Inst::LongSubtract($x) => $f,
+            Inst::LongDivide($x) => $f,
+            Inst::LongMultiply($x) => $f,
+            Inst::LongRemainder($x) => $f,
+            Inst::LongNegate($x) => $f,
+            Inst::LongAnd($x) => $f,
+            Inst::LongOr($x) => $f,
+            Inst::LongLogicalShiftRight($x) => $f,
+            Inst::LongArithmeticShiftRight($x) => $f,
+            Inst::LongShiftLeft($x) => $f,
+            Inst::LongXor($x) => $f,
+            Inst::LongArrayStore($x) => $f,
+            Inst::LongArrayLoad($x) => $f,
+            Inst::MonitorEnter($x) => $f,
+            Inst::MonitorExit($x) => $f,
+            Inst::CheckCast($x) => $f,
+            Inst::InstanceOf($x) => $f,
+            Inst::Wide($x) => $f,
+            Inst::LookupSwitch($x) => $f,
+            Inst::TableSwitch($x) => $f,
+        }
+    };
+}
 
 define_instructions! {[
     /// Load a reference from an array with an index
