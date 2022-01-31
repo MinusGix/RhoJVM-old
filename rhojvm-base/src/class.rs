@@ -383,7 +383,7 @@ impl ArrayClass {
 
 /// NOTE: We could have various other types, like unsigned versions, to allow for more granular type
 /// checking, but that only makes sense if it can be determined.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArrayComponentType {
     Boolean,
     Char,
