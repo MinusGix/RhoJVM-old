@@ -212,21 +212,29 @@ impl HasStackInfo for MultiANewArray {
     }
 }
 
+impl NewArray {
+    #[must_use]
+    pub fn get_atype_as_primitive_type(&self) -> Option<PrimitiveType> {
+        Some(match self.atype {
+            4 => PrimitiveType::Boolean,
+            5 => PrimitiveType::Char,
+            6 => PrimitiveType::Float,
+            7 => PrimitiveType::Double,
+            8 => PrimitiveType::Byte,
+            9 => PrimitiveType::Short,
+            10 => PrimitiveType::Int,
+            11 => PrimitiveType::Long,
+            _ => return None,
+        })
+    }
+}
 impl PushTypeAt for NewArray {
     fn push_type_at(&self, i: PushIndex) -> Option<PushType> {
         if i == 0 {
-            let element_type = match self.atype {
-                4 => PrimitiveType::Boolean,
-                5 => PrimitiveType::Char,
-                6 => PrimitiveType::Float,
-                7 => PrimitiveType::Double,
-                8 => PrimitiveType::Byte,
-                9 => PrimitiveType::Short,
-                10 => PrimitiveType::Int,
-                11 => PrimitiveType::Long,
-                // TODO: don't panic
-                _ => panic!("AType argument for NewArray was invalid"),
-            };
+            // TODO: don't panic
+            let element_type = self
+                .get_atype_as_primitive_type()
+                .expect("AType argument for NewArray was invalid");
             Some(
                 WithType::RefArrayPrimitiveLen {
                     element_type,
