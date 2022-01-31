@@ -21,6 +21,11 @@ use super::method::{DescriptorType, DescriptorTypeBasic};
 pub struct JavaChar(pub [u8; 4]);
 impl JavaChar {
     #[must_use]
+    pub fn from_int(v: i32) -> JavaChar {
+        JavaChar(v.to_be_bytes())
+    }
+
+    #[must_use]
     pub fn as_int(&self) -> i32 {
         i32::from_be_bytes(self.0)
     }
