@@ -515,7 +515,7 @@ impl MethodDescriptor {
         MethodDescriptorParserIterator::new(desc, class_names)
     }
 
-    pub(crate) fn from_text(
+    pub fn from_text(
         desc: impl AsRef<str>,
         class_names: &mut ClassNames,
     ) -> Result<Self, MethodDescriptorError> {
