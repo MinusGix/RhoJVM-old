@@ -90,7 +90,6 @@ impl ClassFileData {
         self.get_t(i).map(|x| x.as_text(&self.class_file_data))
     }
 
-    #[must_use]
     pub fn load_method_info_by_index(
         &self,
         index: MethodIndex,
@@ -98,7 +97,6 @@ impl ClassFileData {
         self.class_file.load_method_at(&self.class_file_data, index)
     }
 
-    #[must_use]
     pub fn load_method_info_opt_by_index(
         &self,
         index: MethodIndex,
@@ -125,8 +123,8 @@ impl ClassFileData {
     /// Load all the methods from the class file into memory
     /// This should be used if you're going to be iterating over all/most methods
     /// Since the individual seeking methods would be slower if they were not laoded at all
-    pub fn load_all_methods_backing(&mut self) {
-        self.class_file.load_all_methods_mut(&self.class_file_data);
+    pub fn load_all_methods_backing(&mut self) -> Result<(), LoadError> {
+        self.class_file.load_all_methods_mut(&self.class_file_data)
     }
 
     #[must_use]
