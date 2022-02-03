@@ -5,7 +5,7 @@ use classfile_parser::{
     constant_pool::{ConstantPoolIndex, ConstantPoolIndexRaw},
     method_info::{MethodInfo, MethodInfoOpt},
     parser::ParseData,
-    ClassFileOpt, ClassFileVersion,
+    ClassFileOpt, ClassFileVersion, LoadError,
 };
 
 pub use classfile_parser::ClassAccessFlags;
@@ -91,12 +91,18 @@ impl ClassFileData {
     }
 
     #[must_use]
-    pub fn load_method_info_by_index(&self, index: MethodIndex) -> Option<Cow<MethodInfo>> {
+    pub fn load_method_info_by_index(
+        &self,
+        index: MethodIndex,
+    ) -> Result<Cow<MethodInfo>, LoadError> {
         self.class_file.load_method_at(&self.class_file_data, index)
     }
 
     #[must_use]
-    pub fn load_method_info_opt_by_index(&self, index: MethodIndex) -> Option<MethodInfoOpt> {
+    pub fn load_method_info_opt_by_index(
+        &self,
+        index: MethodIndex,
+    ) -> Result<MethodInfoOpt, LoadError> {
         self.class_file
             .load_method_opt_at(&self.class_file_data, index)
     }

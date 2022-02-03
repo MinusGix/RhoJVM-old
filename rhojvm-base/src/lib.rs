@@ -1529,7 +1529,7 @@ pub fn direct_load_method_from_index(
     let method_id = MethodId::unchecked_compose(class_file.id(), method_index);
     let method = class_file
         .load_method_info_opt_by_index(method_index)
-        .ok_or(LoadMethodError::NonexistentMethod { id: method_id })?;
+        .map_err(|_| LoadMethodError::NonexistentMethod { id: method_id })?;
     let method = Method::new_from_info(method_id, class_file, class_names, method)?;
 
     Ok(method)
