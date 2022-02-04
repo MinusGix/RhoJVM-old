@@ -18,16 +18,19 @@ use super::method::{DescriptorType, DescriptorTypeBasic};
 // TODO: The character would be stored in java's modified utf8, so parsing that would be useful
 // The classfile lib already does this.
 #[derive(Debug, Clone, Copy)]
-pub struct JavaChar(pub [u8; 4]);
+#[repr(transparent)]
+pub struct JavaChar(pub u16);
 impl JavaChar {
     #[must_use]
     pub fn from_int(v: i32) -> JavaChar {
-        JavaChar(v.to_be_bytes())
+        // TODO: Is this correct?
+        let b = v.to_be_bytes();
+        JavaChar(u16::from_be_bytes([b[0], b[1]]))
     }
 
     #[must_use]
     pub fn as_int(&self) -> i32 {
-        i32::from_be_bytes(self.0)
+        self.0.into()
     }
 }
 
@@ -104,7 +107,7 @@ create_primitive_types!([
     Float = 4; d -> f32 { f32::from_be_bytes([d[0], d[1], d[2], d[3]]) },
     Double = 8; d -> f64 { f64::from_be_bytes([d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]]) },
     // TODO: How large is char?
-    Char = 1; d -> JavaChar { JavaChar([d[0], d[1], d[2], d[3]]) },
+    Char = 2; d -> JavaChar { JavaChar(u16::from_be_bytes([d[0], d[1]])) },
     Boolean = 1; d -> bool { d[0] != 0 },
 ]);
 impl PrimitiveTypeM {

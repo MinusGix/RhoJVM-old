@@ -52,6 +52,11 @@ impl MemorySize for String {
         std::mem::size_of::<String>() + self.as_bytes().len() * u8::MEMORY_SIZE
     }
 }
+impl<T: MemorySize> MemorySize for Vec<T> {
+    fn memory_size(&self) -> usize {
+        std::mem::size_of::<Vec<T>>() + (self.iter().fold(0, |acc, x| acc + x.memory_size()))
+    }
+}
 
 /// Memory size but for types that are always less than [`u16::MAX`]
 pub trait MemorySizeU16 {
