@@ -3,6 +3,7 @@ use std::{borrow::Cow, ops::Range, path::PathBuf, rc::Rc};
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo, Utf8Constant},
     constant_pool::{ConstantPoolIndex, ConstantPoolIndexRaw},
+    field_info::FieldInfoOpt,
     method_info::{MethodInfo, MethodInfoOpt},
     parser::ParseData,
     ClassFileOpt, ClassFileVersion, LoadError,
@@ -90,6 +91,10 @@ impl ClassFileData {
         self.get_t(i).map(|x| x.as_text(&self.class_file_data))
     }
 
+    pub fn get_text_b(&self, i: impl TryInto<ConstantPoolIndex<Utf8Constant>>) -> Option<&[u8]> {
+        self.get_t(i).map(|x| x.as_bytes(&self.class_file_data))
+    }
+
     pub fn load_method_info_by_index(
         &self,
         index: MethodIndex,
@@ -138,6 +143,15 @@ impl ClassFileData {
             .load_method_attribute_info_at_with_name(&self.class_file_data, index, name)
             .ok()
             .flatten()
+    }
+
+    pub fn load_field_values_iter(
+        &self,
+    ) -> impl Iterator<
+        Item = Result<(FieldInfoOpt, Option<ConstantPoolIndexRaw<ConstantInfo>>), LoadError>,
+    > + '_ {
+        self.class_file
+            .load_fields_values_iter(&self.class_file_data)
     }
 
     #[must_use]
