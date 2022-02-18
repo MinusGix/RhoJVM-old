@@ -306,7 +306,7 @@ impl Classes {
         let class_name = class_names
             .name_from_gcid(class_file_id)
             .map_err(StepError::BadId)?;
-        info!("Loading Class {:?}", class_name.path());
+        info!("====> C{:?}", class_name.path());
 
         if !class_name.has_class_file() {
             // Just load the array class
@@ -1371,10 +1371,7 @@ impl ClassFiles {
         }
 
         let _span_ = span!(Level::TRACE, "CF::load_by_class_path_id",).entered();
-        info!(
-            "Loading CF With CPath {:?}",
-            class_names.tpath(class_file_id)
-        );
+        info!("=> CF{:?}", class_names.tpath(class_file_id));
 
         let class_name = class_names
             .name_from_gcid(class_file_id)
