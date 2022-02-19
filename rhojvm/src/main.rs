@@ -7,24 +7,48 @@
 // does not have an issue in being used in this position.
 #![allow(clippy::or_fun_call)]
 #![allow(clippy::module_name_repetitions)]
+// TODO: Re-enabling these (or at least panic docs) would be nice, but they make active development
+// harder since they highlight the entire function
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+// Too error prone
+#![allow(clippy::similar_names)]
 
-use std::{collections::HashMap, num::NonZeroUsize, path::Path};
+use std::{borrow::Cow, collections::HashMap, num::NonZeroUsize, path::Path};
 
-use classfile_parser::{constant_info::ConstantInfo, constant_pool::ConstantPoolIndexRaw};
-use eval::EvalError;
+use class_instance::{Field, FieldAccess, Fields, Instance, StaticClassInstance};
+use classfile_parser::{
+    constant_info::{ClassConstant, ConstantInfo},
+    constant_pool::ConstantPoolIndexRaw,
+    descriptor::{DescriptorType as DescriptorTypeCF, DescriptorTypeError},
+    field_info::FieldAccessFlags,
+    LoadError,
+};
+use eval::{EvalError, EvalMethodValue};
+use gc::{Gc, GcRef};
 // use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
-    class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassVariant},
-    code::stack_map::StackMapError,
+    class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassFileData, ClassVariant},
+    code::{
+        method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
+        stack_map::StackMapError,
+        types::{JavaChar, PrimitiveType},
+    },
     id::{ClassFileId, ClassId, MethodId},
     load_super_classes_iter,
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
+    ClassDirectories, ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
 };
-use smallvec::SmallVec;
+use rv::{RuntimeType, RuntimeValue, RuntimeValuePrimitive};
+use smallvec::{smallvec, SmallVec};
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
+
+use crate::{
+    class_instance::ReferenceArrayInstance,
+    eval::{eval_method, Frame, Locals, ValueException},
+};
 
 // #[global_allocator]
 // static ALLOCATOR: DhatAlloc = DhatAlloc;
@@ -125,24 +149,24 @@ impl StateConfig {
 pub enum Warning {}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum Status {
+enum Status<T = ()> {
     /// It hasn't been started yet
     NotDone,
     /// It has been started but not yet completed
-    Started,
+    Started(T),
     /// It has been started and completed
-    Done,
+    Done(T),
 }
-impl Status {
-    pub fn into_begun(self) -> Option<BegunStatus> {
+impl<T> Status<T> {
+    pub fn into_begun(self) -> Option<BegunStatus<T>> {
         match self {
             Status::NotDone => None,
-            Status::Started => Some(BegunStatus::Started),
-            Status::Done => Some(BegunStatus::Done),
+            Status::Started(v) => Some(BegunStatus::Started(v)),
+            Status::Done(v) => Some(BegunStatus::Done(v)),
         }
     }
 }
-impl Default for Status {
+impl<T> Default for Status<T> {
     fn default() -> Self {
         Status::NotDone
     }
@@ -152,17 +176,24 @@ impl Default for Status {
 // can become simpler.
 /// A status that only includes the `Started` and `Done` variants
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum BegunStatus {
+enum BegunStatus<T = ()> {
     /// It hasn't been started yet
-    Started,
+    Started(T),
     /// It has been started and completed
-    Done,
+    Done(T),
 }
-impl From<BegunStatus> for Status {
-    fn from(val: BegunStatus) -> Self {
+impl<T> BegunStatus<T> {
+    pub fn into_value(self) -> T {
+        match self {
+            BegunStatus::Started(v) | BegunStatus::Done(v) => v,
+        }
+    }
+}
+impl<T> From<BegunStatus<T>> for Status<T> {
+    fn from(val: BegunStatus<T>) -> Self {
         match val {
-            BegunStatus::Started => Status::Started,
-            BegunStatus::Done => Status::Done,
+            BegunStatus::Started(v) => Status::Started(v),
+            BegunStatus::Done(v) => Status::Done(v),
         }
     }
 }
@@ -172,13 +203,22 @@ impl From<BegunStatus> for Status {
 struct ClassInfo {
     pub created: Status,
     pub verified: Status,
+    pub initialized: Status<ValueException<GcRef<StaticClassInstance>>>,
 }
 
 pub struct State {
     entry_point_class: Option<ClassId>,
     conf: StateConfig,
 
+    gc: Gc,
+
     classes_info: ClassesInfo,
+
+    // Caching of various ids
+    char_array_id: Option<ClassId>,
+
+    string_class_id: Option<ClassId>,
+    string_char_array_constructor: Option<MethodId>,
 }
 impl State {
     fn new(conf: StateConfig) -> Self {
@@ -186,12 +226,95 @@ impl State {
             entry_point_class: None,
             conf,
 
+            gc: Gc::new(),
+
             classes_info: ClassesInfo::default(),
+
+            char_array_id: None,
+            string_class_id: None,
+            string_char_array_constructor: None,
         }
     }
 
     fn conf(&self) -> &StateConfig {
         &self.conf
+    }
+
+    /// Get the id for `char[]`
+    pub fn char_array_id(&mut self, class_names: &mut ClassNames) -> ClassId {
+        if let Some(id) = self.char_array_id {
+            id
+        } else {
+            let id = class_names.gcid_from_array_of_primitives(PrimitiveType::Char);
+            self.char_array_id = Some(id);
+            id
+        }
+    }
+
+    /// Get the id for `java.lang.String`
+    fn string_class_id(&mut self, class_names: &mut ClassNames) -> ClassId {
+        if let Some(class_id) = self.string_class_id {
+            class_id
+        } else {
+            let string_class_id = class_names.gcid_from_array(&["java", "lang", "String"]);
+            self.string_class_id = Some(string_class_id);
+            string_class_id
+        }
+    }
+
+    // TODO: Use the direct constructor? I'm unsure if we're guaranteed that it exists, but since
+    // it directly takes the char array rather than copying, it would certainly be better.
+    /// Get the method id for the String(char[]) constructor
+    pub fn get_string_char_array_constructor(
+        &mut self,
+        class_directories: &ClassDirectories,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        methods: &mut Methods,
+    ) -> Result<MethodId, StepError> {
+        if let Some(constructor) = self.string_char_array_constructor {
+            return Ok(constructor);
+        }
+
+        let class_id = self.string_class_id(class_names);
+        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+
+        let char_array_descriptor = MethodDescriptor::new(
+            smallvec![DescriptorType::Array {
+                level: NonZeroUsize::new(1).unwrap(),
+                component: DescriptorTypeBasic::Char,
+            }],
+            None,
+        );
+
+        let id = methods.load_method_from_desc(
+            class_directories,
+            class_names,
+            class_files,
+            class_id,
+            "<init>",
+            &char_array_descriptor,
+        )?;
+
+        self.string_char_array_constructor = Some(id);
+
+        Ok(id)
+    }
+
+    /// Searches the gc-heap for the Static Class for this specific class
+    /// This shouldn't really be used unless needed.
+    #[must_use]
+    pub fn find_static_class_instance(&self, class_id: ClassId) -> Option<GcRef<Instance>> {
+        for (object_ref, object) in self.gc.iter_ref() {
+            let instance = object.value();
+            if let Instance::StaticClass(instance) = instance {
+                if instance.id == class_id {
+                    return Some(object_ref);
+                }
+            }
+        }
+
+        None
     }
 }
 
@@ -205,21 +328,28 @@ impl ClassesInfo {
     }
 }
 
+// TODO: Cleaning up the structure of this error enumeration would be useful
 #[derive(Debug)]
 pub enum GeneralError {
     Step(StepError),
     Eval(EvalError),
     Verification(VerificationError),
     Resolve(ResolveError),
+    ClassFileLoad(LoadError),
     /// We expected the class at this id to exist
     /// This likely points to an internal error
     MissingLoadedClass(ClassId),
     /// We expected the class file at this id to exist
     /// This likely points to an internal error
     MissingLoadedClassFile(ClassId),
+    /// We expected the method at this id to exist
+    /// This likely points to an internal error
+    MissingLoadedMethod(MethodId),
     BadClassFileIndex(ConstantPoolIndexRaw<ConstantInfo>),
     /// The class version of the file is not supported by this JVM
     UnsupportedClassVersion,
+    InvalidDescriptorType(DescriptorTypeError),
+    UnparsedFieldType,
 }
 
 impl From<StepError> for GeneralError {
@@ -365,9 +495,9 @@ fn main() {
 
     let mut conf = StateConfig::new();
     conf.stack_map_verification_logging = StackMapVerificationLogging {
-        log_method_name: true,
+        log_method_name: false,
         log_received_frame: false,
-        log_instruction: true,
+        log_instruction: false,
         log_stack_modifications: false,
         log_local_variable_modifications: false,
     };
@@ -428,7 +558,21 @@ fn main() {
         &mut state,
         entrypoint_id,
     ) {
-        tracing::error!("failed to initialized class: {:?}", err);
+        tracing::error!("failed to verify entrypoint class: {:?}", err);
+        return;
+    }
+
+    if let Err(err) = initialize_class(
+        &class_directories,
+        &mut class_names,
+        &mut class_files,
+        &mut classes,
+        &mut packages,
+        &mut methods,
+        &mut state,
+        entrypoint_id,
+    ) {
+        tracing::error!("failed to initialize entrypoint class {:?}", err);
         return;
     }
 
@@ -437,40 +581,253 @@ fn main() {
     // an edge-case, and doesn't matter.
     {
         let string_id = class_names.gcid_from_array(&["java", "lang", "String"]);
+        let main_name = "main";
+        let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
+            DescriptorTypeBasic::Class(string_id),
+        )]);
+        let main_method_id = methods
+            .load_method_from_desc(
+                &class_directories,
+                &mut class_names,
+                &mut class_files,
+                entrypoint_id,
+                main_name,
+                &main_descriptor,
+            )
+            .expect("Failed to load main method");
+        let args = {
+            let array_id = class_names
+                .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), string_id)
+                .expect("Failed to construct type for String[]");
+            // TODO: actually construct args
+            let array = ReferenceArrayInstance::new(array_id, string_id, Vec::new());
+            let array_ref = state.gc.alloc(array);
+            array_ref.into_generic()
+        };
+        let frame = Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(args)]));
+        match eval_method(
+            &class_directories,
+            &mut class_names,
+            &mut class_files,
+            &mut classes,
+            &mut packages,
+            &mut methods,
+            &mut state,
+            main_method_id,
+            frame,
+        ) {
+            Ok(res) => match res {
+                EvalMethodValue::ReturnVoid => (),
+                EvalMethodValue::Return(v) => {
+                    tracing::warn!("Main returned a value: {:?}", v);
+                }
+                // TODO: Call the method to get a string from the exception
+                EvalMethodValue::Exception(exc) => {
+                    tracing::warn!("Main threw an exception! {:?}", exc);
+                }
+            },
+            Err(err) => tracing::error!("There was an error in running the method: {:?}", err),
+        }
+    }
+}
+
+/// Initialize a class
+/// This involves creating more information about the class, initializing static fields,
+/// verifying it, etc.
+/// That does mean that this runs code.
+/// # Returns
+/// Returns the [`GcRef`] for the static-class instance
+pub(crate) fn initialize_class(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    methods: &mut Methods,
+    state: &mut State,
+    class_id: ClassId,
+) -> Result<BegunStatus<ValueException<GcRef<StaticClassInstance>>>, GeneralError> {
+    let info = state.classes_info.get_mut_init(class_id);
+    if let Some(initialize_begun) = info.initialized.into_begun() {
+        return Ok(initialize_begun);
     }
 
-    // if let Err(err) = initialize_class(
-    //     &class_directories,
-    //     &mut class_names,
-    //     &mut class_files,
-    //     &mut classes,
-    //     &mut packages,
-    //     &mut methods,
-    //     &mut state,
-    //     entrypoint_id,
-    // ) {
-    //     tracing::error!("failed to initialized class: {:?}", err);
-    //     return;
-    // }
+    verify_class(
+        class_directories,
+        class_names,
+        class_files,
+        classes,
+        packages,
+        methods,
+        state,
+        class_id,
+    )?;
 
-    // // Run the main method
-    // let string_id = class_names.gcid_from_slice(&["java", "lang", "String"]);
-    // let main_name = "main";
-    // let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
-    //     DescriptorTypeBasic::Class(string_id),
-    // )]);
-    // let main_method_id = methods
-    //     .load_method_from_desc(
-    //         &class_directories,
-    //         &mut class_names,
-    //         &mut class_files,
-    //         entrypoint_id,
-    //         main_name,
-    //         &main_descriptor,
-    //     )
-    //     .unwrap();
+    let class = classes.get(&class_id).unwrap();
+    if let Some(super_id) = class.super_id() {
+        initialize_class(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            state,
+            super_id,
+        )?;
+    }
 
-    // state.entry_point_method = Some(main_method_id);
+    // TODO: initialize interfaces
+
+    // TODO: Handle arrays
+
+    let class_file = class_files.get(&class_id).unwrap();
+    let mut fields = Fields::default();
+
+    // TODO: It'd be nice if we could avoid allocating
+    let field_iter = class_file
+        .load_field_values_iter()
+        .collect::<SmallVec<[_; 8]>>();
+    for field_info in field_iter {
+        let class_file = class_files.get(&class_id).unwrap();
+
+        let (field_info, constant_index) = field_info.map_err(GeneralError::ClassFileLoad)?;
+        if !field_info.access_flags.contains(FieldAccessFlags::STATIC) {
+            // We are supposed to ignore the ConstantValue attribute for any fields that are not
+            // static
+            // As well, we only store the static fields on the StaticClassInstance
+            continue;
+        }
+
+        let field_name = class_file
+            .get_text_t(field_info.name_index)
+            .map(Cow::into_owned)
+            .ok_or(GeneralError::BadClassFileIndex(
+                field_info.name_index.into_generic(),
+            ))?;
+
+        let field_descriptor = class_file.get_text_t(field_info.descriptor_index).ok_or(
+            GeneralError::BadClassFileIndex(field_info.descriptor_index.into_generic()),
+        )?;
+        // Parse the type of the field
+        let (field_type, rem) = DescriptorTypeCF::parse(field_descriptor.as_ref())
+            .map_err(GeneralError::InvalidDescriptorType)?;
+        // There shouldn't be any remaining data.
+        if !rem.is_empty() {
+            return Err(GeneralError::UnparsedFieldType);
+        }
+        // Convert to alternative descriptor type
+        let field_type = DescriptorType::from_class_file_desc(class_names, field_type);
+        let field_type: RuntimeType<ClassId> =
+            RuntimeType::from_descriptor_type(class_names, field_type).map_err(StepError::BadId)?;
+        // Note that we don't initialize field classes
+
+        let is_final = field_info.access_flags.contains(FieldAccessFlags::FINAL);
+        let field_access = FieldAccess::from_access_flags(field_info.access_flags);
+        if let Some(constant_index) = constant_index {
+            let constant = class_file
+                .get_t(constant_index)
+                .ok_or(GeneralError::BadClassFileIndex(constant_index))?
+                .clone();
+            let value = match constant {
+                ConstantInfo::Integer(x) => RuntimeValuePrimitive::I32(x.value).into(),
+                ConstantInfo::Float(x) => RuntimeValuePrimitive::F32(x.value).into(),
+                ConstantInfo::Double(x) => RuntimeValuePrimitive::F64(x.value).into(),
+                ConstantInfo::Long(x) => RuntimeValuePrimitive::I64(x.value).into(),
+                ConstantInfo::String(x) => {
+                    // TODO: Better string conversion
+                    let text = class_file.get_text_t(x.string_index).ok_or(
+                        GeneralError::BadClassFileIndex(x.string_index.into_generic()),
+                    )?;
+                    let text = text
+                        .encode_utf16()
+                        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+                        .collect::<Vec<RuntimeValuePrimitive>>();
+
+                    let string_ref = util::construct_string(
+                        class_directories,
+                        class_names,
+                        class_files,
+                        classes,
+                        packages,
+                        methods,
+                        state,
+                        text,
+                    )?;
+                    match string_ref {
+                        ValueException::Value(string_ref) => {
+                            RuntimeValue::Reference(string_ref.into_generic())
+                        }
+                        // TODO: include information that it was due to initializing a field
+                        ValueException::Exception(exc) => {
+                            let info = state.classes_info.get_mut_init(class_id);
+                            info.initialized = Status::Done(ValueException::Exception(exc));
+                            return Ok(BegunStatus::Done(ValueException::Exception(exc)));
+                        }
+                    }
+                }
+                // TODO: Better error
+                _ => return Err(GeneralError::BadClassFileIndex(constant_index)),
+            };
+
+            // TODO: Validate that the value is the right type
+            fields.insert(field_name, Field::new(value, is_final, field_access));
+        } else {
+            // otherwise, we give it the default value for its type
+            let default_value = field_type.default_value();
+            fields.insert(
+                field_name,
+                Field::new(default_value, is_final, field_access),
+            );
+        }
+    }
+
+    let instance = StaticClassInstance::new(class_id, fields);
+    let instance_ref = state.gc.alloc(instance);
+
+    let info = state.classes_info.get_mut_init(class_id);
+    info.initialized = Status::Done(ValueException::Value(instance_ref));
+
+    // TODO: This could potentially be gc'd, we could just store the id?
+    // TODO: Should this be done before or after we set initialized?
+    let clinit_name = "<clinit>";
+    let clinit_desc = MethodDescriptor::new_empty();
+    match methods.load_method_from_desc(
+        class_directories,
+        class_names,
+        class_files,
+        class_id,
+        clinit_name,
+        &clinit_desc,
+    ) {
+        Ok(method_id) => {
+            let frame = Frame::default();
+            match eval_method(
+                class_directories,
+                class_names,
+                class_files,
+                classes,
+                packages,
+                methods,
+                state,
+                method_id,
+                frame,
+            )? {
+                EvalMethodValue::ReturnVoid => (),
+                EvalMethodValue::Return(_) => tracing::warn!("<clinit> method returned a value"),
+                EvalMethodValue::Exception(exc) => {
+                    let info = state.classes_info.get_mut_init(class_id);
+                    info.initialized = Status::Done(ValueException::Exception(exc));
+                    return Ok(BegunStatus::Done(ValueException::Exception(exc)));
+                }
+            }
+        }
+        // Ignore it, if it doesn't exist
+        Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => (),
+        Err(err) => return Err(err.into()),
+    }
+
+    Ok(BegunStatus::Done(ValueException::Value(instance_ref)))
 }
 
 fn verify_from_entrypoint(
@@ -524,7 +881,7 @@ fn verify_class(
         state,
         class_id,
     )?;
-    debug_assert_eq!(create_status, BegunStatus::Done);
+    debug_assert_eq!(create_status, BegunStatus::Done(()));
 
     // TODO: We are technically supposed to verify the indices of all constant pool entries
     // at this point, rather than throughout the usage of the program like we do currently.
@@ -533,7 +890,6 @@ fn verify_class(
     // thing in some class file)
 
     // Verify Code
-    // let class = classes.get(&class_id).ok_or(GeneralError::BadClassFileIndex(class_id))?;
     verify_class_methods(
         class_directories,
         class_names,
@@ -545,10 +901,26 @@ fn verify_class(
         class_id,
     )?;
 
-    let info = state.classes_info.get_mut_init(class_id);
-    info.verified = Status::Done;
+    // TODO: Do we always have to do this?
+    // Verify the super class
+    let class = classes.get(&class_id).unwrap();
+    if let Some(super_id) = class.super_id() {
+        verify_class(
+            class_directories,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            state,
+            super_id,
+        )?;
+    }
 
-    Ok(BegunStatus::Done)
+    let info = state.classes_info.get_mut_init(class_id);
+    info.verified = Status::Done(());
+
+    Ok(BegunStatus::Done(()))
 }
 
 /// Assumes `class_id` is already loaded
@@ -623,7 +995,7 @@ fn derive_class(
         return Ok(created_begun);
     }
 
-    info.created = Status::Started;
+    info.created = Status::Started(());
 
     // First we have to load the class, in case it wasn't already loaded
     classes.load_class(
@@ -726,28 +1098,10 @@ fn derive_class(
         // Collect into a smallvec that should be more than large enough for basically any class
         // since the iterator has a ref to the class file and we need to invalidate it
         let interfaces: SmallVec<[_; 8]> = class_file.interfaces_indices_iter().collect();
+        let interfaces: SmallVec<[_; 8]> =
+            map_interface_index_small_vec_to_ids(class_names, class_file, interfaces)?;
 
-        for interface_index in interfaces {
-            let class_file = class_files
-                .get(&class_id)
-                .ok_or(GeneralError::MissingLoadedClassFile(class_id))?;
-
-            let interface_data =
-                class_file
-                    .get_t(interface_index)
-                    .ok_or(GeneralError::BadClassFileIndex(
-                        interface_index.into_generic(),
-                    ))?;
-
-            let interface_name = interface_data.name_index;
-            let interface_name =
-                class_file
-                    .get_text_t(interface_name)
-                    .ok_or(GeneralError::BadClassFileIndex(
-                        interface_name.into_generic(),
-                    ))?;
-            let interface_id = class_names.gcid_from_cow(interface_name);
-
+        for interface_id in interfaces {
             // TODO: Check for circular interfaces
             resolve_derive(
                 class_directories,
@@ -780,9 +1134,39 @@ fn derive_class(
     }
 
     let info = state.classes_info.get_mut_init(class_id);
-    info.created = Status::Done;
+    info.created = Status::Done(());
 
-    Ok(BegunStatus::Done)
+    Ok(BegunStatus::Done(()))
+}
+
+pub(crate) fn map_interface_index_small_vec_to_ids<const N: usize>(
+    class_names: &mut ClassNames,
+    class_file: &ClassFileData,
+    interface_indexes: SmallVec<[ConstantPoolIndexRaw<ClassConstant>; N]>,
+) -> Result<SmallVec<[ClassId; N]>, GeneralError> {
+    let mut interface_ids = SmallVec::new();
+
+    for interface_index in interface_indexes {
+        let interface_data =
+            class_file
+                .get_t(interface_index)
+                .ok_or(GeneralError::BadClassFileIndex(
+                    interface_index.into_generic(),
+                ))?;
+
+        let interface_name = interface_data.name_index;
+        let interface_name =
+            class_file
+                .get_text_t(interface_name)
+                .ok_or(GeneralError::BadClassFileIndex(
+                    interface_name.into_generic(),
+                ))?;
+        let interface_id = class_names.gcid_from_cow(interface_name);
+
+        interface_ids.push(interface_id);
+    }
+
+    Ok(interface_ids)
 }
 
 /// Resolve a class or interface and create it
@@ -932,92 +1316,6 @@ fn can_access_class_from_class(
     Ok(false)
 }
 
-// 5.5
-// must be verified, prepared, and optionally resolved
-// fn pre_initialize_class(
-//     class_directories: &ClassDirectories,
-//     class_names: &mut ClassNames,
-//     class_files: &mut ClassFiles,
-//     classes: &mut Classes,
-//     packages: &mut Packages,
-//     methods: &mut Methods,
-//     state: &mut State,
-//     class_id: ClassId,
-// ) -> Result<(), GeneralError> {
-//     // TODO: Technically we don't have to verify according to the type checking rules
-//     // for class files < version 50.0
-//     // and, if the type checking fails for version == 50.0, then we can choose to
-//     // do verification through type inference
-
-//     if state.pre_init_classes.contains(&class_id) {
-//         return Ok(());
-//     }
-//     state.pre_init_classes.push(class_id);
-
-//     // - classIsTypeSafe
-//     // Load super classes
-//     let mut iter = rhojvm_base::load_super_classes_iter(class_id);
-
-//     // Skip the first class, since that is the base and so it is allowed to be final
-//     // We store the latest class so that we can update it and use it for errors
-//     // and checking if the topmost class is Object
-//     let mut latest_class = iter
-//         .next_item(
-//             class_directories,
-//             class_names,
-//             class_files,
-//             classes,
-//             packages,
-//         )
-//         .expect("The base to be included in the processing")?;
-
-//     while let Some(res) = iter.next_item(
-//         class_directories,
-//         class_names,
-//         class_files,
-//         classes,
-//         packages,
-//     ) {
-//         let super_class_id = res?;
-
-//         // TODO: Are we intended to preinitialize the entire super-chain?
-//         let class = classes.get(&super_class_id).unwrap();
-//         let access_flags = class.access_flags();
-//         if access_flags.contains(ClassAccessFlags::FINAL) {
-//             return Err(VerificationError::SuperClassWasFinal {
-//                 base_class_id: latest_class,
-//                 super_class_id,
-//             }
-//             .into());
-//         }
-
-//         // We only set this after the check so that we can return the base class
-//         latest_class = super_class_id;
-//     }
-
-//     // verify that topmost class is object
-//     if latest_class != state.object_id {
-//         return Err(VerificationError::MostSuperClassNonObject {
-//             base_class_id: class_id,
-//             most_super_class_id: latest_class,
-//         }
-//         .into());
-//     }
-
-//     verify_type_safe_methods(
-//         class_directories,
-//         class_names,
-//         class_files,
-//         classes,
-//         packages,
-//         methods,
-//         state,
-//         class_id,
-//     )?;
-
-//     Ok(())
-// }
-
 fn verify_type_safe_method(
     class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
@@ -1086,176 +1384,3 @@ fn verify_type_safe_method(
 
     Ok(())
 }
-
-// // 5.5
-// fn initialize_class(
-//     class_directories: &ClassDirectories,
-//     class_names: &mut ClassNames,
-//     class_files: &mut ClassFiles,
-//     classes: &mut Classes,
-//     packages: &mut Packages,
-//     methods: &mut Methods,
-//     state: &mut State,
-//     class_id: ClassId,
-// ) -> Result<(), GeneralError> {
-//     if state.init_classes.contains(&class_id) {
-//         return Ok(());
-//     }
-//     state.init_classes.push(class_id);
-
-//     pre_initialize_class(
-//         class_directories,
-//         class_names,
-//         class_files,
-//         classes,
-//         packages,
-//         methods,
-//         state,
-//         class_id,
-//     )?;
-
-//     let class = classes.get(&class_id).unwrap().as_class().unwrap();
-//     // TODO: It would be nice if we could somehow avoid collecting to a vec
-//     let method_ids = class.iter_method_ids().collect::<Vec<_>>();
-//     for method_id in method_ids {
-//         methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;
-//         let method = methods.get(&method_id).unwrap();
-//         rhojvm_base::load_method_descriptor_types(
-//             class_directories,
-//             class_names,
-//             class_files,
-//             classes,
-//             packages,
-//             method,
-//         )?;
-
-//         // It would have already been loaded
-//         // let method = methods.get(&method_id).unwrap();
-//         // let parameters = method.descriptor().parameters().to_owned();
-//         // let return_type = method.descriptor().return_type().map(Clone::clone);
-//         // for parameter in parameters {
-//         //     if let DescriptorType::Basic(DescriptorTypeBasic::Class(id)) = parameter {
-//         //         initialize_class(
-//         //             class_directories,
-//         //             class_names,
-//         //             class_files,
-//         //             classes,
-//         //             packages,
-//         //             methods,
-//         //             state,
-//         //             id,
-//         //         )?;
-//         //     }
-//         // }
-
-//         // if let Some(DescriptorType::Basic(DescriptorTypeBasic::Class(id))) = return_type {
-//         //     initialize_class(
-//         //         class_directories,
-//         //         class_names,
-//         //         class_files,
-//         //         classes,
-//         //         packages,
-//         //         methods,
-//         //         state,
-//         //         id,
-//         //     )?;
-//         // }
-//     }
-
-//     let class = classes.get(&class_id).unwrap().as_class().unwrap();
-//     if let Some(super_class) = class.super_id() {
-//         initialize_class(
-//             class_directories,
-//             class_names,
-//             class_files,
-//             classes,
-//             packages,
-//             methods,
-//             state,
-//             super_class,
-//         )?;
-//     }
-
-//     Ok(())
-// }
-
-// fn run_method_code(
-//     class_directories: &ClassDirectories,
-//     class_names: &mut ClassNames,
-//     class_files: &mut ClassFiles,
-//     classes: &mut Classes,
-//     packages: &mut Packages,
-//     methods: &mut Methods,
-//     state: &mut State,
-//     method_id: MethodId,
-// ) -> Result<(), GeneralError> {
-//     let method = methods.get_mut(&method_id).unwrap();
-//     method.load_code(class_files)?;
-
-//     let inst_count = {
-//         let method = methods.get(&method_id).unwrap();
-//         let code = method.code().unwrap();
-//         code.instructions().len()
-//     };
-//     for index in 0..inst_count {
-//         run_inst(
-//             class_directories,
-//             class_names,
-//             class_files,
-//             classes,
-//             packages,
-//             methods,
-//             state,
-//             method_id,
-//             index,
-//         )?;
-//     }
-
-//     Ok(())
-// }
-
-// fn run_inst(
-//     class_directories: &ClassDirectories,
-//     class_names: &mut ClassNames,
-//     class_files: &mut ClassFiles,
-//     classes: &mut Classes,
-//     packages: &mut Packages,
-//     methods: &mut Methods,
-//     state: &mut State,
-//     method_id: MethodId,
-//     inst_index: usize,
-// ) -> Result<(), RunInstError> {
-//     use rhojvm_base::code::op::GetStatic;
-//     let (class_id, _) = method_id.decompose();
-
-//     let class_file = class_files
-//         .get(&class_id)
-//         .ok_or(RunInstError::NoClassFile(class_id))?;
-//     let method = methods
-//         .get(&method_id)
-//         .ok_or(RunInstError::NoMethod(method_id))?;
-//     let code = method.code().ok_or(RunInstError::NoCode(method_id))?;
-
-//     let (_, inst) = code
-//         .instructions()
-//         .get(inst_index)
-//         .ok_or(RunInstError::NoInst(method_id, inst_index))?
-//         .clone();
-//     match inst {
-//         InstM::IntAdd(_) => {}
-//         InstM::GetStatic(GetStatic { index }) => {
-//             let field = class_file
-//                 .get_t(index)
-//                 .ok_or(RunInstError::InvalidGetStaticField)?;
-//             let class = class_file
-//                 .get_t(field.class_index)
-//                 .ok_or(RunInstError::InvalidFieldRefClass)?;
-//             let class_name = class_file
-//                 .get_text_t(class.name_index)
-//                 .ok_or(RunInstError::InvalidClassNameIndex)?;
-//         }
-//         _ => panic!("Unhandled Instruction at {}: {:#?}", inst_index, inst),
-//     }
-
-//     Ok(())
-// }

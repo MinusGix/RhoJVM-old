@@ -66,7 +66,12 @@ impl Gc {
             .filter_map(|(i, x)| x.as_ref().map(|x| (i, x)))
     }
 
-    pub fn alloc(&mut self, value: Instance) -> GcRef<Instance> {
+    pub fn alloc<'a, T: Into<Instance> + 'static>(&'a mut self, value: T) -> GcRef<T>
+    where
+        &'a T: TryFrom<&'a Instance>,
+        &'a mut T: TryFrom<&'a mut Instance>,
+    {
+        let value = value.into();
         // The amount of memory that the value and our tracking will take in memory
         let memory_size = value.memory_size() + std::mem::size_of::<GcObject>();
         // TODO: Checked add in case it tries allocating something absurd
@@ -290,6 +295,15 @@ impl<T> GcRef<T> {
             _marker: PhantomData,
         }
     }
+
+    /// Converts the generic parameter into U, unchecked
+    #[must_use]
+    pub fn unchecked_as<U>(self) -> GcRef<U> {
+        GcRef {
+            index: self.index,
+            _marker: PhantomData,
+        }
+    }
 }
 impl<T> Copy for GcRef<T> {}
 impl<T> Clone for GcRef<T> {
@@ -325,13 +339,13 @@ impl<T> std::fmt::Debug for GcRef<T> {
 ///
 /// This can assume that the ref is valid at first, but it should be careful after running code.
 fn trace_instance(
-    class_directories: &ClassDirectories,
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
+    _class_directories: &ClassDirectories,
+    _class_names: &mut ClassNames,
+    _class_files: &mut ClassFiles,
+    _classes: &mut Classes,
+    _packages: &mut Packages,
+    _methods: &mut Methods,
+    _state: &mut State,
     gc: &mut Gc,
     instance_ref: GcRef<Instance>,
 ) -> Option<()> {
@@ -356,6 +370,22 @@ fn trace_instance(
         .collect::<Vec<_>>();
     for field_value_ref in fields {
         gc.mark(field_value_ref);
+    }
+
+    let instance = gc.deref(instance_ref).unwrap();
+    match instance {
+        Instance::Class(class) => {
+            let x = class.static_ref;
+            gc.mark(x.into_generic());
+        }
+        Instance::StaticClass(_) | Instance::PrimitiveArray(_) => (),
+        Instance::ReferenceArray(array) => {
+            // TODO: It would be great if we could avoid allocating here
+            let elements = array.elements.clone();
+            for element in elements.into_iter().flatten() {
+                gc.mark(element);
+            }
+        }
     }
 
     Some(())
