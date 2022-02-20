@@ -334,7 +334,7 @@ fn load_constant(
             match string_ref {
                 ValueException::Value(string_ref) => frame
                     .stack
-                    .push(RuntimeValue::Reference(string_ref.unchecked_as()))?,
+                    .push(RuntimeValue::Reference(string_ref.into_generic()))?,
                 ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
             }
         }
