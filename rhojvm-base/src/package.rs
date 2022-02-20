@@ -5,11 +5,11 @@ pub struct Packages {
     // TODO: Should we use a hashmap with a custom hasher?
     // the main issue is that we still need to do a bunch of manual handling to ensure correctness
     packages: Vec<Package>,
-    next_id: PackageId,
+    next_id: u64,
 }
 impl Packages {
     fn get_new_id(&mut self) -> PackageId {
-        let id = self.next_id;
+        let id = PackageId::new_unchecked(self.next_id);
         self.next_id += 1;
         id
     }

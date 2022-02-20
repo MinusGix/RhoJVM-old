@@ -27,7 +27,13 @@ impl Hash for ClassId {
 #[cfg(feature = "implementation-cheaper-map-hashing")]
 impl nohash_hasher::IsEnabled for ClassId {}
 
-pub type PackageId = u64;
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct PackageId(u64);
+impl PackageId {
+    pub(crate) fn new_unchecked(id: u64) -> PackageId {
+        PackageId(id)
+    }
+}
 
 /// This is an index into the methods
 /// This is not meaningful without a class
