@@ -99,6 +99,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
                         class_name.as_ref(),
                         class_names
                             .gcid_from_bytes(class_file.get_text_b(class.name_index).unwrap())
+                            .get()
                     )
                 } else {
                     format!(

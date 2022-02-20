@@ -49,7 +49,7 @@ use code::{
     stack_map::StackMapError,
     types::{PrimitiveType, StackInfoError},
 };
-use id::{ClassFileId, ClassId, GeneralClassId, MethodId, MethodIndex, PackageId};
+use id::{ClassId, MethodId, MethodIndex, PackageId};
 use indexmap::{Equivalent, IndexMap};
 use package::Packages;
 use smallvec::{smallvec, SmallVec};
@@ -68,7 +68,7 @@ pub mod util;
 
 #[derive(Debug, Clone)]
 pub struct BadIdError {
-    pub id: GeneralClassId,
+    pub id: ClassId,
 }
 
 #[derive(Debug)]
@@ -298,7 +298,7 @@ impl Classes {
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
-        class_file_id: ClassFileId,
+        class_file_id: ClassId,
     ) -> Result<(), StepError> {
         if self.contains_key(&class_file_id) {
             // It was already loaded
@@ -970,7 +970,7 @@ impl InternalKind {
 /// The variants are private
 pub(crate) enum TrustedClassNameInsert {
     /// We already have it
-    Id(GeneralClassId),
+    Id(ClassId),
     /// It needs to be inserted
     Data {
         class_name: RawClassName,
@@ -1149,7 +1149,7 @@ impl ClassNameInfo {
 
 #[derive(Debug, Clone)]
 pub struct ClassNames {
-    next_id: ClassId,
+    next_id: u64,
     names: IndexMap<RawClassName, ClassNameInfo>,
 }
 impl ClassNames {
@@ -1170,7 +1170,7 @@ impl ClassNames {
 
     /// Construct a new unique id
     fn get_new_id(&mut self) -> ClassId {
-        let id = self.next_id;
+        let id = ClassId::new_unchecked(self.next_id);
         self.next_id += 1;
         id
     }
@@ -1178,7 +1178,7 @@ impl ClassNames {
     /// Get the id of `b"java/lang/Object"`. Cached.
     #[must_use]
     pub fn object_id(&self) -> ClassId {
-        0
+        ClassId::new_unchecked(0)
     }
 
     /// Check if the given id is for an array
@@ -1197,7 +1197,7 @@ impl ClassNames {
             .find(|(_, info)| info.id == id)
             .map(|(data, info)| (data.as_slice(), info))
             .ok_or_else(|| {
-                debug_assert!(false, "name_from_gcid: Got a bad id {}", id);
+                debug_assert!(false, "name_from_gcid: Got a bad id {:?}", id);
                 BadIdError { id }
             })
     }
@@ -1248,7 +1248,7 @@ impl ClassNames {
     pub fn gcid_from_iter_bytes<'a, I: Iterator<Item = &'a [u8]> + Clone>(
         &mut self,
         class_path: I,
-    ) -> GeneralClassId {
+    ) -> ClassId {
         let class_path = RawClassNameBuilderator::<I>::new_split(class_path);
         let kind = class_path.internal_kind();
 
@@ -1403,10 +1403,7 @@ impl ClassNames {
         }
     }
 
-    pub(crate) fn insert_trusted_insert(
-        &mut self,
-        insert: TrustedClassNameInsert,
-    ) -> GeneralClassId {
+    pub(crate) fn insert_trusted_insert(&mut self, insert: TrustedClassNameInsert) -> ClassId {
         match insert {
             TrustedClassNameInsert::Id(id) => id,
             TrustedClassNameInsert::Data { class_name, kind } => {
@@ -1437,7 +1434,7 @@ impl Default for ClassNames {
     }
 }
 
-__make_map!(pub ClassFiles<ClassFileId, ClassFileData>; access);
+__make_map!(pub ClassFiles<ClassId, ClassFileData>; access);
 impl ClassFiles {
     /// This is primarily for the JVM impl to load classes from user input
     pub fn load_by_class_path_slice<T: AsRef<str>>(
@@ -1445,7 +1442,7 @@ impl ClassFiles {
         class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_path: &[T],
-    ) -> Result<ClassFileId, LoadClassFileError> {
+    ) -> Result<ClassId, LoadClassFileError> {
         if class_path.is_empty() {
             return Err(LoadClassFileError::EmptyPath);
         }
@@ -1470,7 +1467,7 @@ impl ClassFiles {
         &mut self,
         class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
-        class_file_id: ClassFileId,
+        class_file_id: ClassId,
     ) -> Result<(), LoadClassFileError> {
         if self.contains_key(&class_file_id) {
             return Ok(());
@@ -1499,7 +1496,7 @@ impl ClassFiles {
     fn load_from_rel_path(
         &mut self,
         class_directories: &ClassDirectories,
-        id: ClassFileId,
+        id: ClassId,
         rel_path: PathBuf,
     ) -> Result<(), LoadClassFileError> {
         if self.contains_key(&id) {
@@ -1525,7 +1522,7 @@ pub fn convert_classfile_text(bytes: &[u8]) -> Cow<str> {
 pub fn direct_load_class_file_by_id(
     class_directories: &ClassDirectories,
     class_names: &ClassNames,
-    class_file_id: ClassFileId,
+    class_file_id: ClassId,
 ) -> Result<Option<ClassFileData>, LoadClassFileError> {
     let (class_name, class_info) = class_names
         .name_from_gcid(class_file_id)
@@ -1591,7 +1588,7 @@ pub fn direct_load_class_file_by_class_path_iter<'a>(
 
 pub fn direct_load_class_file_from_rel_path(
     class_directories: &ClassDirectories,
-    id: ClassFileId,
+    id: ClassId,
     rel_path: PathBuf,
 ) -> Result<ClassFileData, LoadClassFileError> {
     use classfile_parser::parser::ParseData;
@@ -1632,7 +1629,7 @@ pub fn load_super_classes_iter(class_id: ClassId) -> SuperClassIterator {
 /// Provides an 'iterator' over class files as it crawls up from the `class_id` given
 /// Note that this *includes* the `class_id` given, and so you may want to skip over it.
 #[must_use]
-pub fn load_super_class_files_iter(class_file_id: ClassFileId) -> SuperClassFileIterator {
+pub fn load_super_class_files_iter(class_file_id: ClassId) -> SuperClassFileIterator {
     SuperClassFileIterator::new(class_file_id)
 }
 
@@ -1742,7 +1739,7 @@ fn helper_get_overrided_method(
     class_files: &mut ClassFiles,
     classes: &mut Classes,
     packages: &mut Packages,
-    super_class_file_id: ClassFileId,
+    super_class_file_id: ClassId,
     over_package: Option<PackageId>,
     over_method: &Method,
     over_method_name: Vec<u8>,
@@ -2128,7 +2125,7 @@ impl SuperClassIterator {
         class_files: &mut ClassFiles,
         classes: &mut Classes,
         packages: &mut Packages,
-    ) -> Option<Result<ClassFileId, StepError>> {
+    ) -> Option<Result<ClassId, StepError>> {
         match self
             .scfi
             .next_item(class_directories, class_names, class_files)
@@ -2145,7 +2142,7 @@ impl SuperClassIterator {
 }
 
 pub struct SuperClassFileIterator {
-    topmost: Option<Result<ClassFileId, StepError>>,
+    topmost: Option<Result<ClassId, StepError>>,
     had_error: bool,
 }
 impl SuperClassFileIterator {
@@ -2169,7 +2166,7 @@ impl SuperClassFileIterator {
         class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
-    ) -> Option<Result<ClassFileId, StepError>> {
+    ) -> Option<Result<ClassId, StepError>> {
         if self.had_error {
             return None;
         }

@@ -1,15 +1,39 @@
-pub type Id = u64;
-pub type ClassFileId = Id;
-pub type ClassId = Id;
-pub type GeneralClassId = Id;
+use std::hash::{Hash, Hasher};
 
-pub type PackageId = Id;
+#[derive(Debug, Copy, Clone)]
+pub struct ClassId(u64);
+impl ClassId {
+    pub(crate) fn new_unchecked(id: u64) -> ClassId {
+        ClassId(id)
+    }
+
+    pub(crate) fn get(self) -> u64 {
+        self.0
+    }
+}
+
+// This only really holds true if they're from the same [`ClassNames`] instance
+impl PartialEq for ClassId {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl Eq for ClassId {}
+impl Hash for ClassId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0)
+    }
+}
+#[cfg(feature = "implementation-cheaper-map-hashing")]
+impl nohash_hasher::IsEnabled for ClassId {}
+
+pub type PackageId = u64;
 
 /// This is an index into the methods
 /// This is not meaningful without a class
 pub type MethodIndex = u16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MethodId {
     class_id: ClassId,
     method_index: MethodIndex,

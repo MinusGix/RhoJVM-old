@@ -8,7 +8,7 @@ use classfile_parser::{constant_info::ConstantInfo, constant_pool::ConstantPoolI
 
 use crate::{
     class::ClassFileData,
-    id::{ClassFileId, MethodId},
+    id::{ClassId, MethodId},
     util::{MemorySizeU16, StaticMemorySizeU16},
     ClassNames, StepError,
 };
@@ -204,10 +204,10 @@ pub enum ComplexType {
     /// An array of known levels that eventually bottoms out as instances of the given class id
     RefArrayLevels {
         level: NonZeroUsize,
-        class_id: ClassFileId,
+        class_id: ClassId,
     },
     /// A reference to some specific instance of a class with this id
-    ReferenceClass(ClassFileId),
+    ReferenceClass(ClassId),
     ReferenceNull,
 }
 
@@ -368,7 +368,7 @@ impl From<PrimitiveType> for LocalVariableInType {
 /// Helper enum
 enum PrimOrId {
     Primitive(PrimitiveType),
-    ClassId(ClassFileId),
+    ClassId(ClassId),
 }
 
 #[derive(Debug, Clone)]
@@ -434,7 +434,7 @@ impl From<WithType> for Type {
 #[derive(Debug, Clone)]
 pub enum StackInfoError {
     /// The class file id was incorrect, it really shouldn't have been.
-    InvalidClassFileId,
+    InvalidClassId,
     /// The method id was incorrect, it really shouldn't have been
     InvalidMethodId,
     /// Tried to index into the constant pool, but failed to get it

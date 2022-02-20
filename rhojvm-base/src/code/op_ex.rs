@@ -30,7 +30,7 @@ use super::{
 use crate::class::ClassFileData;
 use crate::code::method::MethodDescriptor;
 use crate::code::types::StackInfoError;
-use crate::id::{ClassFileId, ClassId, MethodId};
+use crate::id::{ClassId, MethodId};
 use crate::{ClassNames, LoadMethodError, StepError};
 
 #[derive(Debug)]
@@ -491,7 +491,7 @@ empty_locals_in!(StaticMethodInfo);
 /// Method info where the first parameter is of some class
 pub struct RefMethodInfo {
     /// The target class id
-    class_id: Option<ClassFileId>,
+    class_id: Option<ClassId>,
     parameters: SmallVec<[Type; 8]>,
     return_type: Option<Type>,
 }
@@ -499,7 +499,7 @@ impl RefMethodInfo {
     fn from_nat_index(
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        rec_class_id: Option<ClassFileId>,
+        rec_class_id: Option<ClassId>,
         nat_index: ConstantPoolIndexRaw<NameAndTypeConstant>,
     ) -> Result<RefMethodInfo, StepError> {
         let nat = class_file

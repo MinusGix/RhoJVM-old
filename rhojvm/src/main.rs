@@ -34,7 +34,7 @@ use rhojvm_base::{
         stack_map::StackMapError,
         types::{JavaChar, PrimitiveType},
     },
-    id::{ClassFileId, ClassId, MethodId},
+    id::{ClassId, MethodId},
     load_super_classes_iter,
     package::Packages,
     ClassDirectories, ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
@@ -398,8 +398,8 @@ pub enum VerificationError {
     /// not have been a super class.
     SuperClassWasFinal {
         /// The immediate base class
-        base_class_id: ClassFileId,
-        super_class_id: ClassFileId,
+        base_class_id: ClassId,
+        super_class_id: ClassId,
     },
     /// The super class of a class was an interface, when it should not be
     SuperClassInterface {
@@ -534,7 +534,7 @@ fn main() {
     let mut state = State::new(conf);
 
     // Load the entry point
-    let entrypoint_id: ClassFileId = class_files
+    let entrypoint_id: ClassId = class_files
         .load_by_class_path_slice(&class_directories, &mut class_names, &entry_point_cp)
         .unwrap();
     classes

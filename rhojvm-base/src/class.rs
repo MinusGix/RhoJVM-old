@@ -13,7 +13,7 @@ pub use classfile_parser::ClassAccessFlags;
 
 use crate::{
     code::types::PrimitiveType,
-    id::{ClassFileId, ClassId, MethodId, MethodIndex, PackageId},
+    id::{ClassId, MethodId, MethodIndex, PackageId},
     util::format_class_as_object_desc,
     BadIdError, ClassNames,
 };
@@ -28,7 +28,7 @@ pub enum ClassFileIndexError {
 
 #[derive(Debug, Clone)]
 pub struct ClassFileData {
-    pub(crate) id: ClassFileId,
+    pub(crate) id: ClassId,
     #[allow(dead_code)]
     /// The direct path to the file
     pub(crate) path: PathBuf,
@@ -43,7 +43,7 @@ pub struct ClassFileData {
 }
 impl ClassFileData {
     pub(crate) fn new(
-        id: ClassFileId,
+        id: ClassId,
         path: PathBuf,
         class_file_data: Rc<[u8]>,
         class_file: ClassFileOpt,
@@ -71,7 +71,7 @@ impl ClassFileData {
     }
 
     #[must_use]
-    pub fn id(&self) -> ClassFileId {
+    pub fn id(&self) -> ClassId {
         self.id
     }
 
@@ -201,7 +201,7 @@ impl ClassFileData {
     pub(crate) fn get_super_class_id(
         &self,
         class_names: &mut ClassNames,
-    ) -> Result<Option<ClassFileId>, ClassFileIndexError> {
+    ) -> Result<Option<ClassId>, ClassFileIndexError> {
         Ok(self
             .get_super_class_name()?
             .map(|x| class_names.gcid_from_bytes(x)))
@@ -286,7 +286,7 @@ impl ClassVariant {
 #[derive(Debug, Clone)]
 pub struct Class {
     pub(crate) id: ClassId,
-    pub(crate) super_class: Option<ClassFileId>,
+    pub(crate) super_class: Option<ClassId>,
     pub(crate) package: Option<PackageId>,
     pub(crate) access_flags: ClassAccessFlags,
     /// This is just the length of methods
@@ -297,7 +297,7 @@ pub struct Class {
 impl Class {
     pub(crate) fn new(
         id: ClassId,
-        super_class: Option<ClassFileId>,
+        super_class: Option<ClassId>,
         package: Option<PackageId>,
         access_flags: ClassAccessFlags,
         len_method_idx: MethodIndex,
@@ -317,7 +317,7 @@ impl Class {
     }
 
     #[must_use]
-    pub fn super_id(&self) -> Option<ClassFileId> {
+    pub fn super_id(&self) -> Option<ClassId> {
         self.super_class
     }
 

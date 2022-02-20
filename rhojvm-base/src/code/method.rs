@@ -376,7 +376,7 @@ impl DescriptorTypeBasic {
                     let path = class_names.tpath(*id);
                     path.to_owned()
                 } else {
-                    format!("[BadClassId #{}]", *id)
+                    format!("[BadClassId #{}]", id.get())
                 }
             }
             // All the primitive types can be handled with `name`
