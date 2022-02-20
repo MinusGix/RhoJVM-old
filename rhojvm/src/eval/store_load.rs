@@ -32,14 +32,11 @@ use rhojvm_base::{
 use usize_cast::IntoUsize;
 
 use crate::{
-    class_instance::{
-        ClassInstance, Fields, Instance, PrimitiveArrayInstance, StaticClassInstance,
-    },
-    eval::{eval_method, EvalMethodValue, Locals},
+    class_instance::{ClassInstance, ReferenceInstance, StaticClassInstance},
     gc::GcRef,
     initialize_class,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{self, JavaString},
+    util::{self},
     GeneralError, State,
 };
 
@@ -232,14 +229,13 @@ impl RunInst for GetField {
         let instance = state
             .gc
             .deref(instance_ref)
-            .ok_or(EvalError::InvalidGcRef(instance_ref))?;
+            .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
         match instance {
-            Instance::Class(x) => {
+            ReferenceInstance::Class(class) => {
                 // TODO: Check that it is the right class instance!
             }
-            Instance::StaticClass(_) => todo!("Got ref to static class from stack"),
-            Instance::PrimitiveArray(_) => todo!(),
-            Instance::ReferenceArray(_) => todo!(),
+            ReferenceInstance::PrimitiveArray(_) => todo!(),
+            ReferenceInstance::ReferenceArray(_) => todo!(),
         }
         // TODO: use more generic container
         let instance_ref: GcRef<ClassInstance> = instance_ref.unchecked_as();
@@ -338,7 +334,7 @@ fn load_constant(
             match string_ref {
                 ValueException::Value(string_ref) => frame
                     .stack
-                    .push(RuntimeValue::Reference(string_ref.into_generic()))?,
+                    .push(RuntimeValue::Reference(string_ref.unchecked_as()))?,
                 ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
             }
         }
@@ -1040,10 +1036,10 @@ impl RunInst for ArrayLength {
         let array_inst = state
             .gc
             .deref(array_ref)
-            .ok_or(EvalError::InvalidGcRef(array_ref))?;
+            .ok_or(EvalError::InvalidGcRef(array_ref.into_generic()))?;
         let len = match array_inst {
-            Instance::PrimitiveArray(array) => array.len(),
-            Instance::ReferenceArray(array) => array.len(),
+            ReferenceInstance::PrimitiveArray(array) => array.len(),
+            ReferenceInstance::ReferenceArray(array) => array.len(),
             _ => return Err(EvalError::ExpectedArrayInstance.into()),
         };
         frame.stack.push(RuntimeValuePrimitive::I32(len))?;
@@ -1075,9 +1071,9 @@ fn array_load(
     let array_inst = state
         .gc
         .deref(array_ref)
-        .ok_or(EvalError::InvalidGcRef(array_ref))?;
+        .ok_or(EvalError::InvalidGcRef(array_ref.into_generic()))?;
     match array_inst {
-        Instance::ReferenceArray(array) => {
+        ReferenceInstance::ReferenceArray(array) => {
             if !element_type.is_reference() {
                 return Err(EvalError::ExpectedArrayInstanceOf(element_type).into());
             }
@@ -1092,7 +1088,7 @@ fn array_load(
                 todo!("Return ArrayIndexOutOfBoundsException")
             }
         }
-        Instance::PrimitiveArray(array) => {
+        ReferenceInstance::PrimitiveArray(array) => {
             if let RuntimeType::Primitive(prim_type) = element_type {
                 if prim_type != array.element_type {
                     return Err(EvalError::ExpectedArrayInstanceOf(element_type).into());
@@ -1178,8 +1174,8 @@ fn array_store(
         .state
         .gc
         .deref_mut(array_ref)
-        .ok_or(EvalError::InvalidGcRef(array_ref))?;
-    let array_inst = if let Instance::PrimitiveArray(array_inst) = array_inst {
+        .ok_or(EvalError::InvalidGcRef(array_ref.into_generic()))?;
+    let array_inst = if let ReferenceInstance::PrimitiveArray(array_inst) = array_inst {
         array_inst
     } else {
         // TODO: Better err for ReferenceArray
@@ -1252,13 +1248,11 @@ impl RunInst for AAStore {
             let value_inst = state
                 .gc
                 .deref(value_ref)
-                .ok_or(EvalError::InvalidGcRef(value_ref))?;
+                .ok_or(EvalError::InvalidGcRef(value_ref.into_generic()))?;
             let id = match value_inst {
-                Instance::Class(class) => class.instanceof,
-                Instance::PrimitiveArray(class) => class.instanceof,
-                Instance::ReferenceArray(class) => class.instanceof,
-                // TODO: Better error
-                Instance::StaticClass(_) => return Err(EvalError::ExpectedClassInstance.into()),
+                ReferenceInstance::Class(class) => class.instanceof,
+                ReferenceInstance::PrimitiveArray(class) => class.instanceof,
+                ReferenceInstance::ReferenceArray(class) => class.instanceof,
             };
             Some(id)
         } else {
@@ -1268,8 +1262,8 @@ impl RunInst for AAStore {
         let array_inst = state
             .gc
             .deref_mut(array_ref)
-            .ok_or(EvalError::InvalidGcRef(array_ref))?;
-        let array_inst = if let Instance::ReferenceArray(array_inst) = array_inst {
+            .ok_or(EvalError::InvalidGcRef(array_ref.into_generic()))?;
+        let array_inst = if let ReferenceInstance::ReferenceArray(array_inst) = array_inst {
             array_inst
         } else {
             // TODO: better error for PrimitiveArray

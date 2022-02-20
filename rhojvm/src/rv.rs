@@ -7,7 +7,7 @@ use rhojvm_base::{
     BadIdError, ClassNames,
 };
 
-use crate::{class_instance::Instance, gc::GcRef};
+use crate::{class_instance::ReferenceInstance, gc::GcRef};
 
 #[derive(Debug, Copy, Clone)]
 pub enum RuntimeValuePrimitive {
@@ -135,7 +135,7 @@ impl RuntimeValuePrimitive {
 }
 
 #[derive(Debug)]
-pub enum RuntimeValue<REF = Instance> {
+pub enum RuntimeValue<REF = ReferenceInstance> {
     Primitive(RuntimeValuePrimitive),
     NullReference,
     Reference(GcRef<REF>),

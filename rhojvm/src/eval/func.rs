@@ -11,7 +11,7 @@ use rhojvm_base::{
 use smallvec::SmallVec;
 
 use crate::{
-    class_instance::Instance,
+    class_instance::ReferenceInstance,
     eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals},
     initialize_class, map_interface_index_small_vec_to_ids, resolve_derive,
     rv::{RuntimeValue, RuntimeValuePrimitive},
@@ -70,9 +70,9 @@ fn grab_runtime_value_from_stack_for_function(
                         let p = state
                             .gc
                             .deref(p_ref)
-                            .ok_or(EvalError::InvalidGcRef(p_ref))?;
+                            .ok_or(EvalError::InvalidGcRef(p_ref.into_generic()))?;
                         match p {
-                            Instance::Class(c) => {
+                            ReferenceInstance::Class(c) => {
                                 let instance_id = c.instanceof;
 
                                 let is_castable = instance_id == *id
@@ -98,14 +98,13 @@ fn grab_runtime_value_from_stack_for_function(
                                     todo!("Type was not castable")
                                 }
                             }
-                            Instance::StaticClass(_) => todo!("Bad reference"),
                             // TODO: I think we need to check if it is a super class
                             // (though that is just object for arrays) and then check if
                             // the class is some array interface
                             // then use is_castable_array, or does it already do that
                             // earlier stuff?
-                            Instance::PrimitiveArray(_) => todo!(),
-                            Instance::ReferenceArray(_) => todo!(),
+                            ReferenceInstance::PrimitiveArray(_) => todo!(),
+                            ReferenceInstance::ReferenceArray(_) => todo!(),
                         }
                     }
                     RuntimeValue::NullReference => RuntimeValue::NullReference,
@@ -559,12 +558,11 @@ impl RunInst for InvokeVirtual {
         let instance = state
             .gc
             .deref(instance_ref)
-            .ok_or(EvalError::InvalidGcRef(instance_ref))?;
+            .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
         let instance_id = match instance {
-            Instance::Class(instance) => instance.instanceof,
-            Instance::StaticClass(_) => todo!("Should not be a static class reference on stack"),
-            Instance::PrimitiveArray(_) => todo!(),
-            Instance::ReferenceArray(_) => todo!(),
+            ReferenceInstance::Class(instance) => instance.instanceof,
+            ReferenceInstance::PrimitiveArray(_) => todo!(),
+            ReferenceInstance::ReferenceArray(_) => todo!(),
         };
 
         let (class_id, _) = method_id.decompose();

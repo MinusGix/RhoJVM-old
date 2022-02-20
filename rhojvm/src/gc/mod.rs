@@ -20,7 +20,11 @@ use rhojvm_base::{
     package::Packages, util::MemorySize, ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
 };
 
-use crate::{class_instance::Instance, rv::RuntimeValue, State};
+use crate::{
+    class_instance::{Instance, ReferenceInstance},
+    rv::RuntimeValue,
+    State,
+};
 
 // TODO: make GcRef hold a reference count, so then we can keep track of Rust losing the values?
 // TODO: We could make this just hold specific types, to make it easier for the tracing to be
@@ -273,6 +277,10 @@ impl GcObject {
     }
 }
 
+/// Marks that a value is stored on the heap
+/// This is mostly to make constraints on various type safe parts of the code easier
+pub trait GcValueMarker {}
+
 // TODO: We could do some odd optimizations, like holding a pointer?
 /// A reference to an object in the Gc
 /// Should not be used across Gc instances
@@ -288,8 +296,13 @@ impl<T> GcRef<T> {
         }
     }
 
+    // TODO: These constraints are probably not as exacting as they could be
+    /// Convert reference into more generic instance of the type
     #[must_use]
-    pub fn into_generic(self) -> GcRef<Instance> {
+    pub fn into_generic<U>(self) -> GcRef<U>
+    where
+        U: From<T> + GcValueMarker,
+    {
         GcRef {
             index: self.index,
             _marker: PhantomData,
@@ -369,23 +382,26 @@ fn trace_instance(
         })
         .collect::<Vec<_>>();
     for field_value_ref in fields {
-        gc.mark(field_value_ref);
+        gc.mark(field_value_ref.into_generic());
     }
 
     let instance = gc.deref(instance_ref).unwrap();
     match instance {
-        Instance::Class(class) => {
-            let x = class.static_ref;
-            gc.mark(x.into_generic());
-        }
-        Instance::StaticClass(_) | Instance::PrimitiveArray(_) => (),
-        Instance::ReferenceArray(array) => {
-            // TODO: It would be great if we could avoid allocating here
-            let elements = array.elements.clone();
-            for element in elements.into_iter().flatten() {
-                gc.mark(element);
+        Instance::Reference(refe) => match refe {
+            ReferenceInstance::Class(class) => {
+                let x = class.static_ref;
+                gc.mark(x.into_generic());
             }
-        }
+            ReferenceInstance::PrimitiveArray(_) => (),
+            ReferenceInstance::ReferenceArray(array) => {
+                // TODO: It would be great if we could avoid allocating here
+                let elements = array.elements.clone();
+                for element in elements.into_iter().flatten() {
+                    gc.mark(element.into_generic());
+                }
+            }
+        },
+        Instance::StaticClass(_) => (),
     }
 
     Some(())

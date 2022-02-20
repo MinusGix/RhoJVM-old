@@ -10,7 +10,7 @@ use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{
-        ClassInstance, Fields, Instance, PrimitiveArrayInstance, ReferenceArrayInstance,
+        ClassInstance, Fields, PrimitiveArrayInstance, ReferenceArrayInstance, ReferenceInstance,
     },
     eval::EvalError,
     gc::GcRef,
@@ -189,7 +189,7 @@ impl RunInst for ANewArray {
             elem_class_id,
         )?;
 
-        let mut elements: Vec<Option<GcRef<Instance>>> = Vec::new();
+        let mut elements: Vec<Option<GcRef<ReferenceInstance>>> = Vec::new();
         elements.resize(count, None);
 
         let array_inst = ReferenceArrayInstance::new(array_id, elem_class_id, elements);
@@ -518,7 +518,10 @@ impl RunInst for CheckCast {
             RuntimeValue::Reference(gc_ref) => gc_ref,
             RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
         };
-        let val_inst = state.gc.deref(val).ok_or(EvalError::InvalidGcRef(val))?;
+        let val_inst = state
+            .gc
+            .deref(val)
+            .ok_or(EvalError::InvalidGcRef(val.into_generic()))?;
 
         let (class_id, _) = method_id.decompose();
         let class_file = class_files
@@ -537,10 +540,9 @@ impl RunInst for CheckCast {
         let cast_target_id = class_names.gcid_from_bytes(cast_target_name);
 
         let id = match val_inst {
-            Instance::Class(class) => class.instanceof,
-            Instance::StaticClass(_) => todo!("Return checkcast exception"),
-            Instance::PrimitiveArray(array) => array.instanceof,
-            Instance::ReferenceArray(array) => array.instanceof,
+            ReferenceInstance::Class(class) => class.instanceof,
+            ReferenceInstance::PrimitiveArray(array) => array.instanceof,
+            ReferenceInstance::ReferenceArray(array) => array.instanceof,
         };
 
         // We currently represent the reference as completely unmodified, but we do have to
@@ -614,7 +616,10 @@ impl RunInst for InstanceOf {
             RuntimeValue::Reference(gc_ref) => gc_ref,
             RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
         };
-        let val_inst = state.gc.deref(val).ok_or(EvalError::InvalidGcRef(val))?;
+        let val_inst = state
+            .gc
+            .deref(val)
+            .ok_or(EvalError::InvalidGcRef(val.into_generic()))?;
 
         let (class_id, _) = method_id.decompose();
         let class_file = class_files
@@ -633,10 +638,9 @@ impl RunInst for InstanceOf {
         let cast_target_id = class_names.gcid_from_bytes(cast_target_name);
 
         let id = match val_inst {
-            Instance::Class(class) => class.instanceof,
-            Instance::StaticClass(_) => todo!("Return exception"),
-            Instance::PrimitiveArray(array) => array.instanceof,
-            Instance::ReferenceArray(array) => array.instanceof,
+            ReferenceInstance::Class(class) => class.instanceof,
+            ReferenceInstance::PrimitiveArray(array) => array.instanceof,
+            ReferenceInstance::ReferenceArray(array) => array.instanceof,
         };
 
         // We currently represent the reference as completely unmodified, but we do have to

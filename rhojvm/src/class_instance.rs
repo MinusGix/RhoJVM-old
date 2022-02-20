@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use classfile_parser::field_info::FieldAccessFlags;
-use rhojvm_base::{id::ClassId, util::MemorySize, ClassNames};
+use either::Either;
+use rhojvm_base::{id::ClassId, util::MemorySize};
 
 use crate::{
-    gc::GcRef,
+    gc::{GcRef, GcValueMarker},
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::JavaString,
 };
 
 macro_rules! impl_instance_conv {
@@ -38,24 +38,76 @@ macro_rules! impl_instance_conv {
         }
     };
 }
+macro_rules! impl_reference_instance_conv {
+    ($variant_name:ident => $name:ty) => {
+        impl From<$name> for Instance {
+            fn from(v: $name) -> Instance {
+                Instance::Reference(ReferenceInstance::from(v))
+            }
+        }
+        impl From<$name> for ReferenceInstance {
+            fn from(v: $name) -> ReferenceInstance {
+                ReferenceInstance::$variant_name(v)
+            }
+        }
+
+        impl<'a> TryFrom<&'a Instance> for &'a $name {
+            type Error = ();
+            fn try_from(i: &'a Instance) -> Result<&'a $name, ()> {
+                match i {
+                    Instance::Reference(x) => <&'a $name>::try_from(x),
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl<'a> TryFrom<&'a ReferenceInstance> for &'a $name {
+            type Error = ();
+            fn try_from(i: &'a ReferenceInstance) -> Result<&'a $name, ()> {
+                match i {
+                    ReferenceInstance::$variant_name(x) => Ok(x),
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl<'a> TryFrom<&'a mut Instance> for &'a mut $name {
+            type Error = ();
+            fn try_from(i: &'a mut Instance) -> Result<&'a mut $name, ()> {
+                match i {
+                    Instance::Reference(x) => <&'a mut $name>::try_from(x),
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl<'a> TryFrom<&'a mut ReferenceInstance> for &'a mut $name {
+            type Error = ();
+            fn try_from(i: &'a mut ReferenceInstance) -> Result<&'a mut $name, ()> {
+                match i {
+                    ReferenceInstance::$variant_name(x) => Ok(x),
+                    _ => Err(()),
+                }
+            }
+        }
+    };
+}
 
 /// An instance of a class, made generic over several common variants
 #[derive(Debug)]
 pub enum Instance {
-    Class(ClassInstance),
     StaticClass(StaticClassInstance),
-    PrimitiveArray(PrimitiveArrayInstance),
-    ReferenceArray(ReferenceArrayInstance),
+    Reference(ReferenceInstance),
 }
 impl Instance {
     /// Note that this does not peek upwards (for class instances) into the static class
     /// for its fields.
-    pub(crate) fn fields(&self) -> impl Iterator<Item = (&str, &Field)> {
+    pub(crate) fn fields(
+        &self,
+    ) -> Either<impl Iterator<Item = (&str, &Field)>, impl Iterator<Item = (&str, &Field)>> {
         match self {
-            Instance::Class(x) => x.fields.iter(),
-            Instance::StaticClass(x) => x.fields.iter(),
-            Instance::PrimitiveArray(x) => x.fields.iter(),
-            Instance::ReferenceArray(x) => x.fields.iter(),
+            Instance::StaticClass(x) => Either::Left(x.fields.iter()),
+            Instance::Reference(x) => Either::Right(x.fields()),
         }
     }
 }
@@ -63,10 +115,74 @@ impl MemorySize for Instance {
     fn memory_size(&self) -> usize {
         // TODO: Our current memory size implementations don't include their sub-fields
         match self {
-            Instance::Class(x) => x.memory_size(),
             Instance::StaticClass(x) => x.memory_size(),
-            Instance::PrimitiveArray(x) => x.memory_size(),
-            Instance::ReferenceArray(x) => x.memory_size(),
+            Instance::Reference(x) => x.memory_size(),
+        }
+    }
+}
+impl GcValueMarker for Instance {}
+
+#[derive(Debug)]
+pub enum ReferenceInstance {
+    Class(ClassInstance),
+    PrimitiveArray(PrimitiveArrayInstance),
+    ReferenceArray(ReferenceArrayInstance),
+}
+impl ReferenceInstance {
+    /// Note that this does not peek upwards into the static class for its fields
+    pub(crate) fn fields(&self) -> impl Iterator<Item = (&str, &Field)> {
+        match self {
+            ReferenceInstance::Class(x) => x.fields.iter(),
+            ReferenceInstance::PrimitiveArray(x) => x.fields.iter(),
+            ReferenceInstance::ReferenceArray(x) => x.fields.iter(),
+        }
+    }
+}
+impl MemorySize for ReferenceInstance {
+    fn memory_size(&self) -> usize {
+        match self {
+            ReferenceInstance::Class(x) => x.memory_size(),
+            ReferenceInstance::PrimitiveArray(x) => x.memory_size(),
+            ReferenceInstance::ReferenceArray(x) => x.memory_size(),
+        }
+    }
+}
+impl GcValueMarker for ReferenceInstance {}
+impl From<ReferenceInstance> for Instance {
+    fn from(x: ReferenceInstance) -> Self {
+        Instance::Reference(x)
+    }
+}
+impl TryFrom<Instance> for ReferenceInstance {
+    type Error = ();
+
+    fn try_from(value: Instance) -> Result<Self, Self::Error> {
+        if let Instance::Reference(x) = value {
+            Ok(x)
+        } else {
+            Err(())
+        }
+    }
+}
+impl<'a> TryFrom<&'a Instance> for &'a ReferenceInstance {
+    type Error = ();
+
+    fn try_from(value: &'a Instance) -> Result<Self, Self::Error> {
+        if let Instance::Reference(x) = value {
+            Ok(x)
+        } else {
+            Err(())
+        }
+    }
+}
+impl<'a> TryFrom<&'a mut Instance> for &'a mut ReferenceInstance {
+    type Error = ();
+
+    fn try_from(value: &'a mut Instance) -> Result<Self, Self::Error> {
+        if let Instance::Reference(x) = value {
+            Ok(x)
+        } else {
+            Err(())
         }
     }
 }
@@ -82,6 +198,7 @@ pub struct ClassInstance {
     pub fields: Fields,
 }
 impl ClassInstance {
+    #[must_use]
     pub fn new(
         instanceof: ClassId,
         static_ref: GcRef<StaticClassInstance>,
@@ -94,12 +211,13 @@ impl ClassInstance {
         }
     }
 }
-impl_instance_conv!(Class => ClassInstance);
+impl_reference_instance_conv!(Class => ClassInstance);
 impl MemorySize for ClassInstance {
     fn memory_size(&self) -> usize {
         std::mem::size_of::<Self>()
     }
 }
+impl GcValueMarker for ClassInstance {}
 
 /// The class that is the static class, which may have its own fields and the like on it
 #[derive(Debug, Clone)]
@@ -120,6 +238,7 @@ impl MemorySize for StaticClassInstance {
         std::mem::size_of::<Self>()
     }
 }
+impl GcValueMarker for StaticClassInstance {}
 
 // TODO: Specialized array instances for each kind of value?
 #[derive(Debug, Clone)]
@@ -155,18 +274,19 @@ impl PrimitiveArrayInstance {
         self.elements.is_empty()
     }
 }
-impl_instance_conv!(PrimitiveArray => PrimitiveArrayInstance);
+impl_reference_instance_conv!(PrimitiveArray => PrimitiveArrayInstance);
 impl MemorySize for PrimitiveArrayInstance {
     fn memory_size(&self) -> usize {
         std::mem::size_of::<Self>()
     }
 }
+impl GcValueMarker for PrimitiveArrayInstance {}
 
 #[derive(Debug, Clone)]
 pub struct ReferenceArrayInstance {
     pub instanceof: ClassId,
     pub element_type: ClassId,
-    pub elements: Vec<Option<GcRef<Instance>>>,
+    pub elements: Vec<Option<GcRef<ReferenceInstance>>>,
     // TODO: This only exists so that we can return an empty iterator over it that is the same type
     // as those returned in the impl iterator for instance. We should simply make an empty version.
     fields: Fields,
@@ -175,7 +295,7 @@ impl ReferenceArrayInstance {
     pub(crate) fn new(
         instanceof: ClassId,
         element_type: ClassId,
-        elements: Vec<Option<GcRef<Instance>>>,
+        elements: Vec<Option<GcRef<ReferenceInstance>>>,
     ) -> ReferenceArrayInstance {
         ReferenceArrayInstance {
             instanceof,
@@ -195,12 +315,13 @@ impl ReferenceArrayInstance {
         self.elements.is_empty()
     }
 }
-impl_instance_conv!(ReferenceArray => ReferenceArrayInstance);
+impl_reference_instance_conv!(ReferenceArray => ReferenceArrayInstance);
 impl MemorySize for ReferenceArrayInstance {
     fn memory_size(&self) -> usize {
         std::mem::size_of::<Self>()
     }
 }
+impl GcValueMarker for ReferenceArrayInstance {}
 
 #[derive(Default, Debug, Clone)]
 pub struct Fields {

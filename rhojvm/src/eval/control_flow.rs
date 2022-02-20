@@ -13,7 +13,7 @@ use rhojvm_base::{
 };
 
 use crate::{
-    class_instance::Instance,
+    class_instance::ReferenceInstance,
     eval::EvalError,
     rv::{RuntimeValue, RuntimeValuePrimitive},
     util, GeneralError,
@@ -152,8 +152,8 @@ impl RunInst for AThrow {
                 let instance = state
                     .gc
                     .deref(gc_ref)
-                    .ok_or(EvalError::InvalidGcRef(gc_ref))?;
-                if let Instance::Class(instance) = instance {
+                    .ok_or(EvalError::InvalidGcRef(gc_ref.into_generic()))?;
+                if let ReferenceInstance::Class(instance) = instance {
                     let throwable_id = class_names.gcid_from_bytes(b"java/lang/Throwable");
                     if does_extend_class(
                         class_directories,
