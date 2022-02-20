@@ -72,7 +72,6 @@ impl FrameType {
                 left.is_same_type_on_stack(right)
             }
             (FrameType::Complex(left), FrameType::Complex(right)) => match (left, right) {
-                // TODO: casting to base class
                 (
                     ComplexFrameType::ReferenceClass(l_id),
                     ComplexFrameType::ReferenceClass(r_id),
@@ -224,12 +223,12 @@ impl FrameType {
                     let class = class_file
                         .get_t(class_index)
                         .ok_or(VerifyStackMapError::BadNewClassIndex { index: class_index })?;
-                    let class_name = class_file.get_text_t(class.name_index).ok_or(
+                    let class_name = class_file.get_text_b(class.name_index).ok_or(
                         VerifyStackMapError::BadNewClassNameIndex {
                             index: class.name_index,
                         },
                     )?;
-                    let class_id = class_names.gcid_from_cow(class_name);
+                    let class_id = class_names.gcid_from_bytes(class_name);
 
                     ComplexFrameType::UninitializedReferenceClass(class_id).into()
                 }
@@ -270,7 +269,6 @@ impl FrameType {
                 let array_id = class_names
                     .gcid_from_level_array_of_class_id(*level, *class_id)
                     .map_err(StepError::BadId)?;
-
                 ComplexFrameType::ReferenceClass(array_id).into()
             }
             ComplexType::ReferenceClass(id) => ComplexFrameType::ReferenceClass(*id).into(),
@@ -390,7 +388,7 @@ impl FrameType {
                 }
             }
             WithType::RefClassOf { class_name, .. } => {
-                let id = class_names.gcid_from_slice(class_name);
+                let id = class_names.gcid_from_bytes(class_name);
                 ComplexFrameType::ReferenceClass(id).into()
             }
             WithType::IntArrayIndexInto(_idx) => PrimitiveType::Int.into(),
@@ -667,18 +665,10 @@ impl ComplexFrameType {
     fn as_pretty_string(&self, class_names: &ClassNames) -> String {
         match self {
             ComplexFrameType::ReferenceClass(id) => {
-                if let Ok(name) = class_names.path_from_gcid(*id) {
-                    format!("#{}", name)
-                } else {
-                    format!("#[{}]", *id)
-                }
+                format!("#{}", class_names.tpath(*id))
             }
             ComplexFrameType::UninitializedReferenceClass(id) => {
-                if let Ok(name) = class_names.path_from_gcid(*id) {
-                    format!("!#{}", name)
-                } else {
-                    format!("!#[{}]", *id)
-                }
+                format!("!#{}", class_names.tpath(*id))
             }
             ComplexFrameType::ReferenceNull => "#null".to_owned(),
         }

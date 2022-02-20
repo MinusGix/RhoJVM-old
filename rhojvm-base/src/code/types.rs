@@ -117,16 +117,16 @@ impl PrimitiveTypeM {
     }
 
     #[must_use]
-    pub fn as_desc_prefix(&self) -> &'static str {
+    pub fn as_desc_prefix(&self) -> &'static [u8] {
         match self {
-            PrimitiveTypeM::Byte | PrimitiveTypeM::UnsignedByte => "B",
-            PrimitiveTypeM::Short | PrimitiveTypeM::UnsignedShort => "S",
-            PrimitiveTypeM::Int => "I",
-            PrimitiveTypeM::Long => "J",
-            PrimitiveTypeM::Float => "F",
-            PrimitiveTypeM::Double => "D",
-            PrimitiveTypeM::Char => "C",
-            PrimitiveTypeM::Boolean => "Z",
+            PrimitiveTypeM::Byte | PrimitiveTypeM::UnsignedByte => b"B",
+            PrimitiveTypeM::Short | PrimitiveTypeM::UnsignedShort => b"S",
+            PrimitiveTypeM::Int => b"I",
+            PrimitiveTypeM::Long => b"J",
+            PrimitiveTypeM::Float => b"F",
+            PrimitiveTypeM::Double => b"D",
+            PrimitiveTypeM::Char => b"C",
+            PrimitiveTypeM::Boolean => b"Z",
         }
     }
 
@@ -253,7 +253,7 @@ pub enum WithType {
     /// A reference to a type that is an instance of the given class name or an instance of a class
     /// that extends class name
     RefClassOf {
-        class_name: &'static [&'static str],
+        class_name: &'static [u8],
         can_be_null: bool,
     },
 

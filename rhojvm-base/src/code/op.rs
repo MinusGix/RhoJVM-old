@@ -1297,7 +1297,7 @@ define_instructions! {[
             /// Searches the current method for the first exception handler
             /// that matches the objectref
             objectref: WithType::RefClassOf {
-                class_name: &["java", "lang", "Throwable"],
+                class_name: b"java/lang/Throwable",
                 // TODO: it can technically be, but it would throw a NullPointerException
                 can_be_null: false,
             },

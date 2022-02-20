@@ -26,6 +26,7 @@
 use std::{
     borrow::Cow,
     fs::File,
+    hash::{Hash, Hasher},
     io::Read,
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -49,6 +50,7 @@ use code::{
     types::{PrimitiveType, StackInfoError},
 };
 use id::{ClassFileId, ClassId, GeneralClassId, MethodId, MethodIndex, PackageId};
+use indexmap::{Equivalent, IndexMap};
 use package::Packages;
 use smallvec::{smallvec, SmallVec};
 use tracing::{info, span, Level};
@@ -113,7 +115,7 @@ pub enum LoadMethodError {
     /// There was no method with that name
     NonexistentMethodName {
         class_id: ClassId,
-        name: Cow<'static, str>,
+        name: Cow<'static, [u8]>,
     },
     /// The index to the name of the method was invalid
     InvalidMethodNameIndex {
@@ -303,12 +305,12 @@ impl Classes {
             return Ok(());
         }
 
-        let class_name = class_names
+        let (_, class_info) = class_names
             .name_from_gcid(class_file_id)
             .map_err(StepError::BadId)?;
-        info!("====> C{:?}", class_name.path());
+        info!("====> C{:?}", class_names.tpath(class_file_id));
 
-        if !class_name.has_class_file() {
+        if !class_info.has_class_file() {
             // Just load the array class
             self.get_array_class(
                 class_directories,
@@ -330,25 +332,12 @@ impl Classes {
         let this_class_name = class_file
             .get_this_class_name()
             .map_err(LoadClassError::ClassFileIndex)?;
-        let super_class_name = class_file
-            .get_super_class_name()
+        let super_class_id = class_file
+            .get_super_class_id(class_names)
             .map_err(LoadClassError::ClassFileIndex)?;
-        let super_class_name = super_class_name;
-        let super_class_id = super_class_name.map(|x| class_names.gcid_from_cow(x));
 
-        let package = {
-            let mut package = util::access_path_iter(this_class_name.as_ref()).peekable();
-            // TODO: Don't unwrap
-            let _class_name = package.next_back().unwrap();
-            let package = if package.peek().is_some() {
-                let package = packages.iter_parts_create_if_needed(package);
-                Some(package)
-            } else {
-                None
-            };
-
-            package
-        };
+        let package = util::access_path_initial_part(this_class_name);
+        let package = package.map(|package| packages.slice_path_create_if_needed(package));
 
         let class = Class::new(
             class_file_id,
@@ -579,11 +568,11 @@ impl Classes {
         }
 
         // Otherwise, we load the class, if it has a classname.
-        let name = class_names
+        let (class_name, class_info) = class_names
             .name_from_gcid(class_id)
             .map_err(StepError::BadId)?;
 
-        if !name.is_array() {
+        if !class_info.is_array() {
             // It isn't an array, but that's fine.
             return Ok(None);
         }
@@ -591,9 +580,8 @@ impl Classes {
         let descriptor: DescriptorTypeCF<'static> = {
             // TODO: Return an error if this doesn't exist, but if it does not then that is sign
             // of an internal bug
-            let path = name.path();
-            let (descriptor, remaining) =
-                DescriptorTypeCF::parse(path).map_err(StepError::DescriptorTypeError)?;
+            let (descriptor, remaining) = DescriptorTypeCF::parse(class_name.get())
+                .map_err(StepError::DescriptorTypeError)?;
             // TODO: This should actually be a runtime error
             assert!(remaining.is_empty());
             // TODO: We shouldn't have to potentially allocate.
@@ -687,10 +675,7 @@ impl Classes {
         if class_names.is_array(class_id).map_err(StepError::BadId)? {
             let interfaces = ArrayClass::get_interface_names();
             for interface_name in interfaces {
-                // TODO: We could avoid the hashing for
-                // interfaces implemented by arrays since they're always known at compile time.
-                // Sadly, the optimizer probably can't do this itself.
-                let id = class_names.gcid_from_slice(interface_name);
+                let id = class_names.gcid_from_bytes(interface_name);
                 if impl_interface_id == id {
                     return Ok(true);
                 }
@@ -718,10 +703,10 @@ impl Classes {
                         .get_t(interface_index)
                         .ok_or(LoadClassError::BadInterfaceIndex(interface_index))?;
                     let interface_name =
-                        class_file.get_text_t(interface_constant.name_index).ok_or(
+                        class_file.get_text_b(interface_constant.name_index).ok_or(
                             LoadClassError::BadInterfaceNameIndex(interface_constant.name_index),
                         )?;
-                    let interface_id = class_names.gcid_from_cow(interface_name);
+                    let interface_id = class_names.gcid_from_bytes(interface_name);
 
                     if interface_id == impl_interface_id {
                         return Ok(true);
@@ -746,10 +731,10 @@ impl Classes {
                 let interface_constant = class_file
                     .get_t(interface_index)
                     .ok_or(LoadClassError::BadInterfaceIndex(interface_index))?;
-                let interface_name = class_file.get_text_t(interface_constant.name_index).ok_or(
+                let interface_name = class_file.get_text_b(interface_constant.name_index).ok_or(
                     LoadClassError::BadInterfaceNameIndex(interface_constant.name_index),
                 )?;
-                let interface_id = class_names.gcid_from_cow(interface_name);
+                let interface_id = class_names.gcid_from_bytes(interface_name);
 
                 if self.implements_interface(
                     class_directories,
@@ -902,7 +887,7 @@ impl Methods {
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         class_id: ClassId,
-        name: &str,
+        name: &[u8],
         desc: &MethodDescriptor,
     ) -> Result<MethodId, StepError> {
         class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
@@ -955,6 +940,18 @@ impl InternalKind {
         class_path.next().and_then(InternalKind::from_str)
     }
 
+    fn from_bytes(class_path: &[u8]) -> Option<InternalKind> {
+        if id::is_array_class_bytes(class_path) {
+            Some(InternalKind::Array)
+        } else {
+            None
+        }
+    }
+
+    fn from_raw_class_name(class_path: RawClassNameSlice<'_>) -> Option<InternalKind> {
+        Self::from_bytes(class_path.0)
+    }
+
     fn from_str(class_path: &str) -> Option<InternalKind> {
         if id::is_array_class(class_path) {
             Some(InternalKind::Array)
@@ -966,29 +963,178 @@ impl InternalKind {
     fn has_class_file(&self) -> bool {
         false
     }
-
-    fn is_array(&self) -> bool {
-        matches!(self, Self::Array)
-    }
 }
+
+/// An insert into [`ClassNames`] that is trusted, aka it has all the right values
+/// and is computed to be inserted when we have issues getting borrowing right.
+/// The variants are private
+pub(crate) enum TrustedClassNameInsert {
+    /// We already have it
+    Id(GeneralClassId),
+    /// It needs to be inserted
+    Data {
+        class_name: RawClassName,
+        kind: Option<InternalKind>,
+    },
+}
+
 #[derive(Debug, Clone)]
-pub struct Name {
-    /// Indicates that the class is for an internal type which does not have an actual backing
-    /// classfile.
-    internal_kind: Option<InternalKind>,
-    path: String,
-}
-impl Name {
+pub struct RawClassName(pub Vec<u8>);
+impl RawClassName {
     #[must_use]
-    pub fn path(&self) -> &str {
-        &self.path
+    pub fn get(&self) -> &[u8] {
+        &self.0
     }
 
     #[must_use]
-    /// Note: this is about whether it _should_ have a class file
-    /// not whether one actually exists
+    pub fn as_slice(&self) -> RawClassNameSlice<'_> {
+        RawClassNameSlice(self.0.as_slice())
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+impl Eq for RawClassName {}
+impl PartialEq for RawClassName {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl Hash for RawClassName {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_slice().hash(state)
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct RawClassNameSlice<'a>(&'a [u8]);
+impl<'a> RawClassNameSlice<'a> {
+    #[must_use]
+    pub fn get(&self) -> &'a [u8] {
+        self.0
+    }
+
+    #[must_use]
+    pub fn to_owned(&self) -> RawClassName {
+        RawClassName(self.0.to_owned())
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+impl<'a> Equivalent<RawClassName> for RawClassNameSlice<'a> {
+    fn equivalent(&self, key: &RawClassName) -> bool {
+        self.0 == key.0
+    }
+}
+impl<'a> Hash for RawClassNameSlice<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // This mimics normal slice hashing, but we explicitly decide how we hash slices
+        // This is because in our iterator version, we can't rely on the hash_slice
+        // iterating over each piece individually, so
+        // [0, 1, 2, 3] might not be the same as hashing [0, 1] and then [2, 3]
+        self.0.len().hash(state);
+        for piece in self.0 {
+            piece.hash(state);
+        }
+    }
+}
+
+/// Used when you have an iterator over slices of bytes which form a single [`RawClassName`]
+/// when considered together.
+/// This does not insert `/`
+#[derive(Clone)]
+pub struct RawClassNameBuilderator<I> {
+    iter: I,
+    length: usize,
+}
+impl<I> RawClassNameBuilderator<I> {
+    pub fn new_single<'a>(iter: I) -> RawClassNameBuilderator<I>
+    where
+        I: Iterator<Item = &'a [u8]> + Clone,
+    {
+        RawClassNameBuilderator {
+            iter: iter.clone(),
+            length: iter.fold(0, |acc, x| acc + x.len()),
+        }
+    }
+
+    pub fn new_split<'a, J: Iterator<Item = &'a [u8]> + Clone>(
+        iter: J,
+    ) -> RawClassNameBuilderator<impl Iterator<Item = &'a [u8]> + Clone> {
+        let iter = itertools::intersperse(iter, b"/");
+        RawClassNameBuilderator::new_single(iter)
+    }
+}
+impl<'a, I: Iterator<Item = &'a [u8]> + Clone> RawClassNameBuilderator<I> {
+    /// Compute the kind that this would be
+    pub(crate) fn internal_kind(&self) -> Option<InternalKind> {
+        self.iter.clone().next().and_then(InternalKind::from_bytes)
+    }
+
+    pub(crate) fn into_raw_class_name(self) -> RawClassName {
+        RawClassName(self.iter.flatten().copied().collect::<Vec<u8>>())
+    }
+}
+impl<'a, I: Iterator<Item = &'a [u8]> + Clone> Hash for RawClassNameBuilderator<I> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // This mimics slice hashing, as done in RawClassNameSlice
+        self.length.hash(state);
+        for part in self.iter.clone() {
+            for piece in part {
+                piece.hash(state);
+            }
+        }
+    }
+}
+impl<'a, I: Iterator<Item = &'a [u8]> + Clone> Equivalent<RawClassName>
+    for RawClassNameBuilderator<I>
+{
+    fn equivalent(&self, key: &RawClassName) -> bool {
+        // If they aren't of the same length t hen they're certainly not equivalent
+        if self.length != key.get().len() {
+            return false;
+        }
+
+        // Their length is known to be equivalent due to the earlier check
+        let iter = key
+            .get()
+            .iter()
+            .copied()
+            .zip(self.iter.clone().flatten().copied());
+        for (p1, p2) in iter {
+            if p1 != p2 {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassNameInfo {
+    kind: Option<InternalKind>,
+    id: ClassId,
+}
+impl ClassNameInfo {
+    #[must_use]
     pub fn has_class_file(&self) -> bool {
-        if let Some(kind) = &self.internal_kind {
+        if let Some(kind) = &self.kind {
             kind.has_class_file()
         } else {
             true
@@ -997,223 +1143,144 @@ impl Name {
 
     #[must_use]
     pub fn is_array(&self) -> bool {
-        matches!(self.internal_kind, Some(InternalKind::Array))
+        matches!(self.kind, Some(InternalKind::Array))
     }
 }
 
-/// An insert into [`ClassNames`] that is trusted, aka it has all the right values
-/// and is computed to be inserted when we have issues getting borrowing right.
-pub(crate) struct TrustedClassNameInsert {
-    id: GeneralClassId,
-    name: Option<Name>,
+#[derive(Debug, Clone)]
+pub struct ClassNames {
+    next_id: ClassId,
+    names: IndexMap<RawClassName, ClassNameInfo>,
 }
-
-__make_map!(pub ClassNames<GeneralClassId, Name>; access);
 impl ClassNames {
-    /// Gets the id for `java.lang.Object`
-    pub fn object_id(&mut self) -> GeneralClassId {
-        self.gcid_from_array(&["java", "lang", "Object"])
+    #[must_use]
+    pub fn new() -> Self {
+        let mut class_names = ClassNames {
+            next_id: 0,
+            // TODO: We could probably choose a better and more accurate default
+            // For a basic program, it might fit under this limit
+            names: IndexMap::with_capacity(32),
+        };
+
+        // Reserve the first id, 0, so it is always for Object
+        class_names.gcid_from_bytes(b"java/lang/Object");
+
+        class_names
     }
 
+    /// Construct a new unique id
+    fn get_new_id(&mut self) -> ClassId {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    /// Get the id of `b"java/lang/Object"`. Cached.
+    #[must_use]
+    pub fn object_id(&self) -> ClassId {
+        0
+    }
+
+    /// Check if the given id is for an array
     pub fn is_array(&self, id: ClassId) -> Result<bool, BadIdError> {
-        self.name_from_gcid(id).map(Name::is_array)
+        self.name_from_gcid(id).map(|x| x.1.is_array())
     }
 
-    // TODO: Investigate how well this optimizes down, because this would typically be used in
-    // cases where the name is given explicitly
-    pub fn gcid_from_array<T: AsRef<str>, const N: usize>(
-        &mut self,
-        class_path: &[T; N],
-    ) -> GeneralClassId {
-        let kind = InternalKind::from_slice(class_path);
-        if let Some(kind) = &kind {
-            if kind.is_array() && class_path.len() > 1 {
-                tracing::error!(
-                    "gcid_from_array had internal-kind but had more entries than expected"
-                );
-            }
-        }
-
-        let id = id::hash_access_path_array(class_path);
-        self.map.entry(id).or_insert_with(move || Name {
-            internal_kind: kind,
-            path: itertools::intersperse(class_path.iter().map(AsRef::as_ref), "/").collect(),
-        });
-        id
-    }
-
-    /// Store the class path hash if it doesn't already exist and get the id
-    /// If possible, all creations of ids should go through these functions to allow
-    /// a mapping from the id back to to the path
-    pub fn gcid_from_slice<T: AsRef<str>>(&mut self, class_path: &[T]) -> GeneralClassId {
-        let kind = InternalKind::from_slice(class_path);
-        if let Some(kind) = &kind {
-            if kind.is_array() && class_path.len() > 1 {
-                tracing::error!(
-                    "gcid_from_slice had internal-kind but had more entries than expected"
-                );
-            }
-        }
-
-        let id = id::hash_access_path_slice(class_path);
-        self.map.entry(id).or_insert_with(move || Name {
-            internal_kind: kind,
-            path: itertools::intersperse(class_path.iter().map(AsRef::as_ref), "/").collect(),
-        });
-        id
-    }
-
-    pub fn gcid_from_str(&mut self, class_path: impl AsRef<str>) -> GeneralClassId {
-        let class_path = class_path.as_ref();
-        let kind = InternalKind::from_str(class_path);
-
-        let id = id::hash_access_path(class_path);
-        self.map.entry(id).or_insert_with(|| Name {
-            internal_kind: kind,
-            path: class_path.to_string(),
-        });
-        id
-    }
-
-    pub fn gcid_from_string(&mut self, class_path: String) -> GeneralClassId {
-        let kind = InternalKind::from_str(&class_path);
-        let id = id::hash_access_path(&class_path);
-
-        self.map.entry(id).or_insert_with(|| Name {
-            internal_kind: kind,
-            path: class_path,
-        });
-
-        id
-    }
-
-    pub fn gcid_from_cow(&mut self, class_path: Cow<str>) -> GeneralClassId {
-        match class_path {
-            Cow::Borrowed(class_path) => self.gcid_from_str(class_path),
-            Cow::Owned(class_path) => self.gcid_from_string(class_path),
-        }
-    }
-
-    pub fn gcid_from_iter<'a>(
-        &mut self,
-        class_path: impl Iterator<Item = &'a str> + Clone,
-    ) -> GeneralClassId {
-        let kind = InternalKind::from_iter(class_path.clone());
-        let id = id::hash_access_path_iter(class_path.clone(), false);
-        self.map.entry(id).or_insert_with(|| Name {
-            internal_kind: kind,
-            path: itertools::intersperse(class_path, "/").collect(),
-        });
-        id
-    }
-
-    /// Turns an iterator of strs into a class id.
-    /// This the `single` version, which has the iterator turned into a single string rather than a
-    /// a slice of strings.
-    pub fn gcid_from_iter_single<'a>(
-        &mut self,
-        class_path: impl Iterator<Item = &'a str> + Clone,
-    ) -> GeneralClassId {
-        let kind = InternalKind::from_iter(class_path.clone());
-        let id = id::hash_access_path_iter(class_path.clone(), true);
-        self.map.entry(id).or_insert_with(|| Name {
-            internal_kind: kind,
-            path: itertools::intersperse(class_path, "/").collect(),
-        });
-        id
-    }
-
-    pub(crate) fn insert_key_from_iter_single<'a>(
+    /// Get the name and class info for a given id
+    pub fn name_from_gcid(
         &self,
-        class_path: impl Iterator<Item = &'a str> + Clone,
-    ) -> TrustedClassNameInsert {
-        let id = id::hash_access_path_iter(class_path.clone(), true);
-        if self.map.contains_key(&id) {
-            TrustedClassNameInsert { id, name: None }
-        } else {
-            let kind = InternalKind::from_iter(class_path.clone());
-            TrustedClassNameInsert {
-                id,
-                name: Some(Name {
-                    internal_kind: kind,
-                    path: itertools::intersperse(class_path, "/").collect(),
-                }),
-            }
-        }
+        id: ClassId,
+    ) -> Result<(RawClassNameSlice<'_>, &ClassNameInfo), BadIdError> {
+        // TODO: Can this be done better?
+        self.names
+            .iter()
+            .find(|(_, info)| info.id == id)
+            .map(|(data, info)| (data.as_slice(), info))
+            .ok_or_else(|| {
+                debug_assert!(false, "name_from_gcid: Got a bad id {}", id);
+                BadIdError { id }
+            })
     }
 
-    pub(crate) fn insert_trusted_insert(
-        &mut self,
-        TrustedClassNameInsert { id, name }: TrustedClassNameInsert,
-    ) -> GeneralClassId {
-        if let Some(name) = name {
-            self.map.entry(id).or_insert_with(|| name);
+    pub fn gcid_from_bytes(&mut self, class_path: &[u8]) -> ClassId {
+        let class_path = RawClassNameSlice(class_path);
+        let kind = InternalKind::from_raw_class_name(class_path);
+
+        if let Some(entry) = self.names.get(&class_path) {
+            return entry.id;
         }
 
+        let id = self.get_new_id();
+        self.names
+            .insert(class_path.to_owned(), ClassNameInfo { kind, id });
         id
     }
 
-    // TODO: Having this would remove the need for at least some uses of the
-    // [`TrustedClassNameInsert`]
-    // pub(crate) fn gcid_from_fn_single<
-    //     'a,
-    //     F: FnOnce(&ClassNames) -> Result<I, E>,
-    //     I: Iterator<Item = &'a str> + Clone,
-    //     E,
-    // >(
-    //     &mut self,
-    //     class_path_fn: F,
-    // ) -> Result<GeneralClassId, E> {
-    //     // This weird path computation is because of borrow checker not recognizing that class path
-    //     // isn't used later
-    //     let (id, kind, path) = {
-    //         let class_path = class_path_fn(self)?;
-    //         let kind = InternalKind::from_iter(class_path.clone());
-    //         let id = id::hash_access_path_iter(class_path.clone(), true);
-    //         let path = if self.map.contains_key(&id) {
-    //             Some(itertools::intersperse(class_path, "/").collect())
-    //         } else {
-    //             None
-    //         };
-    //         (id, kind, path)
-    //     };
+    pub fn gcid_from_vec(&mut self, class_path: Vec<u8>) -> ClassId {
+        let class_path = RawClassName(class_path);
+        let kind = InternalKind::from_raw_class_name(class_path.as_slice());
 
-    //     if let Some(path) = path {
-    //         self.map.entry(id).or_insert_with(|| Name {
-    //             internal_kind: kind,
-    //             path,
-    //         });
-    //     }
+        if let Some(entry) = self.names.get(&class_path) {
+            return entry.id;
+        }
 
-    //     Ok(id)
-    // }
-
-    pub fn path_from_gcid(&self, id: GeneralClassId) -> Result<&str, BadIdError> {
-        self.name_from_gcid(id).map(Name::path)
+        let id = self.get_new_id();
+        self.names.insert(class_path, ClassNameInfo { kind, id });
+        id
     }
 
-    pub fn name_from_gcid(&self, id: GeneralClassId) -> Result<&Name, BadIdError> {
-        self.get(&id).ok_or(BadIdError { id })
+    pub fn gcid_from_cow(&mut self, class_path: Cow<[u8]>) -> ClassId {
+        let kind = InternalKind::from_bytes(&class_path);
+
+        let class_name = RawClassNameSlice(class_path.as_ref());
+        if let Some(entry) = self.names.get(&class_name) {
+            return entry.id;
+        }
+
+        let id = self.get_new_id();
+        self.names.insert(
+            RawClassName(class_path.into_owned()),
+            ClassNameInfo { kind, id },
+        );
+        id
     }
 
-    /// Used for getting nice traces without boilerplate
-    pub(crate) fn tpath(&self, id: GeneralClassId) -> &str {
-        self.path_from_gcid(id).unwrap_or("UNKNOWN_CLASS_NAME")
+    pub fn gcid_from_iter_bytes<'a, I: Iterator<Item = &'a [u8]> + Clone>(
+        &mut self,
+        class_path: I,
+    ) -> GeneralClassId {
+        let class_path = RawClassNameBuilderator::<I>::new_split(class_path);
+        let kind = class_path.internal_kind();
+
+        if let Some(entry) = self.names.get(&class_path) {
+            return entry.id;
+        }
+
+        let id = self.get_new_id();
+        self.names
+            .insert(class_path.into_raw_class_name(), ClassNameInfo { kind, id });
+        id
     }
 
     pub fn gcid_from_array_of_primitives(&mut self, prim: PrimitiveType) -> ClassId {
         let prefix = prim.as_desc_prefix();
-        let iter = ["[", prefix].into_iter();
-        let id = id::hash_access_path_iter(iter.clone(), true);
+        let class_path = [b"[", prefix];
+        let class_path = RawClassNameBuilderator::new_single(class_path.into_iter());
 
-        if !self.contains_key(&id) {
-            let name: String = iter.collect();
-            let name = Name {
-                internal_kind: Some(InternalKind::Array),
-                path: name,
-            };
-            self.set_at(id, name);
+        if let Some(entry) = self.names.get(&class_path) {
+            return entry.id;
         }
+
+        let id = self.get_new_id();
+        let class_path = class_path.into_raw_class_name();
+        self.names.insert(
+            class_path,
+            ClassNameInfo {
+                // We already know it is an array
+                kind: Some(InternalKind::Array),
+                id,
+            },
+        );
 
         id
     }
@@ -1224,18 +1291,23 @@ impl ClassNames {
         prim: PrimitiveType,
     ) -> ClassId {
         let prefix = prim.as_desc_prefix();
-        let iter = std::iter::repeat("[").take(level.get());
-        let iter = iter.chain([prefix]);
-        let id = id::hash_access_path_iter(iter.clone(), true);
+        let class_path = std::iter::repeat(b"[" as &[u8]).take(level.get());
+        let class_path = class_path.chain([prefix]);
+        let class_path = RawClassNameBuilderator::new_single(class_path);
 
-        if !self.contains_key(&id) {
-            let name: String = iter.collect();
-            let name = Name {
-                internal_kind: Some(InternalKind::Array),
-                path: name,
-            };
-            self.set_at(id, name);
+        if let Some(entry) = self.names.get(&class_path) {
+            return entry.id;
         }
+
+        let id = self.get_new_id();
+        let class_path = class_path.into_raw_class_name();
+        self.names.insert(
+            class_path,
+            ClassNameInfo {
+                kind: Some(InternalKind::Array),
+                id,
+            },
+        );
 
         id
     }
@@ -1245,48 +1317,44 @@ impl ClassNames {
         level: NonZeroUsize,
         class_id: ClassId,
     ) -> Result<ClassId, BadIdError> {
-        let class_name = self.name_from_gcid(class_id)?;
-        let class_path = class_name.path();
+        let (class_name, class_info) = self.name_from_gcid(class_id)?;
 
-        // First we generate an iterator for the id
-        // This is so we can check if it already exists without any allocations.
-        let first_iter = std::iter::repeat("[").take(level.get());
-        // We have to do a branching path here because the type changes..
-        let id = if class_name.is_array() {
-            // An array only has one entry in the class path
-            let component_desc = class_path;
-            let iter = first_iter.chain([component_desc]);
-            let id = id::hash_access_path_iter(iter.clone(), true);
+        let first_iter = std::iter::repeat(b"[" as &[u8]).take(level.get());
 
-            // Now, we have to check if it already exists
-            if !self.contains_key(&id) {
-                let name: String = iter.collect();
-                let name = Name {
-                    internal_kind: Some(InternalKind::Array),
-                    path: name,
-                };
-                self.set_at(id, name);
+        // Different branches because the iterator will have a different type
+        let class_path = if class_info.is_array() {
+            // [[{classname} and the like
+            let class_path = first_iter.chain([class_name.get()]);
+            let class_path = RawClassNameBuilderator::new_single(class_path);
+
+            // Check if it already exists
+            if let Some(entry) = self.names.get(&class_path) {
+                return Ok(entry.id);
             }
 
-            id
+            class_path.into_raw_class_name()
         } else {
-            // To avoid allocations, we have to be a bit rough here
-            // Add the opening L for object
-            let iter = first_iter.chain(["L", class_path, ";"]);
-            let id = id::hash_access_path_iter(iter.clone(), true);
+            // L{classname};
+            let class_path = first_iter.chain([b"L", class_name.get(), b";"]);
+            let class_path = RawClassNameBuilderator::new_single(class_path);
 
-            // Now, we have to check if it already exists
-            if !self.contains_key(&id) {
-                let name: String = iter.collect();
-                let name = Name {
-                    internal_kind: Some(InternalKind::Array),
-                    path: name,
-                };
-                self.set_at(id, name);
+            // Check if it already exists
+            if let Some(entry) = self.names.get(&class_path) {
+                return Ok(entry.id);
             }
 
-            id
+            class_path.into_raw_class_name()
         };
+
+        // If we got here then it doesn't already exist
+        let id = self.get_new_id();
+        self.names.insert(
+            class_path,
+            ClassNameInfo {
+                kind: Some(InternalKind::Array),
+                id,
+            },
+        );
 
         Ok(id)
     }
@@ -1297,45 +1365,81 @@ impl ClassNames {
         component: DescriptorTypeBasic,
     ) -> Result<ClassId, BadIdError> {
         let name_iter = component.as_desc_iter(self)?;
-        let name_iter = std::iter::repeat("[").take(level.get()).chain(name_iter);
+        let class_path = std::iter::repeat(b"[" as &[u8])
+            .take(level.get())
+            .chain(name_iter);
+        let class_path = RawClassNameBuilderator::new_single(class_path);
 
-        let id = id::hash_access_path_iter(name_iter.clone(), true);
-        if !self.contains_key(&id) {
-            let name: String = name_iter.collect();
-            let name = Name {
-                internal_kind: Some(InternalKind::Array),
-                path: name,
-            };
-            self.set_at(id, name);
+        if let Some(entry) = self.names.get(&class_path) {
+            return Ok(entry.id);
         }
 
+        let class_path = class_path.into_raw_class_name();
+        let id = self.get_new_id();
+        self.names.insert(
+            class_path,
+            ClassNameInfo {
+                kind: Some(InternalKind::Array),
+                id,
+            },
+        );
+
         Ok(id)
+    }
+
+    pub(crate) fn insert_key_from_iter_single<'a>(
+        &self,
+        class_path: impl Iterator<Item = &'a [u8]> + Clone,
+    ) -> TrustedClassNameInsert {
+        let class_path = RawClassNameBuilderator::new_single(class_path);
+        if let Some(entry) = self.names.get(&class_path) {
+            TrustedClassNameInsert::Id(entry.id)
+        } else {
+            let kind = class_path.internal_kind();
+            TrustedClassNameInsert::Data {
+                class_name: class_path.into_raw_class_name(),
+                kind,
+            }
+        }
+    }
+
+    pub(crate) fn insert_trusted_insert(
+        &mut self,
+        insert: TrustedClassNameInsert,
+    ) -> GeneralClassId {
+        match insert {
+            TrustedClassNameInsert::Id(id) => id,
+            TrustedClassNameInsert::Data { class_name, kind } => {
+                let id = self.get_new_id();
+                self.names.insert(class_name, ClassNameInfo { kind, id });
+                id
+            }
+        }
+    }
+
+    /// Get the information in a nice representation for logging
+    /// The output of this function is not guaranteed
+    #[must_use]
+    pub fn tpath(&self, id: ClassId) -> &str {
+        self.name_from_gcid(id)
+            .map(|x| x.0)
+            .map(|x| std::str::from_utf8(x.0))
+            // It is fine for it to be invalid utf8, but at the current moment we don't bother
+            // converting it
+            .unwrap_or(Ok("[UNKNOWN CLASS NAME]"))
+            .unwrap_or("[INVALID UTF8]")
+    }
+}
+
+impl Default for ClassNames {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 __make_map!(pub ClassFiles<ClassFileId, ClassFileData>; access);
 impl ClassFiles {
-    pub fn load_by_class_path_iter<'a>(
-        &mut self,
-        class_directories: &ClassDirectories,
-        class_names: &mut ClassNames,
-        class_path: impl Iterator<Item = &'a str> + Clone,
-    ) -> Result<ClassFileId, LoadClassFileError> {
-        if class_path.clone().count() == 0 {
-            return Err(LoadClassFileError::EmptyPath);
-        }
-
-        let class_file_id: ClassFileId = class_names.gcid_from_iter(class_path.clone());
-        let class_file_name = class_names.name_from_gcid(class_file_id).unwrap();
-        if !class_file_name.has_class_file() || self.contains_key(&class_file_id) {
-            return Ok(class_file_id);
-        }
-
-        let rel_path = util::class_path_iter_to_relative_path(class_path);
-        self.load_from_rel_path(class_directories, class_file_id, rel_path)?;
-        Ok(class_file_id)
-    }
-
+    /// This is primarily for the JVM impl to load classes from user input
     pub fn load_by_class_path_slice<T: AsRef<str>>(
         &mut self,
         class_directories: &ClassDirectories,
@@ -1346,10 +1450,12 @@ impl ClassFiles {
             return Err(LoadClassFileError::EmptyPath);
         }
 
-        let class_file_id: ClassFileId = class_names.gcid_from_slice(class_path);
-        let class_file_name = class_names.name_from_gcid(class_file_id).unwrap();
-        debug_assert!(!class_file_name.path().is_empty());
-        if !class_file_name.has_class_file() && self.contains_key(&class_file_id) {
+        // TODO: This is probably not accurate for more complex utf8
+        let class_file_id = class_names
+            .gcid_from_iter_bytes(class_path.iter().map(AsRef::as_ref).map(str::as_bytes));
+        let (class_file_name, class_file_info) = class_names.name_from_gcid(class_file_id).unwrap();
+        debug_assert!(!class_file_name.is_empty());
+        if !class_file_info.has_class_file() && self.contains_key(&class_file_id) {
             return Ok(class_file_id);
         }
 
@@ -1373,17 +1479,18 @@ impl ClassFiles {
         let _span_ = span!(Level::TRACE, "CF::load_by_class_path_id",).entered();
         info!("=> CF{:?}", class_names.tpath(class_file_id));
 
-        let class_name = class_names
+        let (class_name, class_info) = class_names
             .name_from_gcid(class_file_id)
             .map_err(LoadClassFileError::BadId)?;
-        debug_assert!(!class_name.path().is_empty());
+        debug_assert!(!class_name.is_empty());
 
-        if !class_name.has_class_file() {
+        if !class_info.has_class_file() {
             return Ok(());
         }
 
-        let path = class_name.path();
-        let path = util::access_path_iter(path);
+        // TODO: Is this the correct way of converting it?
+        let path = convert_classfile_text(class_name.0);
+        let path = util::access_path_iter(&path);
         let rel_path = util::class_path_iter_to_relative_path(path);
         self.load_from_rel_path(class_directories, class_file_id, rel_path)?;
         Ok(())
@@ -1407,24 +1514,31 @@ impl ClassFiles {
     }
 }
 
+/// Tries converting cesu8-java-style strings into Rust's utf8 strings
+/// This tries to avoid allocating but may not be able to avoid it
+#[must_use]
+pub fn convert_classfile_text(bytes: &[u8]) -> Cow<str> {
+    cesu8::from_java_cesu8(bytes).unwrap_or_else(|_| String::from_utf8_lossy(bytes))
+}
+
 /// The id must be defined inside of the given class names
 pub fn direct_load_class_file_by_id(
     class_directories: &ClassDirectories,
     class_names: &ClassNames,
     class_file_id: ClassFileId,
 ) -> Result<Option<ClassFileData>, LoadClassFileError> {
-    let class_name = class_names
+    let (class_name, class_info) = class_names
         .name_from_gcid(class_file_id)
         .map_err(LoadClassFileError::BadId)?;
-    debug_assert!(!class_name.path().is_empty());
+    debug_assert!(!class_name.is_empty());
 
-    if !class_name.has_class_file() {
+    if !class_info.has_class_file() {
         // There's no class file to parse
         return Ok(None);
     }
 
-    let path = class_name.path();
-    let path = util::access_path_iter(path);
+    let path = convert_classfile_text(class_name.0);
+    let path = util::access_path_iter(&path);
     let rel_path = util::class_path_iter_to_relative_path(path);
     direct_load_class_file_from_rel_path(class_directories, class_file_id, rel_path).map(Some)
 }
@@ -1433,6 +1547,7 @@ pub fn direct_load_class_file_by_id(
 /// Returns `None` if it would not have a backing class file (ex: Arrays)
 pub fn direct_load_class_file_by_class_path_slice<T: AsRef<str>>(
     class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
     class_path: &[T],
 ) -> Result<Option<ClassFileData>, LoadClassFileError> {
     if let Some(kind) = InternalKind::from_slice(class_path) {
@@ -1442,7 +1557,9 @@ pub fn direct_load_class_file_by_class_path_slice<T: AsRef<str>>(
         }
     }
 
-    let class_file_id = id::hash_access_path_slice(class_path);
+    // TODO: This is probably not accurate for more complex utf8
+    let class_file_id =
+        class_names.gcid_from_iter_bytes(class_path.iter().map(AsRef::as_ref).map(str::as_bytes));
 
     let rel_path = util::class_path_slice_to_relative_path(class_path);
 
@@ -1451,6 +1568,7 @@ pub fn direct_load_class_file_by_class_path_slice<T: AsRef<str>>(
 
 pub fn direct_load_class_file_by_class_path_iter<'a>(
     class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
     class_path: impl Iterator<Item = &'a str> + Clone,
 ) -> Result<Option<ClassFileData>, LoadClassFileError> {
     if class_path.clone().next().is_none() {
@@ -1464,7 +1582,7 @@ pub fn direct_load_class_file_by_class_path_iter<'a>(
         }
     }
 
-    let class_file_id = id::hash_access_path_iter(class_path.clone(), false);
+    let class_file_id = class_names.gcid_from_iter_bytes(class_path.clone().map(str::as_bytes));
 
     let rel_path = util::class_path_iter_to_relative_path(class_path);
 
@@ -1535,25 +1653,25 @@ pub fn direct_load_method_from_index(
 fn method_id_from_desc<'a>(
     class_names: &mut ClassNames,
     class_file: &'a ClassFileData,
-    name: &str,
+    name: &[u8],
     desc: &MethodDescriptor,
 ) -> Result<(MethodId, MethodInfoOpt), StepError> {
     for (method_index, method_info) in class_file.load_method_info_opt_iter_with_index() {
         let name_index = method_info.name_index;
-        let name_text = class_file.get_text_t(name_index);
-        if name_text != Some(Cow::Borrowed(name)) {
+        let name_text = class_file.get_text_b(name_index);
+        if name_text != Some(name) {
             continue;
         }
 
         let descriptor_index = method_info.descriptor_index;
-        let descriptor_text = class_file.get_text_t(descriptor_index).ok_or(
+        let descriptor_text = class_file.get_text_b(descriptor_index).ok_or(
             LoadMethodError::InvalidDescriptorIndex {
                 index: descriptor_index,
             },
         )?;
 
         if desc
-            .is_equal_to_descriptor(class_names, descriptor_text.as_ref())
+            .is_equal_to_descriptor(class_names, descriptor_text)
             .map_err(LoadMethodError::MethodDescriptorError)?
         {
             let method_id = MethodId::unchecked_compose(class_file.id(), method_index);
@@ -1564,7 +1682,7 @@ fn method_id_from_desc<'a>(
 
     Err(LoadMethodError::NonexistentMethodName {
         class_id: class_file.id(),
-        name: name.to_owned().into(),
+        name: Cow::Owned(name.to_owned()),
     }
     .into())
 }
@@ -1572,7 +1690,7 @@ fn method_id_from_desc<'a>(
 pub fn direct_load_method_from_desc(
     class_names: &mut ClassNames,
     class_file: &ClassFileData,
-    name: &str,
+    name: &[u8],
     desc: &MethodDescriptor,
 ) -> Result<Method, StepError> {
     let (method_id, method_info) = method_id_from_desc(class_names, class_file, name, desc)?;
@@ -1627,7 +1745,7 @@ fn helper_get_overrided_method(
     super_class_file_id: ClassFileId,
     over_package: Option<PackageId>,
     over_method: &Method,
-    over_method_name_hash: u128,
+    over_method_name: Vec<u8>,
 ) -> Result<Option<MethodId>, StepError> {
     classes.load_class(
         class_directories,
@@ -1704,25 +1822,20 @@ fn helper_get_overrided_method(
             // mean that a method overrides itself.
             // Or is there some in-depth equality of methods defined somewhere?
 
-            let method_name = super_class_file.get_text_t(method.name_index).ok_or(
+            let method_name = super_class_file.get_text_b(method.name_index).ok_or(
                 LoadMethodError::InvalidDescriptorIndex {
                     index: method.name_index,
                 },
             )?;
 
-            // TODO: This should be fine in the majority of cases, since if they want to override a
-            // method, they can just specify the right name rather than trying for a hash collision
-            // but some may not like that trade off of avoiding string allocations, and so allowing
-            // it as an option to simply use the strings would be good.
-            // The reason why we don't simply pass in the name of the over_method is because it is
-            // probably owned by the class file, but we have to modify class_files which invalidates
-            // any reference we have for it.
-            let method_name_hash = method::hash_method_name(method_name.as_ref());
-            if method_name_hash == over_method_name_hash {
+            // TODO: We currently pass in the over method name as a vec because it is typically
+            // owned by the `Methods` which is passed in, and so would be a multiple mutable borrow
+            // However, it would be nice to have some way of avoiding that alloc
+            if method_name == over_method_name {
                 // TODO: Don't do allocation for comparison. Either have a way to just directly
                 // compare method descriptors with the parsed versions, or a streaming parser
                 // for comparison without alloc
-                let method_desc = super_class_file.get_text_t(method.descriptor_index).ok_or(
+                let method_desc = super_class_file.get_text_b(method.descriptor_index).ok_or(
                     LoadMethodError::InvalidDescriptorIndex {
                         index: method.descriptor_index,
                     },
@@ -1764,7 +1877,7 @@ fn helper_get_overrided_method(
             super_super_class_file_id,
             over_package,
             over_method,
-            over_method_name_hash,
+            over_method_name,
         )
     } else {
         // There was no method.
@@ -1812,9 +1925,9 @@ pub fn init_method_overrides(
 
     let overrides = {
         let method_name = class_file
-            .get_text_t(method.name_index())
-            .ok_or(StepError::MissingLoadedValue("method name.index"))?;
-        let method_name_hash = method::hash_method_name(method_name.as_ref());
+            .get_text_b(method.name_index())
+            .ok_or(StepError::MissingLoadedValue("method name.index"))?
+            .to_owned();
         if let Some(super_class_file_id) = class.super_class {
             if let Some(overridden) = helper_get_overrided_method(
                 class_directories,
@@ -1825,7 +1938,7 @@ pub fn init_method_overrides(
                 super_class_file_id,
                 package,
                 method,
-                method_name_hash,
+                method_name,
             )? {
                 smallvec![MethodOverride::new(overridden)]
             } else {
@@ -1895,7 +2008,7 @@ pub fn verify_code_exceptions(
         return Ok(());
     }
 
-    let throwable_id = class_names.gcid_from_array(&["java", "lang", "Throwable"]);
+    let throwable_id = class_names.gcid_from_bytes(b"java/lang/Throwable");
 
     let exception_table_len = code.exception_table().len();
     for exc_i in 0..exception_table_len {
@@ -1915,9 +2028,9 @@ pub fn verify_code_exceptions(
                     .get_t(exc.catch_type)
                     .ok_or(VerifyCodeExceptionError::InvalidCatchTypeIndex)?;
                 let catch_type_name = class_file
-                    .get_text_t(catch_type.name_index)
+                    .get_text_b(catch_type.name_index)
                     .ok_or(VerifyCodeExceptionError::InvalidCatchTypeNameIndex)?;
-                let catch_type_id = class_names.gcid_from_cow(catch_type_name);
+                let catch_type_id = class_names.gcid_from_bytes(catch_type_name);
 
                 if !does_extend_class(
                     class_directories,

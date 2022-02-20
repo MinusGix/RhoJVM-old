@@ -10,6 +10,7 @@ use rhojvm_base::{
         op::{Inst, Wide, WideInst},
         types::{Instruction, LocalVariableIndex},
     },
+    convert_classfile_text,
     id::{ClassId, MethodId},
     map_inst,
     package::Packages,
@@ -281,9 +282,13 @@ pub fn eval_method(
     {
         let (class_id, _) = method_id.decompose();
         if let Some(class_file) = class_files.get(&class_id) {
-            let method_name = class_file.get_text_t(method.name_index()).unwrap();
-            let class_name = class_names.path_from_gcid(class_id).unwrap();
-            tracing::info!("Executing Method: {}::{}", class_name, method_name);
+            let method_name = class_file.get_text_b(method.name_index()).unwrap();
+            let class_name = class_names.tpath(class_id);
+            tracing::info!(
+                "Executing Method: {}::{}",
+                class_name,
+                convert_classfile_text(method_name)
+            );
         } else {
             tracing::info!("Executing Method (No Backing Class File):");
         }

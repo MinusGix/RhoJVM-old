@@ -14,6 +14,7 @@ pub use classfile_parser::ClassAccessFlags;
 use crate::{
     code::types::PrimitiveType,
     id::{ClassFileId, ClassId, MethodId, MethodIndex, PackageId},
+    util::format_class_as_object_desc,
     BadIdError, ClassNames,
 };
 
@@ -174,15 +175,15 @@ impl ClassFileData {
         self.class_file.access_flags
     }
 
-    pub(crate) fn get_this_class_name(&self) -> Result<Cow<str>, ClassFileIndexError> {
+    pub(crate) fn get_this_class_name(&self) -> Result<&[u8], ClassFileIndexError> {
         let this_class = self
             .get_t(self.class_file.this_class)
             .ok_or(ClassFileIndexError::InvalidThisClassIndex)?;
-        self.get_text_t(this_class.name_index)
+        self.get_text_b(this_class.name_index)
             .ok_or(ClassFileIndexError::InvalidThisClassNameIndex)
     }
 
-    pub(crate) fn get_super_class_name(&self) -> Result<Option<Cow<str>>, ClassFileIndexError> {
+    pub(crate) fn get_super_class_name(&self) -> Result<Option<&[u8]>, ClassFileIndexError> {
         // There is no base class
         // Only java/lang/Object should have no base class, but we don't do that verification here
         if self.class_file.super_class.is_zero() {
@@ -192,7 +193,7 @@ impl ClassFileData {
         let super_class = self
             .get_t(self.class_file.super_class)
             .ok_or(ClassFileIndexError::InvalidSuperClassIndex)?;
-        self.get_text_t(super_class.name_index)
+        self.get_text_b(super_class.name_index)
             .map(Some)
             .ok_or(ClassFileIndexError::InvalidSuperClassNameIndex)
     }
@@ -203,7 +204,7 @@ impl ClassFileData {
     ) -> Result<Option<ClassFileId>, ClassFileIndexError> {
         Ok(self
             .get_super_class_name()?
-            .map(|x| class_names.gcid_from_str(x)))
+            .map(|x| class_names.gcid_from_bytes(x)))
     }
 
     pub fn interfaces_indices_iter(
@@ -369,11 +370,9 @@ impl ArrayClass {
     }
 
     #[must_use]
-    pub fn get_interface_names() -> &'static [&'static [&'static str]] {
-        &[
-            &["java", "lang", "Cloneable"],
-            &["java", "io", "Serializable"],
-        ]
+    /// These are cesu8 valid strings
+    pub fn get_interface_names() -> &'static [&'static [u8]] {
+        &[b"java/lang/Cloneable", b"java/io/Serializable"]
     }
 
     #[must_use]
@@ -428,27 +427,26 @@ impl ArrayComponentType {
         }
     }
 
-    pub fn to_desc_string(&self, class_names: &mut ClassNames) -> Result<String, BadIdError> {
+    pub fn to_desc_string(&self, class_names: &mut ClassNames) -> Result<Vec<u8>, BadIdError> {
         match self {
-            ArrayComponentType::Byte => Ok("B".to_owned()),
-            ArrayComponentType::Char => Ok("C".to_owned()),
-            ArrayComponentType::Double => Ok("D".to_owned()),
-            ArrayComponentType::Float => Ok("F".to_owned()),
-            ArrayComponentType::Int => Ok("I".to_owned()),
-            ArrayComponentType::Long => Ok("J".to_owned()),
+            ArrayComponentType::Byte => Ok(Vec::from(b"B" as &[u8])),
+            ArrayComponentType::Char => Ok(Vec::from(b"C" as &[u8])),
+            ArrayComponentType::Double => Ok(Vec::from(b"D" as &[u8])),
+            ArrayComponentType::Float => Ok(Vec::from(b"F" as &[u8])),
+            ArrayComponentType::Int => Ok(Vec::from(b"I" as &[u8])),
+            ArrayComponentType::Long => Ok(Vec::from(b"J" as &[u8])),
             ArrayComponentType::Class(class_id) => {
-                let name = class_names.name_from_gcid(*class_id)?;
-                let path = name.path();
-                if name.is_array() {
+                let (class_name, class_info) = class_names.name_from_gcid(*class_id)?;
+                if class_info.is_array() {
                     // If we have the id for an array then we just use the singular path it has
                     // because writing it as an object is incorrect.
-                    Ok(path.to_owned())
+                    Ok(class_name.get().to_owned())
                 } else {
-                    Ok(format!("L{};", path))
+                    Ok(format_class_as_object_desc(class_name.get()))
                 }
             }
-            ArrayComponentType::Short => Ok("S".to_owned()),
-            ArrayComponentType::Boolean => Ok("Z".to_owned()),
+            ArrayComponentType::Short => Ok(Vec::from(b"S" as &[u8])),
+            ArrayComponentType::Boolean => Ok(Vec::from(b"Z" as &[u8])),
         }
     }
 }

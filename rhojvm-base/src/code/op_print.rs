@@ -97,7 +97,8 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
                     format!(
                         "Class({} = {})",
                         class_name.as_ref(),
-                        class_names.gcid_from_str(class_name.as_ref())
+                        class_names
+                            .gcid_from_bytes(class_file.get_text_b(class.name_index).unwrap())
                     )
                 } else {
                     format!(
@@ -249,11 +250,14 @@ fn method_to_string(
             format!("[BadNameIndex #{} -> #{}]", nat_index.0, nat.name_index.0)
         };
 
-        let typ = if let Some(typ) = class_file.get_text_t(nat.descriptor_index) {
-            if let Ok(method_descriptor) = MethodDescriptor::from_text(typ.as_ref(), class_names) {
+        let typ = if let Some(typ) = class_file.get_text_b(nat.descriptor_index) {
+            if let Ok(method_descriptor) = MethodDescriptor::from_text(typ, class_names) {
                 method_descriptor.as_pretty_string(class_names)
             } else {
-                format!("[BadMethodDescriptor {}]", typ)
+                format!(
+                    "[BadMethodDescriptor {}]",
+                    class_file.get_text_t(nat.descriptor_index).unwrap()
+                )
             }
         } else {
             format!(

@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::hash::Hash;
 use std::num::NonZeroUsize;
 
 use classfile_parser::{
@@ -23,6 +22,7 @@ use crate::{
     class::{ArrayComponentType, ClassFileData},
     code::{self},
     id::{ClassId, MethodId},
+    util::format_class_as_object_desc,
     BadIdError, ClassFiles, ClassNames, LoadCodeError, LoadMethodError, StepError,
     VerifyMethodError,
 };
@@ -82,12 +82,12 @@ impl Method {
         class_names: &mut ClassNames,
         method: MethodInfoOpt,
     ) -> Result<Self, LoadMethodError> {
-        let descriptor_text = class_file.get_text_t(method.descriptor_index).ok_or(
+        let descriptor_text = class_file.get_text_b(method.descriptor_index).ok_or(
             LoadMethodError::InvalidDescriptorIndex {
                 index: method.descriptor_index,
             },
         )?;
-        let desc = MethodDescriptor::from_text(descriptor_text.as_ref(), class_names)
+        let desc = MethodDescriptor::from_text(descriptor_text, class_names)
             .map_err(LoadMethodError::MethodDescriptorError)?;
 
         let name_index = method.name_index;
@@ -240,15 +240,6 @@ impl Method {
     }
 }
 
-/// Hashes a method name for comparison
-pub(crate) fn hash_method_name(name: &str) -> u128 {
-    use siphasher::sip128::Hasher128;
-    let mut hasher = crate::id::make_hasher1238();
-    // TODO: Should we rely on the hashing of a str being the same across Rust versions?
-    name.hash(&mut hasher);
-    hasher.finish128().into()
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DescriptorTypeBasic {
     Byte,
@@ -263,27 +254,26 @@ pub enum DescriptorTypeBasic {
 }
 impl DescriptorTypeBasic {
     /// Convert to a string used in a descriptor
-    pub fn to_desc_string(&self, class_names: &mut ClassNames) -> Result<String, BadIdError> {
+    pub fn to_desc_string(&self, class_names: &mut ClassNames) -> Result<Vec<u8>, BadIdError> {
         match self {
-            DescriptorTypeBasic::Byte => Ok("B".to_owned()),
-            DescriptorTypeBasic::Char => Ok("C".to_owned()),
-            DescriptorTypeBasic::Double => Ok("D".to_owned()),
-            DescriptorTypeBasic::Float => Ok("F".to_owned()),
-            DescriptorTypeBasic::Int => Ok("I".to_owned()),
-            DescriptorTypeBasic::Long => Ok("J".to_owned()),
+            DescriptorTypeBasic::Byte => Ok(Vec::from(b"B" as &[u8])),
+            DescriptorTypeBasic::Char => Ok(Vec::from(b"C" as &[u8])),
+            DescriptorTypeBasic::Double => Ok(Vec::from(b"D" as &[u8])),
+            DescriptorTypeBasic::Float => Ok(Vec::from(b"F" as &[u8])),
+            DescriptorTypeBasic::Int => Ok(Vec::from(b"I" as &[u8])),
+            DescriptorTypeBasic::Long => Ok(Vec::from(b"J" as &[u8])),
             DescriptorTypeBasic::Class(class_id) => {
-                let name = class_names.name_from_gcid(*class_id)?;
-                let path = name.path();
-                if name.is_array() {
+                let (class_name, class_info) = class_names.name_from_gcid(*class_id)?;
+                if class_info.is_array() {
                     // If we have the id for an array then we just use the singular path it has
                     // because writing it as an object is incorrect.
-                    Ok(path.to_owned())
+                    Ok(class_name.get().to_owned())
                 } else {
-                    Ok(format!("L{};", path))
+                    Ok(format_class_as_object_desc(class_name.get()))
                 }
             }
-            DescriptorTypeBasic::Short => Ok("S".to_owned()),
-            DescriptorTypeBasic::Boolean => Ok("Z".to_owned()),
+            DescriptorTypeBasic::Short => Ok(Vec::from(b"S" as &[u8])),
+            DescriptorTypeBasic::Boolean => Ok(Vec::from(b"Z" as &[u8])),
         }
     }
 
@@ -293,26 +283,25 @@ impl DescriptorTypeBasic {
         &self,
         class_names: &'cn ClassNames,
     ) -> Result<
-        Either<impl Iterator<Item = &'cn str> + Clone, impl Iterator<Item = &'cn str> + Clone>,
+        Either<impl Iterator<Item = &'cn [u8]> + Clone, impl Iterator<Item = &'cn [u8]> + Clone>,
         BadIdError,
     > {
         Ok(Either::Left(match self {
-            DescriptorTypeBasic::Byte => ["B"].into_iter(),
-            DescriptorTypeBasic::Char => ["C"].into_iter(),
-            DescriptorTypeBasic::Double => ["D"].into_iter(),
-            DescriptorTypeBasic::Float => ["F"].into_iter(),
-            DescriptorTypeBasic::Int => ["I"].into_iter(),
-            DescriptorTypeBasic::Long => ["J"].into_iter(),
-            DescriptorTypeBasic::Short => ["S"].into_iter(),
-            DescriptorTypeBasic::Boolean => ["Z"].into_iter(),
+            DescriptorTypeBasic::Byte => [b"B" as &[u8]].into_iter(),
+            DescriptorTypeBasic::Char => [b"C" as &[u8]].into_iter(),
+            DescriptorTypeBasic::Double => [b"D" as &[u8]].into_iter(),
+            DescriptorTypeBasic::Float => [b"F" as &[u8]].into_iter(),
+            DescriptorTypeBasic::Int => [b"I" as &[u8]].into_iter(),
+            DescriptorTypeBasic::Long => [b"J" as &[u8]].into_iter(),
+            DescriptorTypeBasic::Short => [b"S" as &[u8]].into_iter(),
+            DescriptorTypeBasic::Boolean => [b"Z" as &[u8]].into_iter(),
             DescriptorTypeBasic::Class(class_id) => {
-                let name = class_names.name_from_gcid(*class_id)?;
-                let path = name.path();
-                if name.is_array() {
+                let (class_name, class_info) = class_names.name_from_gcid(*class_id)?;
+                if class_info.is_array() {
                     // Arrays already have leading [
-                    [path].into_iter()
+                    [class_name.get()].into_iter()
                 } else {
-                    return Ok(Either::Right(["L", path, ";"].into_iter()));
+                    return Ok(Either::Right([b"L", class_name.get(), b";"].into_iter()));
                 }
             }
         }))
@@ -383,8 +372,9 @@ impl DescriptorTypeBasic {
     pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
         match self {
             DescriptorTypeBasic::Class(id) => {
-                if let Ok(name) = class_names.path_from_gcid(*id) {
-                    name.to_owned()
+                if class_names.name_from_gcid(*id).is_ok() {
+                    let path = class_names.tpath(*id);
+                    path.to_owned()
                 } else {
                     format!("[BadClassId #{}]", *id)
                 }
@@ -429,11 +419,12 @@ impl DescriptorType {
         match self {
             DescriptorType::Basic(x) => Ok(x.as_class_id()),
             DescriptorType::Array { level, component } => {
-                // TODO: We could replace to_desc_string with something that returns an iterator
-                // over T: AsRef<str>
-                // TODO: This could also avoid extra string allocs by hashing the parts directly.
+                // TODO: Handling this conversion here is unfortunate, it shoudl be a part of
+                // ClassNames
                 let name = component.as_desc_iter(class_names)?;
-                let class_name = std::iter::repeat("[").take(level.get()).chain(name);
+                let class_name = std::iter::repeat(b"[" as &[u8])
+                    .take(level.get())
+                    .chain(name);
                 let key = class_names.insert_key_from_iter_single(class_name);
                 let id = class_names.insert_trusted_insert(key);
                 Ok(Some(id))
@@ -509,17 +500,16 @@ impl MethodDescriptor {
     }
 
     pub(crate) fn from_text_iter<'desc, 'names>(
-        desc: &'desc str,
+        desc: &'desc [u8],
         class_names: &'names mut ClassNames,
     ) -> Result<MethodDescriptorParserIterator<'desc, 'names>, MethodDescriptorError> {
         MethodDescriptorParserIterator::new(desc, class_names)
     }
 
     pub fn from_text(
-        desc: impl AsRef<str>,
+        desc: &[u8],
         class_names: &mut ClassNames,
     ) -> Result<Self, MethodDescriptorError> {
-        let desc = desc.as_ref();
         let mut desc_iter = MethodDescriptorCF::parse_iter(desc)?;
         let mut parameters = SmallVec::new();
         #[allow(clippy::while_let_on_iterator)]
@@ -561,7 +551,7 @@ impl MethodDescriptor {
     pub fn is_equal_to_descriptor(
         &self,
         class_names: &mut ClassNames,
-        desc: &str,
+        desc: &[u8],
     ) -> Result<bool, MethodDescriptorError> {
         let mut iter = MethodDescriptor::from_text_iter(desc, class_names)?;
         // We can't use enumerate because we need the original iterator and there's no way to get it back out
@@ -599,7 +589,7 @@ pub struct MethodDescriptorParserIterator<'desc, 'names> {
 }
 impl<'desc, 'names> MethodDescriptorParserIterator<'desc, 'names> {
     fn new(
-        desc: &'desc str,
+        desc: &'desc [u8],
         class_names: &'names mut ClassNames,
     ) -> Result<MethodDescriptorParserIterator<'desc, 'names>, MethodDescriptorError> {
         let iter = MethodDescriptorCF::parse_iter(desc)?;

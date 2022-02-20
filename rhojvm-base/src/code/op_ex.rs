@@ -138,10 +138,10 @@ impl HasStackInfo for ANewArray {
                 .ok_or(StackInfoError::InvalidConstantPoolIndex(
                     self.index.into_generic(),
                 ))?;
-        let elem_name = class_file.get_text_t(elem_class.name_index).ok_or(
+        let elem_name = class_file.get_text_b(elem_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(elem_class.name_index.into_generic()),
         )?;
-        let elem_id = class_names.gcid_from_cow(elem_name);
+        let elem_id = class_names.gcid_from_bytes(elem_name);
 
         let array_id = class_names
             .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), elem_id)
@@ -201,10 +201,10 @@ impl HasStackInfo for MultiANewArray {
                 .ok_or(StackInfoError::InvalidConstantPoolIndex(
                     self.index.into_generic(),
                 ))?;
-        let array_name = class_file.get_text_t(array_class.name_index).ok_or(
+        let array_name = class_file.get_text_b(array_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(array_class.name_index.into_generic()),
         )?;
-        let array_id = class_names.gcid_from_cow(array_name);
+        let array_id = class_names.gcid_from_bytes(array_name);
         Ok(MultiANewArrayInfo {
             array_id,
             dimensions: self.dimensions,
@@ -301,10 +301,10 @@ impl HasStackInfo for CheckCast {
                 .ok_or(StackInfoError::InvalidConstantPoolIndex(
                     self.index.into_generic(),
                 ))?;
-        let name = class_file.get_text_t(class.name_index).ok_or(
+        let name = class_file.get_text_b(class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(class.name_index.into_generic()),
         )?;
-        let id = class_names.gcid_from_cow(name);
+        let id = class_names.gcid_from_bytes(name);
         Ok(CheckCastInfo { id })
     }
 }
@@ -408,7 +408,7 @@ impl LocalsOutAt for LongStore {
 
 fn descriptor_into_parameters_ret<const N: usize>(
     class_names: &mut ClassNames,
-    descriptor: &str,
+    descriptor: &[u8],
 ) -> Result<(SmallVec<[Type; N]>, Option<Type>), MethodDescriptorError> {
     let mut desc_iter = MethodDescriptor::from_text_iter(descriptor, class_names)?;
 
@@ -444,13 +444,12 @@ impl StaticMethodInfo {
             .ok_or(StackInfoError::InvalidConstantPoolIndex(
                 nat_index.into_generic(),
             ))?;
-        let descriptor = class_file.get_text_t(nat.descriptor_index).ok_or(
+        let descriptor = class_file.get_text_b(nat.descriptor_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
         )?;
 
-        let (parameters, return_type) =
-            descriptor_into_parameters_ret(class_names, descriptor.as_ref())
-                .map_err(LoadMethodError::MethodDescriptorError)?;
+        let (parameters, return_type) = descriptor_into_parameters_ret(class_names, descriptor)
+            .map_err(LoadMethodError::MethodDescriptorError)?;
 
         Ok(StaticMethodInfo {
             parameters,
@@ -508,12 +507,11 @@ impl RefMethodInfo {
             .ok_or(StackInfoError::InvalidConstantPoolIndex(
                 nat_index.into_generic(),
             ))?;
-        let descriptor = class_file.get_text_t(nat.descriptor_index).ok_or(
+        let descriptor = class_file.get_text_b(nat.descriptor_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
         )?;
-        let (parameters, return_type) =
-            descriptor_into_parameters_ret(class_names, descriptor.as_ref())
-                .map_err(LoadMethodError::MethodDescriptorError)?;
+        let (parameters, return_type) = descriptor_into_parameters_ret(class_names, descriptor)
+            .map_err(LoadMethodError::MethodDescriptorError)?;
 
         Ok(RefMethodInfo {
             class_id: rec_class_id,
@@ -597,10 +595,10 @@ impl HasStackInfo for InvokeSpecial {
                 .ok_or(StackInfoError::InvalidConstantPoolIndex(
                     class_index.into_generic(),
                 ))?;
-        let rec_class_name = class_file.get_text_t(rec_class.name_index).ok_or(
+        let rec_class_name = class_file.get_text_b(rec_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(rec_class.name_index.into_generic()),
         )?;
-        let rec_class_id = class_names.gcid_from_cow(rec_class_name);
+        let rec_class_id = class_names.gcid_from_bytes(rec_class_name);
 
         RefMethodInfo::from_nat_index(class_names, class_file, Some(rec_class_id), nat_index)
     }
@@ -629,10 +627,10 @@ impl HasStackInfo for InvokeInterface {
         let rec_class = class_file.get_t(target_method.class_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(target_method.class_index.into_generic()),
         )?;
-        let rec_class_name = class_file.get_text_t(rec_class.name_index).ok_or(
+        let rec_class_name = class_file.get_text_b(rec_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(rec_class.name_index.into_generic()),
         )?;
-        let rec_class_id = class_names.gcid_from_cow(rec_class_name);
+        let rec_class_id = class_names.gcid_from_bytes(rec_class_name);
 
         RefMethodInfo::from_nat_index(class_names, class_file, Some(rec_class_id), nat_index)
     }
@@ -730,10 +728,10 @@ impl HasStackInfo for InvokeVirtual {
                 .ok_or(StackInfoError::InvalidConstantPoolIndex(
                     class_index.into_generic(),
                 ))?;
-        let rec_class_name = class_file.get_text_t(rec_class.name_index).ok_or(
+        let rec_class_name = class_file.get_text_b(rec_class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(rec_class.name_index.into_generic()),
         )?;
-        let rec_class_id = class_names.gcid_from_cow(rec_class_name);
+        let rec_class_id = class_names.gcid_from_bytes(rec_class_name);
 
         RefMethodInfo::from_nat_index(class_names, class_file, Some(rec_class_id), nat_index)
     }
@@ -897,12 +895,12 @@ fn get_field_type(
         ))?;
 
     // Get the descriptor text, which describes the type of the field
-    let field_descriptor = class_file.get_text_t(nat.descriptor_index).ok_or(
+    let field_descriptor = class_file.get_text_b(nat.descriptor_index).ok_or(
         StackInfoError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
     )?;
     // Parse the type of the field
-    let (field_type, rem) = DescriptorTypeCF::parse(field_descriptor.as_ref())
-        .map_err(StackInfoError::InvalidDescriptorType)?;
+    let (field_type, rem) =
+        DescriptorTypeCF::parse(field_descriptor).map_err(StackInfoError::InvalidDescriptorType)?;
     // There shouldn't be any remaining data.
     if !rem.is_empty() {
         return Err(StackInfoError::UnparsedFieldType.into());
@@ -1004,29 +1002,19 @@ fn load_constant_info(
         ConstantInfo::Integer(_) => PrimitiveType::Int.into(),
         ConstantInfo::Float(_) => PrimitiveType::Float.into(),
         ConstantInfo::Class(_) => {
-            ComplexType::ReferenceClass(class_names.gcid_from_array(&["java", "lang", "Class"]))
-                .into()
+            ComplexType::ReferenceClass(class_names.gcid_from_bytes(b"java/lang/Class")).into()
         }
         ConstantInfo::String(_) => {
-            ComplexType::ReferenceClass(class_names.gcid_from_array(&["java", "lang", "String"]))
+            ComplexType::ReferenceClass(class_names.gcid_from_bytes(b"java/lang/String")).into()
+        }
+        ConstantInfo::MethodHandle(_) => ComplexType::ReferenceClass(
+            class_names.gcid_from_bytes(b"java/lang/invoke/MethodHandle"),
+        )
+        .into(),
+        ConstantInfo::MethodType(_) => {
+            ComplexType::ReferenceClass(class_names.gcid_from_bytes(b"java/lang/invoke/MethodType"))
                 .into()
         }
-        ConstantInfo::MethodHandle(_) => {
-            ComplexType::ReferenceClass(class_names.gcid_from_array(&[
-                "java",
-                "lang",
-                "invoke",
-                "MethodHandle",
-            ]))
-            .into()
-        }
-        ConstantInfo::MethodType(_) => ComplexType::ReferenceClass(class_names.gcid_from_array(&[
-            "java",
-            "lang",
-            "invoke",
-            "MethodType",
-        ]))
-        .into(),
         _ => return Err(StackInfoError::InvalidConstantPoolIndex(index.into_generic()).into()),
     })
 }
@@ -1161,10 +1149,10 @@ impl HasStackInfo for New {
                 .ok_or(StackInfoError::InvalidConstantPoolIndex(
                     self.index.into_generic(),
                 ))?;
-        let name = class_file.get_text_t(class.name_index).ok_or(
+        let name = class_file.get_text_b(class.name_index).ok_or(
             StackInfoError::InvalidConstantPoolIndex(class.name_index.into_generic()),
         )?;
-        let id = class_names.gcid_from_cow(name);
+        let id = class_names.gcid_from_bytes(name);
 
         Ok(NewInfo { id })
     }

@@ -256,7 +256,7 @@ impl State {
         if let Some(class_id) = self.string_class_id {
             class_id
         } else {
-            let string_class_id = class_names.gcid_from_array(&["java", "lang", "String"]);
+            let string_class_id = class_names.gcid_from_bytes(b"java/lang/String");
             self.string_class_id = Some(string_class_id);
             string_class_id
         }
@@ -292,7 +292,7 @@ impl State {
             class_names,
             class_files,
             class_id,
-            "<init>",
+            b"<init>",
             &char_array_descriptor,
         )?;
 
@@ -580,8 +580,8 @@ fn main() {
     // We could check this early to make so errors from a missing main show up faster, but that is
     // an edge-case, and doesn't matter.
     {
-        let string_id = class_names.gcid_from_array(&["java", "lang", "String"]);
-        let main_name = "main";
+        let string_id = class_names.gcid_from_bytes(b"java/lang/String");
+        let main_name = b"main";
         let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
             DescriptorTypeBasic::Class(string_id),
         )]);
@@ -706,11 +706,11 @@ pub(crate) fn initialize_class(
                 field_info.name_index.into_generic(),
             ))?;
 
-        let field_descriptor = class_file.get_text_t(field_info.descriptor_index).ok_or(
+        let field_descriptor = class_file.get_text_b(field_info.descriptor_index).ok_or(
             GeneralError::BadClassFileIndex(field_info.descriptor_index.into_generic()),
         )?;
         // Parse the type of the field
-        let (field_type, rem) = DescriptorTypeCF::parse(field_descriptor.as_ref())
+        let (field_type, rem) = DescriptorTypeCF::parse(field_descriptor)
             .map_err(GeneralError::InvalidDescriptorType)?;
         // There shouldn't be any remaining data.
         if !rem.is_empty() {
@@ -790,7 +790,7 @@ pub(crate) fn initialize_class(
 
     // TODO: This could potentially be gc'd, we could just store the id?
     // TODO: Should this be done before or after we set initialized?
-    let clinit_name = "<clinit>";
+    let clinit_name = b"<clinit>";
     let clinit_desc = MethodDescriptor::new_empty();
     match methods.load_method_from_desc(
         class_directories,
@@ -1118,7 +1118,7 @@ fn derive_class(
     } else if class.is_array() {
         let array_interfaces = ArrayClass::get_interface_names();
         for interface_name in array_interfaces {
-            let interface_id = class_names.gcid_from_slice(interface_name);
+            let interface_id = class_names.gcid_from_bytes(interface_name);
             resolve_derive(
                 class_directories,
                 class_names,
@@ -1157,11 +1157,11 @@ pub(crate) fn map_interface_index_small_vec_to_ids<const N: usize>(
         let interface_name = interface_data.name_index;
         let interface_name =
             class_file
-                .get_text_t(interface_name)
+                .get_text_b(interface_name)
                 .ok_or(GeneralError::BadClassFileIndex(
                     interface_name.into_generic(),
                 ))?;
-        let interface_id = class_names.gcid_from_cow(interface_name);
+        let interface_id = class_names.gcid_from_bytes(interface_name);
 
         interface_ids.push(interface_id);
     }

@@ -35,6 +35,38 @@ pub fn access_path_iter(package: &str) -> impl DoubleEndedIterator<Item = &str> 
     package.split('/')
 }
 
+#[must_use]
+pub fn access_path_iter_bytes(package: &[u8]) -> impl DoubleEndedIterator<Item = &[u8]> + Clone {
+    package.split(|x| *x == b'/')
+}
+
+/// Return with only the initial parts
+#[must_use]
+pub fn access_path_initial_part(package: &[u8]) -> Option<&[u8]> {
+    let last_index = package
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|x| *x.1 == b'/')
+        .map(|x| x.0);
+
+    if let Some(last_index) = last_index {
+        Some(&package[..last_index])
+    } else {
+        // If there is no last index then this is likely a lone class name
+        // and so there is no package
+        None
+    }
+}
+
+pub(crate) fn format_class_as_object_desc(class_name: &[u8]) -> Vec<u8> {
+    let mut res = Vec::with_capacity(2 + class_name.len());
+    res.push(b'L');
+    res.extend_from_slice(class_name);
+    res.push(b';');
+    res
+}
+
 pub trait MemorySize {
     fn memory_size(&self) -> usize;
 }

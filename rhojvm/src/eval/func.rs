@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use classfile_parser::{constant_info::ConstantInfo, method_info::MethodAccessFlags};
 use rhojvm_base::{
     code::{
@@ -134,7 +132,7 @@ impl RunInst for InvokeStatic {
             state,
             method_id,
             frame,
-            inst_index,
+            ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let index = self.index;
@@ -162,10 +160,10 @@ impl RunInst for InvokeStatic {
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     target_class_index.into_generic(),
                 ))?;
-        let target_class_name = class_file.get_text_t(target_class.name_index).ok_or(
+        let target_class_name = class_file.get_text_b(target_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(target_class.name_index.into_generic()),
         )?;
-        let target_class_id = class_names.gcid_from_cow(target_class_name);
+        let target_class_id = class_names.gcid_from_bytes(target_class_name);
 
         let method_nat =
             class_file
@@ -174,14 +172,14 @@ impl RunInst for InvokeStatic {
                     method_nat_index.into_generic(),
                 ))?;
         // TODO: Sadly we have to allocate because load_method_from_desc requires class files and
-        // so the Cow<str> wouldn't work
+        // so the slice won't work
         let method_name = class_file
-            .get_text_t(method_nat.name_index)
-            .map(Cow::into_owned)
+            .get_text_b(method_nat.name_index)
             .ok_or(EvalError::InvalidConstantPoolIndex(
                 method_nat.name_index.into_generic(),
-            ))?;
-        let method_descriptor = class_file.get_text_t(method_nat.descriptor_index).ok_or(
+            ))?
+            .to_owned();
+        let method_descriptor = class_file.get_text_b(method_nat.descriptor_index).ok_or(
             EvalError::InvalidConstantPoolIndex(method_nat.descriptor_index.into_generic()),
         )?;
         let method_descriptor = MethodDescriptor::from_text(method_descriptor, class_names)
@@ -315,10 +313,10 @@ impl RunInst for InvokeSpecial {
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     target_class_index.into_generic(),
                 ))?;
-        let target_class_name = class_file.get_text_t(target_class.name_index).ok_or(
+        let target_class_name = class_file.get_text_b(target_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(target_class.name_index.into_generic()),
         )?;
-        let target_class_id = class_names.gcid_from_cow(target_class_name);
+        let target_class_id = class_names.gcid_from_bytes(target_class_name);
 
         let method_nat =
             class_file
@@ -327,14 +325,14 @@ impl RunInst for InvokeSpecial {
                     method_nat_index.into_generic(),
                 ))?;
         // TODO: Sadly we have to allocate because load_method_from_desc requires class files and
-        // so the Cow<str> wouldn't work
+        // so the slice won't work
         let method_name = class_file
-            .get_text_t(method_nat.name_index)
-            .map(Cow::into_owned)
+            .get_text_b(method_nat.name_index)
             .ok_or(EvalError::InvalidConstantPoolIndex(
                 method_nat.name_index.into_generic(),
-            ))?;
-        let method_descriptor = class_file.get_text_t(method_nat.descriptor_index).ok_or(
+            ))?
+            .to_owned();
+        let method_descriptor = class_file.get_text_b(method_nat.descriptor_index).ok_or(
             EvalError::InvalidConstantPoolIndex(method_nat.descriptor_index.into_generic()),
         )?;
         let method_descriptor = MethodDescriptor::from_text(method_descriptor, class_names)
@@ -426,7 +424,7 @@ fn find_virtual_method(
     methods: &mut Methods,
     base_id: ClassId,
     instance_id: ClassId,
-    name: &str,
+    name: &[u8],
     descriptor: &MethodDescriptor,
 ) -> Result<MethodId, GeneralError> {
     // We don't bother checking that the instance class has been initialized, since we assume that
@@ -592,10 +590,10 @@ impl RunInst for InvokeVirtual {
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     target_class_index.into_generic(),
                 ))?;
-        let target_class_name = class_file.get_text_t(target_class.name_index).ok_or(
+        let target_class_name = class_file.get_text_b(target_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(target_class.name_index.into_generic()),
         )?;
-        let target_class_id = class_names.gcid_from_cow(target_class_name);
+        let target_class_id = class_names.gcid_from_bytes(target_class_name);
 
         let method_nat =
             class_file
@@ -604,14 +602,14 @@ impl RunInst for InvokeVirtual {
                     method_nat_index.into_generic(),
                 ))?;
         // TODO: Sadly we have to allocate because load_method_from_desc requires class files and
-        // so the Cow<str> wouldn't work
+        // so the slice won't work
         let method_name = class_file
-            .get_text_t(method_nat.name_index)
-            .map(Cow::into_owned)
+            .get_text_b(method_nat.name_index)
             .ok_or(EvalError::InvalidConstantPoolIndex(
                 method_nat.name_index.into_generic(),
-            ))?;
-        let method_descriptor = class_file.get_text_t(method_nat.descriptor_index).ok_or(
+            ))?
+            .to_owned();
+        let method_descriptor = class_file.get_text_b(method_nat.descriptor_index).ok_or(
             EvalError::InvalidConstantPoolIndex(method_nat.descriptor_index.into_generic()),
         )?;
         let method_descriptor = MethodDescriptor::from_text(method_descriptor, class_names)

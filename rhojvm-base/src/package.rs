@@ -1,15 +1,23 @@
-use crate::id::{self, PackageId};
+use crate::id::PackageId;
 
 #[derive(Debug, Clone, Default)]
 pub struct Packages {
     // TODO: Should we use a hashmap with a custom hasher?
     // the main issue is that we still need to do a bunch of manual handling to ensure correctness
     packages: Vec<Package>,
+    next_id: PackageId,
 }
 impl Packages {
-    fn add(&mut self, name: String) -> PackageId {
-        let package = Package::new(name);
-        let id = package.id();
+    fn get_new_id(&mut self) -> PackageId {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    /// Add the package unchecked to the list of packages
+    fn add(&mut self, name: Vec<u8>) -> PackageId {
+        let id = self.get_new_id();
+        let package = Package::new(id, name);
         self.packages.push(package);
         id
     }
@@ -20,29 +28,12 @@ impl Packages {
     }
 
     #[must_use]
-    pub fn path_find(&self, name: &str) -> Option<&Package> {
-        let id = id::hash_access_path(name);
-        self.get(id)
+    pub fn path_find(&self, name: &[u8]) -> Option<&Package> {
+        self.packages.iter().find(|x| x.name == name)
     }
 
     #[must_use]
-    /// Note: you may want to handle the empty case yourself
-    pub fn parts_find<T: AsRef<str>>(&self, path: &[T]) -> Option<&Package> {
-        let id = id::hash_access_path_slice(path);
-        self.get(id)
-    }
-
-    #[must_use]
-    pub fn iter_parts_find<'a>(
-        &self,
-        path: impl Iterator<Item = &'a str> + Clone,
-    ) -> Option<&Package> {
-        let id = id::hash_access_path_iter(path, false);
-        self.get(id)
-    }
-
-    #[must_use]
-    pub fn string_path_create_if_needed(&mut self, name: String) -> PackageId {
+    pub fn vec_path_create_if_needed(&mut self, name: Vec<u8>) -> PackageId {
         if let Some(p) = self.path_find(&name) {
             p.id()
         } else {
@@ -51,24 +42,11 @@ impl Packages {
     }
 
     #[must_use]
-    pub fn str_path_create_if_needed(&mut self, name: &str) -> PackageId {
+    pub fn slice_path_create_if_needed(&mut self, name: &[u8]) -> PackageId {
         if let Some(p) = self.path_find(name) {
             p.id()
         } else {
             self.add(name.to_owned())
-        }
-    }
-
-    #[must_use]
-    pub fn iter_parts_create_if_needed<'a>(
-        &mut self,
-        path: impl Iterator<Item = &'a str> + Clone,
-    ) -> PackageId {
-        let id = id::hash_access_path_iter(path.clone(), false);
-        if let Some(p) = self.get(id) {
-            p.id()
-        } else {
-            self.add(path.collect::<Vec<&'a str>>().join("/"))
         }
     }
 
@@ -81,13 +59,12 @@ impl Packages {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Package {
     id: PackageId,
-    /// `java`, `java.lang`, `java.io`
-    name: String,
+    /// `java`, `java/lang`, `java/io`
+    name: Vec<u8>,
 }
 impl Package {
     #[must_use]
-    fn new(name: String) -> Self {
-        let id = id::hash_access_path(&name);
+    fn new(id: PackageId, name: Vec<u8>) -> Self {
         Self { id, name }
     }
 
@@ -97,7 +74,7 @@ impl Package {
     }
 
     #[must_use]
-    pub fn name(&self) -> &str {
-        self.name.as_str()
+    pub fn name(&self) -> &[u8] {
+        &self.name
     }
 }

@@ -154,7 +154,7 @@ impl RunInst for AThrow {
                     .deref(gc_ref)
                     .ok_or(EvalError::InvalidGcRef(gc_ref))?;
                 if let Instance::Class(instance) = instance {
-                    let throwable_id = class_names.gcid_from_array(&["java", "lang", "Throwable"]);
+                    let throwable_id = class_names.gcid_from_bytes(b"java/lang/Throwable");
                     if does_extend_class(
                         class_directories,
                         class_names,

@@ -335,12 +335,12 @@ impl Locals {
                     let class = class_file
                         .get_t(class_index)
                         .ok_or(VerifyStackMapError::BadNewClassIndex { index: class_index })?;
-                    let class_name = class_file.get_text_t(class.name_index).ok_or(
+                    let class_name = class_file.get_text_b(class.name_index).ok_or(
                         VerifyStackMapError::BadNewClassNameIndex {
                             index: class.name_index,
                         },
                     )?;
-                    let class_id = class_names.gcid_from_cow(class_name);
+                    let class_id = class_names.gcid_from_bytes(class_name);
 
                     self.push(Local::FrameType(FrameType::Complex(
                         ComplexFrameType::UninitializedReferenceClass(class_id),
@@ -492,9 +492,7 @@ pub fn verify_type_safe_method_stack_map(
     if conf.log_method_name {
         tracing::info!(
             "! Checking {} :: {}{}",
-            class_names
-                .path_from_gcid(class_id)
-                .unwrap_or("[BadIdError]"),
+            class_names.tpath(class_id),
             class_file
                 .get_text_t(method.name_index())
                 .unwrap_or_else(|| std::borrow::Cow::Owned("[BadMethodNameIndex]".to_owned())),

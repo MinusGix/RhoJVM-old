@@ -78,10 +78,10 @@ fn get_field_dest(
                     field.class_index.into_generic(),
                 ))?;
 
-        let dest_class_id = class_file.get_text_t(dest_class.name_index).ok_or(
+        let dest_class_id = class_file.get_text_b(dest_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(dest_class.name_index.into_generic()),
         )?;
-        let dest_class_id = class_names.gcid_from_cow(dest_class_id);
+        let dest_class_id = class_names.gcid_from_bytes(dest_class_id);
 
         // TODO: Check the begun status
         // Initialize the target class, since we're going to need to get a field from it
@@ -308,10 +308,10 @@ fn load_constant(
         ConstantInfo::Integer(v) => frame.stack.push(RuntimeValuePrimitive::I32(v.value))?,
         ConstantInfo::Float(v) => frame.stack.push(RuntimeValuePrimitive::F32(v.value))?,
         ConstantInfo::Class(class) => {
-            let class_name = class_file.get_text_t(class.name_index).ok_or(
+            let class_name = class_file.get_text_b(class.name_index).ok_or(
                 EvalError::InvalidConstantPoolIndex(class.name_index.into_generic()),
             )?;
-            let class_id = class_names.gcid_from_cow(class_name);
+            let class_id = class_names.gcid_from_bytes(class_name);
 
             todo!()
         }

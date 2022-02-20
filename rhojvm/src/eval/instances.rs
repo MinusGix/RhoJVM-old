@@ -48,10 +48,10 @@ impl RunInst for New {
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     self.index.into_generic(),
                 ))?;
-        let target_class_name = class_file.get_text_t(target_class.name_index).ok_or(
+        let target_class_name = class_file.get_text_b(target_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(target_class.name_index.into_generic()),
         )?;
-        let target_class_id = class_names.gcid_from_cow(target_class_name);
+        let target_class_id = class_names.gcid_from_bytes(target_class_name);
 
         // TODO: This provides some errors that should be exceptions
         resolve_derive(
@@ -137,10 +137,10 @@ impl RunInst for ANewArray {
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     self.index.into_generic(),
                 ))?;
-        let elem_class_name = class_file.get_text_t(elem_class.name_index).ok_or(
+        let elem_class_name = class_file.get_text_b(elem_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(elem_class.name_index.into_generic()),
         )?;
-        let elem_class_id = class_names.gcid_from_cow(elem_class_name);
+        let elem_class_id = class_names.gcid_from_bytes(elem_class_name);
 
         // TODO: This provides some errors that should be exceptions
         resolve_derive(
@@ -365,7 +365,7 @@ pub(crate) fn try_casting(
         } else if target_class.is_interface() {
             let interfaces = ArrayClass::get_interface_names()
                 .iter()
-                .map(|x| class_names.gcid_from_slice(x));
+                .map(|x| class_names.gcid_from_bytes(x));
             for interface in interfaces {
                 if interface == desired_class_id {
                     return Ok(CastResult::Success);
@@ -531,10 +531,10 @@ impl RunInst for CheckCast {
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     self.index.into_generic(),
                 ))?;
-        let cast_target_name = class_file.get_text_t(cast_target.name_index).ok_or(
+        let cast_target_name = class_file.get_text_b(cast_target.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(cast_target.name_index.into_generic()),
         )?;
-        let cast_target_id = class_names.gcid_from_cow(cast_target_name);
+        let cast_target_id = class_names.gcid_from_bytes(cast_target_name);
 
         let id = match val_inst {
             Instance::Class(class) => class.instanceof,
@@ -627,10 +627,10 @@ impl RunInst for InstanceOf {
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     self.index.into_generic(),
                 ))?;
-        let cast_target_name = class_file.get_text_t(cast_target.name_index).ok_or(
+        let cast_target_name = class_file.get_text_b(cast_target.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(cast_target.name_index.into_generic()),
         )?;
-        let cast_target_id = class_names.gcid_from_cow(cast_target_name);
+        let cast_target_id = class_names.gcid_from_bytes(cast_target_name);
 
         let id = match val_inst {
             Instance::Class(class) => class.instanceof,
