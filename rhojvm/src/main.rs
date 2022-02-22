@@ -26,6 +26,7 @@ use classfile_parser::{
 };
 use eval::{EvalError, EvalMethodValue};
 use gc::{Gc, GcRef};
+use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibraries};
 // use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
     class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassFileData, ClassVariant},
@@ -57,6 +58,7 @@ pub mod class_instance;
 pub mod eval;
 mod formatter;
 pub mod gc;
+pub mod jni;
 pub mod rv;
 pub mod util;
 
@@ -212,6 +214,8 @@ pub struct State {
 
     gc: Gc,
 
+    native: NativeLibraries,
+
     classes_info: ClassesInfo,
 
     // Caching of various ids
@@ -227,6 +231,8 @@ impl State {
             conf,
 
             gc: Gc::new(),
+
+            native: NativeLibraries::new(),
 
             classes_info: ClassesInfo::default(),
 
@@ -336,6 +342,8 @@ pub enum GeneralError {
     Verification(VerificationError),
     Resolve(ResolveError),
     ClassFileLoad(LoadError),
+    LoadLibrary(LoadLibraryError),
+    FindSymbol(FindSymbolError),
     /// We expected the class at this id to exist
     /// This likely points to an internal error
     MissingLoadedClass(ClassId),
@@ -380,6 +388,16 @@ impl From<StackMapError> for GeneralError {
 impl From<VerifyStackMapGeneralError> for GeneralError {
     fn from(err: VerifyStackMapGeneralError) -> Self {
         Self::Verification(VerificationError::VerifyStackMapGeneralError(err))
+    }
+}
+impl From<LoadLibraryError> for GeneralError {
+    fn from(err: LoadLibraryError) -> Self {
+        Self::LoadLibrary(err)
+    }
+}
+impl From<FindSymbolError> for GeneralError {
+    fn from(err: FindSymbolError) -> Self {
+        Self::FindSymbol(err)
     }
 }
 
@@ -532,6 +550,17 @@ fn main() {
 
     // Initialize State
     let mut state = State::new(conf);
+    unsafe {
+        // libjava.so depends on libjvm and can't find it itself
+        state
+            .native
+            .load_library("./rhojvm/ex/lib/amd64/server/libjvm.so")
+            .expect("Failed to load libjvm");
+        state
+            .native
+            .load_library("./rhojvm/ex/lib/amd64/libjava.so")
+            .expect("Failed to load libjava");
+    }
 
     // Load the entry point
     let entrypoint_id: ClassId = class_files

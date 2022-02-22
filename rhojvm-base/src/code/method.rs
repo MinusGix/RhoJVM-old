@@ -494,6 +494,13 @@ impl MethodDescriptor {
         self.return_type.as_ref()
     }
 
+    /// Returns `true` if the function accepts no parameters
+    /// and returns void.
+    #[must_use]
+    pub fn is_nullary_void(&self) -> bool {
+        self.parameters.is_empty() && self.return_type.is_none()
+    }
+
     #[must_use]
     pub fn into_parameters_ret(self) -> (ParametersContainer, Option<DescriptorType>) {
         (self.parameters, self.return_type)

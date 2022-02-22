@@ -4,6 +4,7 @@
 use classfile_parser::{
     attribute_info::InstructionIndex, constant_info::ConstantInfo,
     constant_pool::ConstantPoolIndexRaw, descriptor::method::MethodDescriptorError,
+    method_info::MethodAccessFlags,
 };
 use rhojvm_base::{
     code::{
@@ -15,12 +16,15 @@ use rhojvm_base::{
     map_inst,
     package::Packages,
     util::MemorySizeU16,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
+    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
 };
 
 use crate::{
     class_instance::{ClassInstance, Instance},
     gc::GcRef,
+    initialize_class,
+    jni::{self, native_interface::JNINativeInterface, JNIEnv},
+    resolve_class_interface,
     rv::{RuntimeType, RuntimeValue, RuntimeValuePrimitive},
     GeneralError, State,
 };
@@ -262,6 +266,10 @@ pub enum EvalMethodValue {
     Exception(GcRef<ClassInstance>),
 }
 
+// TODO: Should this be unsafe? It could trigger unsafety, since it may require us to load
+// arbitrary native functions and run them, based on safe input from java!
+// It still feels like a wrong level to make it unsafe, though.
+
 /// `method_id` should already be loaded
 pub fn eval_method(
     class_directories: &ClassDirectories,
@@ -272,15 +280,16 @@ pub fn eval_method(
     methods: &mut Methods,
     state: &mut State,
     method_id: MethodId,
-    frame: Frame,
+    mut frame: Frame,
 ) -> Result<EvalMethodValue, GeneralError> {
+    let (class_id, _) = method_id.decompose();
+
     let method = methods
         .get_mut(&method_id)
         .ok_or(EvalError::MissingMethod(method_id))?;
     method.load_code(class_files)?;
 
     {
-        let (class_id, _) = method_id.decompose();
         if let Some(class_file) = class_files.get(&class_id) {
             let method_name = class_file.get_text_b(method.name_index()).unwrap();
             let class_name = class_names.tpath(class_id);
@@ -294,7 +303,90 @@ pub fn eval_method(
         }
     }
 
-    // TODO: Handle native methods
+    if method.access_flags().contains(MethodAccessFlags::NATIVE) {
+        tracing::info!("\tNative Method");
+        let class_file = class_files
+            .get(&class_id)
+            .ok_or(GeneralError::MissingLoadedClassFile(class_id))?;
+        let (class_name, _) = class_names
+            .name_from_gcid(class_id)
+            .map_err(StepError::BadId)?;
+
+        let method_name =
+            class_file
+                .get_text_b(method.name_index())
+                .ok_or(GeneralError::BadClassFileIndex(
+                    method.name_index().into_generic(),
+                ))?;
+
+        let name = jni::name::make_native_method_name(class_name.get(), method_name);
+        // tracing::info!("\tNative Name: {}")
+
+        if method.descriptor().is_nullary_void() {
+            let class_ref: GcRef<Instance> = if method
+                .access_flags()
+                .contains(MethodAccessFlags::STATIC)
+            {
+                // If it is a static method then it would get a reference to it
+                match initialize_class(
+                    class_directories,
+                    class_names,
+                    class_files,
+                    classes,
+                    packages,
+                    methods,
+                    state,
+                    class_id,
+                )?
+                .into_value()
+                {
+                    ValueException::Value(val) => val.into_generic(),
+                    ValueException::Exception(exc) => {
+                        tracing::warn!("Exception when getting static class reference for calling native method");
+                        return Ok(EvalMethodValue::Exception(exc));
+                    }
+                }
+            } else {
+                // If it isn't a static method then it will pop a reference from the stack
+                let refer = frame
+                    .stack
+                    .pop()
+                    .ok_or(EvalError::ExpectedStackValue)?
+                    .into_reference()
+                    .ok_or(EvalError::ExpectedStackValueReference)?;
+                if let Some(refer) = refer {
+                    refer.into_generic()
+                } else {
+                    todo!("Null pointer exception?")
+                }
+            };
+
+            // TODO: This is wrong. The jni pointer passed into native methods should be the same on
+            // each thread. This might technically get it, but is not something we should rely on.
+            // We create the JNIEnv inside the if, because it will need access to a lot of the state
+            // which `method` is borrowed from
+            let jni_interface = JNINativeInterface::new_typical();
+            let mut jni_env = JNIEnv::new(&jni_interface);
+
+            // TODO: Static nullary void is incorrect for non-nullary
+            // Safety: The Java given method descriptor defines it as taking no arguments
+            // and it is a static method. This means that it will only get the `*mut JNIEnv` and
+            // `JClass` of the class itself
+            // Otherwise, the safety of this relies on the safety of what we are being told by Java
+            let native_func = unsafe { state.native.find_symbol_jni_static_nullary_void(&name) }?;
+            // The safety of this relies on Java's described parameters being accurate
+            // As well as the code itself being safe, which we can only hope since this is
+            // arbitrary code.
+
+            let jni_env_ptr = std::ptr::addr_of_mut!(jni_env);
+            let class_ref_ptr = std::ptr::addr_of!(class_ref);
+            unsafe {
+                (native_func)(jni_env_ptr, class_ref_ptr);
+            };
+        } else {
+            todo!("Fully implement native methods");
+        }
+    }
 
     let mut frame = frame;
     let mut pc = InstructionIndex(0);

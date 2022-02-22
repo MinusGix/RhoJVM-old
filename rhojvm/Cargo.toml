@@ -24,6 +24,8 @@ smallvec = { version = "1.7", features = ["const_generics"] }
 usize_cast = "1.1.0"
 # TODO: Don't depend on this.
 either = "1.6"
+# For loading native libraries at runtime
+libloading = "0.7.3"
 # Used for profiling allocations and memory usage.
 # Useful, but has many dependencies and runtime-expensive
 #dhat = "0.2.4"
