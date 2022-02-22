@@ -22,10 +22,8 @@ use rhojvm_base::{
 use crate::{
     class_instance::{ClassInstance, Instance},
     gc::GcRef,
-    initialize_class,
     jni::{self, native_interface::JNINativeInterface, JNIEnv},
     method::NativeMethod,
-    resolve_class_interface,
     rv::{RuntimeType, RuntimeValue, RuntimeValuePrimitive},
     GeneralError, State,
 };
@@ -58,6 +56,8 @@ pub enum EvalError {
     /// We tried continuing but the instruction at that index was missing, or it was in the middle
     /// of an instruction
     MissingInstruction(InstructionIndex),
+    /// Expected there to be a static class reference for the given class
+    MissingStaticClassRef(ClassId),
 
     /// The index into the constant pool was invalid, either out of bounds or incorrect type
     /// Should have been caught in stack map verification
@@ -343,43 +343,25 @@ pub fn eval_method(
         // tracing::info!("\tNative Name: {}")
 
         if method.descriptor().is_nullary_void() {
-            let class_ref: GcRef<Instance> = if method
-                .access_flags()
-                .contains(MethodAccessFlags::STATIC)
-            {
-                // If it is a static method then it would get a reference to it
-                match initialize_class(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    classes,
-                    packages,
-                    methods,
-                    state,
-                    class_id,
-                )?
-                .into_value()
-                {
-                    ValueException::Value(val) => val.into_generic(),
-                    ValueException::Exception(exc) => {
-                        tracing::warn!("Exception when getting static class reference for calling native method");
-                        return Ok(EvalMethodValue::Exception(exc));
-                    }
-                }
-            } else {
-                // If it isn't a static method then it will pop a reference from the stack
-                let refer = frame
-                    .stack
-                    .pop()
-                    .ok_or(EvalError::ExpectedStackValue)?
-                    .into_reference()
-                    .ok_or(EvalError::ExpectedStackValueReference)?;
-                if let Some(refer) = refer {
-                    refer.into_generic()
+            let class_ref: GcRef<Instance> =
+                if method.access_flags().contains(MethodAccessFlags::STATIC) {
+                    state
+                        .find_static_class_instance(class_id)
+                        .ok_or(EvalError::MissingStaticClassRef(class_id))?
                 } else {
-                    todo!("Null pointer exception?")
-                }
-            };
+                    // If it isn't a static method then it will pop a reference from the stack
+                    let refer = frame
+                        .stack
+                        .pop()
+                        .ok_or(EvalError::ExpectedStackValue)?
+                        .into_reference()
+                        .ok_or(EvalError::ExpectedStackValueReference)?;
+                    if let Some(refer) = refer {
+                        refer.into_generic()
+                    } else {
+                        todo!("Null pointer exception?")
+                    }
+                };
 
             // TODO: This is wrong. The jni pointer passed into native methods should be the same on
             // each thread. This might technically get it, but is not something we should rely on.
