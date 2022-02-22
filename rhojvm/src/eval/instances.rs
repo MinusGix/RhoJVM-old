@@ -32,6 +32,7 @@ impl RunInst for New {
             packages,
             methods,
             state,
+            tdata,
             method_id,
             frame,
             ..
@@ -77,6 +78,7 @@ impl RunInst for New {
             packages,
             methods,
             state,
+            tdata,
             target_class_id,
         )?;
         let target_ref = match status.into_value() {
@@ -121,6 +123,7 @@ impl RunInst for ANewArray {
             packages,
             methods,
             state,
+            tdata,
             method_id,
             frame,
             ..
@@ -166,6 +169,7 @@ impl RunInst for ANewArray {
             packages,
             methods,
             state,
+            tdata,
             elem_class_id,
         )?;
 

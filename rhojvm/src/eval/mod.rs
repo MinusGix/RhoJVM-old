@@ -25,7 +25,7 @@ use crate::{
     jni::{self, native_interface::JNINativeInterface, JNIEnv},
     method::NativeMethod,
     rv::{RuntimeType, RuntimeValue, RuntimeValuePrimitive},
-    GeneralError, State,
+    GeneralError, State, ThreadData,
 };
 
 mod control_flow;
@@ -280,6 +280,7 @@ pub fn eval_method(
     packages: &mut Packages,
     methods: &mut Methods,
     state: &mut State,
+    tdata: &mut ThreadData,
     method_id: MethodId,
     mut frame: Frame,
 ) -> Result<EvalMethodValue, GeneralError> {
@@ -425,6 +426,7 @@ pub fn eval_method(
             packages,
             methods,
             state,
+            tdata,
             method_id,
             frame: &mut frame,
             inst_index: pc,
@@ -468,6 +470,7 @@ pub struct RunInstArgs<'cd, 'cn, 'cf, 'c, 'p, 'm, 's, 'f> {
     pub packages: &'p mut Packages,
     pub methods: &'m mut Methods,
     pub state: &'s mut State,
+    pub tdata: &'s mut ThreadData,
     pub method_id: MethodId,
     pub frame: &'f mut Frame,
     /// Index into 'bytes' of instructions, which is more commonly used in code

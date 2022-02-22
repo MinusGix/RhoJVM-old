@@ -129,6 +129,7 @@ impl RunInst for InvokeStatic {
             packages,
             methods,
             state,
+            tdata,
             method_id,
             frame,
             ..
@@ -206,6 +207,7 @@ impl RunInst for InvokeStatic {
             packages,
             methods,
             state,
+            tdata,
             target_class_id,
         )?;
 
@@ -244,6 +246,7 @@ impl RunInst for InvokeStatic {
             packages,
             methods,
             state,
+            tdata,
             target_method_id,
             frame,
         )?;
@@ -276,6 +279,7 @@ impl RunInst for InvokeSpecial {
             packages,
             methods,
             state,
+            tdata,
             method_id,
             frame,
             inst_index,
@@ -359,6 +363,7 @@ impl RunInst for InvokeSpecial {
             packages,
             methods,
             state,
+            tdata,
             target_class_id,
         )?;
 
@@ -400,6 +405,7 @@ impl RunInst for InvokeSpecial {
             packages,
             methods,
             state,
+            tdata,
             target_method_id,
             frame,
         )?;
@@ -540,6 +546,7 @@ impl RunInst for InvokeVirtual {
             packages,
             methods,
             state,
+            tdata,
             method_id,
             frame,
             inst_index,
@@ -635,6 +642,7 @@ impl RunInst for InvokeVirtual {
             packages,
             methods,
             state,
+            tdata,
             target_class_id,
         )?;
 
@@ -681,6 +689,7 @@ impl RunInst for InvokeVirtual {
             packages,
             methods,
             state,
+            tdata,
             target_method_id,
             frame,
         )?;

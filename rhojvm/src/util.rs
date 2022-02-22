@@ -8,7 +8,7 @@ use crate::{
     gc::GcRef,
     initialize_class,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    GeneralError, State,
+    GeneralError, State, ThreadData,
 };
 
 /// A struct that holds references to several of the important structures in their typical usage
@@ -55,6 +55,7 @@ pub(crate) fn construct_string(
     packages: &mut Packages,
     methods: &mut Methods,
     state: &mut State,
+    tdata: &mut ThreadData,
     utf16_text: Vec<RuntimeValuePrimitive>,
 ) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
     // Create a char[] in utf16
@@ -77,6 +78,7 @@ pub(crate) fn construct_string(
             packages,
             methods,
             state,
+            tdata,
             string_id,
         )?;
 
@@ -107,6 +109,7 @@ pub(crate) fn construct_string(
         packages,
         methods,
         state,
+        tdata,
         string_char_array_constructor,
         Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(
             char_arr_ref.into_generic(),

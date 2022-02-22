@@ -20,6 +20,7 @@ use std::{
     num::NonZeroUsize,
     path::Path,
     sync::{Arc, RwLock},
+    thread::ThreadId,
 };
 
 use class_instance::{Field, FieldAccess, Fields, Instance, StaticClassInstance};
@@ -214,6 +215,17 @@ struct ClassInfo {
     pub created: Status,
     pub verified: Status,
     pub initialized: Status<ValueException<GcRef<StaticClassInstance>>>,
+}
+
+/// State that is per-thread
+pub struct ThreadData {
+    id: ThreadId,
+}
+impl ThreadData {
+    #[must_use]
+    pub fn new(thread_id: ThreadId) -> ThreadData {
+        ThreadData { id: thread_id }
+    }
 }
 
 pub struct State {
@@ -578,6 +590,8 @@ fn main() {
             .expect("Failed to load libjava");
     };
 
+    let mut main_thread_data = ThreadData::new(std::thread::current().id());
+
     // Load the entry point
     let entrypoint_id: ClassId = class_files
         .load_by_class_path_slice(&class_directories, &mut class_names, &entry_point_cp)
@@ -615,6 +629,7 @@ fn main() {
         &mut packages,
         &mut methods,
         &mut state,
+        &mut main_thread_data,
         entrypoint_id,
     ) {
         tracing::error!("failed to initialize entrypoint class {:?}", err);
@@ -658,6 +673,7 @@ fn main() {
             &mut packages,
             &mut methods,
             &mut state,
+            &mut main_thread_data,
             main_method_id,
             frame,
         ) {
@@ -690,6 +706,7 @@ pub(crate) fn initialize_class(
     packages: &mut Packages,
     methods: &mut Methods,
     state: &mut State,
+    tdata: &mut ThreadData,
     class_id: ClassId,
 ) -> Result<BegunStatus<ValueException<GcRef<StaticClassInstance>>>, GeneralError> {
     let info = state.classes_info.get_mut_init(class_id);
@@ -718,6 +735,7 @@ pub(crate) fn initialize_class(
             packages,
             methods,
             state,
+            tdata,
             super_id,
         )?;
     }
@@ -797,6 +815,7 @@ pub(crate) fn initialize_class(
                         packages,
                         methods,
                         state,
+                        tdata,
                         text,
                     )?;
                     match string_ref {
@@ -855,6 +874,7 @@ pub(crate) fn initialize_class(
                 packages,
                 methods,
                 state,
+                tdata,
                 method_id,
                 frame,
             )? {

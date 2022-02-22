@@ -37,7 +37,7 @@ use crate::{
     initialize_class,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{self},
-    GeneralError, State,
+    GeneralError, State, ThreadData,
 };
 
 use super::{EvalError, Frame, RunInst, RunInstArgs, RunInstValue, ValueException};
@@ -54,6 +54,7 @@ fn get_field_dest(
     packages: &mut Packages,
     methods: &mut Methods,
     state: &mut State,
+    tdata: &mut ThreadData,
     frame: &mut Frame,
     index: ConstantPoolIndexRaw<FieldRefConstant>,
     class_id: ClassId,
@@ -91,6 +92,7 @@ fn get_field_dest(
             packages,
             methods,
             state,
+            tdata,
             dest_class_id,
         )?;
         let dest_ref = match status.into_value() {
@@ -117,6 +119,7 @@ impl RunInst for GetStatic {
             packages,
             methods,
             state,
+            tdata,
             method_id,
             frame,
             ..
@@ -132,6 +135,7 @@ impl RunInst for GetStatic {
             packages,
             methods,
             state,
+            tdata,
             frame,
             self.index,
             class_id,
@@ -193,6 +197,7 @@ impl RunInst for GetField {
             packages,
             methods,
             state,
+            tdata,
             method_id,
             frame,
             inst_index,
@@ -217,6 +222,7 @@ impl RunInst for GetField {
             packages,
             methods,
             state,
+            tdata,
             frame,
             self.index,
             class_id,
@@ -285,6 +291,7 @@ fn load_constant(
         packages,
         methods,
         state,
+        tdata,
         method_id,
         frame,
         inst_index,
@@ -329,6 +336,7 @@ fn load_constant(
                 packages,
                 methods,
                 state,
+                tdata,
                 char_arr,
             )?;
             match string_ref {
@@ -1216,6 +1224,7 @@ impl RunInst for AAStore {
             packages,
             methods,
             state,
+            tdata,
             method_id,
             frame,
             inst_index,
