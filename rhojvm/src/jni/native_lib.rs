@@ -8,6 +8,8 @@ use libloading::Symbol;
 
 use crate::jni;
 
+use super::OpaqueClassMethod;
+
 #[derive(Debug)]
 pub enum LoadLibraryError {
     LibLoading(libloading::Error),
@@ -16,6 +18,8 @@ pub enum LoadLibraryError {
 #[derive(Debug)]
 pub enum FindSymbolError {
     LibLoading(libloading::Error),
+    /// The symbol was a null pointer
+    NullSymbol,
     FindFailure,
 }
 impl From<libloading::Error> for FindSymbolError {
@@ -97,6 +101,7 @@ pub struct NativeLibrariesStatic {
     lib: RwLock<&'static mut NativeLibraries>,
 }
 impl NativeLibrariesStatic {
+    #[must_use]
     pub fn new() -> NativeLibrariesStatic {
         NativeLibrariesStatic {
             lib: RwLock::new(Box::leak(Box::new(NativeLibraries::new()))),
@@ -128,16 +133,19 @@ impl NativeLibrariesStatic {
     /// Roughly `fn(*mut JNIEnv, JClass) -> void`
     /// Blocks current thread until it is given access
     /// # Safety
+    /// The function must be a valid function, but does not necessarily have
     /// The function specified must be of the correct function type for a JNI function
-    /// that only takes a pointer to the environment and the static `JClass`.
-    /// As well, the function itself must be safe, which is impossible to really guarantee.
+    /// that also takes some [`JObject`] (or type which can be treated as it)
+    /// It may also have more parameters, and so the safety of calling it depends on that.
+    /// Calling the returned function would also require that the function itself is safe,
+    /// but that is practically impossible to guarantee.
     /// # Panics
     /// May panic if the lock is already held by the current thread
     /// May panic if the lock is poisoned
-    pub unsafe fn find_symbol_blocking_jni_static_nullary_void(
+    pub unsafe fn find_symbol_blocking_jni_opaque_method(
         &self,
         name: &[u8],
-    ) -> Result<StaticSymbol<jni::MethodClassNoArguments>, FindSymbolError> {
+    ) -> Result<OpaqueClassMethod, FindSymbolError> {
         let symbol = {
             let lib = self.lib.read().expect("Native Library lock was poisoned");
             let symbol: Symbol<jni::MethodClassNoArguments> =
@@ -145,6 +153,24 @@ impl NativeLibrariesStatic {
             let symbol: StaticSymbol<jni::MethodClassNoArguments> = symbol.into_raw();
             symbol
         };
-        Ok(symbol)
+        let symbol = symbol.into_raw();
+        if symbol.is_null() {
+            return Err(FindSymbolError::NullSymbol);
+        }
+
+        // Transmute the raw pointer into a function pointer
+        // Safety: We've already checked if it was null, and if it was then we returned an error.
+        // We also provided the same guarantees/info to libloading, not that it pays attention to
+        // that.
+        let symbol =
+            std::mem::transmute::<*mut std::ffi::c_void, jni::MethodClassNoArguments>(symbol);
+
+        Ok(OpaqueClassMethod::new(symbol))
+    }
+}
+
+impl Default for NativeLibrariesStatic {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -10,7 +10,7 @@ use crate::{
     gc::GcRef,
 };
 
-use self::native_interface::JNINativeInterface;
+use self::{native_interface::JNINativeInterface, native_lib::StaticSymbol};
 
 pub mod name;
 pub mod native_interface;
@@ -69,6 +69,38 @@ impl<'a> JNIEnv<'a> {
     #[must_use]
     pub fn new(interface: &'a JNINativeInterface) -> JNIEnv<'a> {
         JNIEnv { interface }
+    }
+}
+
+/// A method for a class that is 'opaque' in that not all of its arguments are known
+/// This is primarily for storing, where get the method descriptor but we can't really
+/// statically represent the type in a good manner.
+/// So, there may be more parameters and/or a return type for this function.
+/// It is not allowed to be a null pointer, since it is an `fn`!
+#[derive(Clone)]
+pub struct OpaqueClassMethod(MethodClassNoArguments);
+impl OpaqueClassMethod {
+    #[must_use]
+    pub fn new(sym: MethodClassNoArguments) -> OpaqueClassMethod {
+        OpaqueClassMethod(sym)
+    }
+
+    /// Get the held function pointer
+    /// Remember, this is an opaque method, so for added **safety** you *must* check the descriptor
+    /// for the associated method and cast it to an appropriate version!
+    #[must_use]
+    pub fn get(&self) -> MethodClassNoArguments {
+        self.0
+    }
+}
+impl From<MethodClassNoArguments> for OpaqueClassMethod {
+    fn from(method: MethodClassNoArguments) -> OpaqueClassMethod {
+        OpaqueClassMethod(method)
+    }
+}
+impl std::fmt::Debug for OpaqueClassMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("OpaqueClassMethod(0x{:X?})", self.0 as usize))
     }
 }
 

@@ -24,6 +24,7 @@ use crate::{
     gc::GcRef,
     initialize_class,
     jni::{self, native_interface::JNINativeInterface, JNIEnv},
+    method::NativeMethod,
     resolve_class_interface,
     rv::{RuntimeType, RuntimeValue, RuntimeValuePrimitive},
     GeneralError, State,
@@ -312,14 +313,33 @@ pub fn eval_method(
             .name_from_gcid(class_id)
             .map_err(StepError::BadId)?;
 
-        let method_name =
-            class_file
-                .get_text_b(method.name_index())
-                .ok_or(GeneralError::BadClassFileIndex(
-                    method.name_index().into_generic(),
-                ))?;
+        // Get the native function if it exists
+        // If it does not exist then we find it given the name of the native function
+        let native_func = if let Some(native_func) = state
+            .method_info
+            .get(method_id)
+            .and_then(|x| x.native_func.clone())
+        {
+            native_func
+        } else {
+            let method_name = class_file.get_text_b(method.name_index()).ok_or(
+                GeneralError::BadClassFileIndex(method.name_index().into_generic()),
+            )?;
 
-        let name = jni::name::make_native_method_name(class_name.get(), method_name);
+            let name = jni::name::make_native_method_name(class_name.get(), method_name);
+
+            let native_func =
+                unsafe { state.native.find_symbol_blocking_jni_opaque_method(&name) }?;
+            let native_func = NativeMethod::OpaqueFound(native_func);
+
+            state.method_info.modify_init_with(method_id, |data| {
+                data.native_func = Some(native_func.clone());
+            });
+
+            native_func
+        };
+        let native_func = native_func.get().clone();
+
         // tracing::info!("\tNative Name: {}")
 
         if method.descriptor().is_nullary_void() {
@@ -368,26 +388,15 @@ pub fn eval_method(
             let jni_interface = JNINativeInterface::new_typical();
             let mut jni_env = JNIEnv::new(&jni_interface);
 
-            let native_func = {
-                // TODO: Static nullary void is incorrect for non-nullary
-                // Safety: The Java given method descriptor defines it as taking no arguments
-                // and it is a static method. This means that it will only get the `*mut JNIEnv` and
-                // `JClass` of the class itself
-                // Otherwise, the safety of this relies on the safety of what we are being told by // Java
-                let native_func = unsafe {
-                    state
-                        .native
-                        .find_symbol_blocking_jni_static_nullary_void(&name)
-                }?;
-                native_func
-            };
-
-            // The safety of this relies on Java's described parameters being accurate
-            // As well as the code itself being safe, which we can only hope since this is
-            // arbitrary code.
-
             let jni_env_ptr = std::ptr::addr_of_mut!(jni_env);
             let class_ref_ptr = std::ptr::addr_of!(class_ref);
+
+            // Safety: We rely on the declared parameter types of java being correct
+            // In this case, we know that it is a nullary void function which means that it takes
+            // in a `*mut JNIEnv`, and `JObject` and returns nothing.
+            // However, the safety of this call depends entirely on the safety of the function
+            // itself.
+            let native_func = native_func.get();
             unsafe {
                 (native_func)(jni_env_ptr, class_ref_ptr);
             };

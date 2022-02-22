@@ -33,6 +33,7 @@ use classfile_parser::{
 use eval::{EvalError, EvalMethodValue};
 use gc::{Gc, GcRef};
 use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibraries, NativeLibrariesStatic};
+use method::MethodInfo;
 // use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
     class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassFileData, ClassVariant},
@@ -65,6 +66,7 @@ pub mod eval;
 mod formatter;
 pub mod gc;
 pub mod jni;
+pub mod method;
 pub mod rv;
 pub mod util;
 
@@ -218,11 +220,12 @@ pub struct State {
     entry_point_class: Option<ClassId>,
     conf: StateConfig,
 
-    gc: Gc,
+    pub gc: Gc,
 
     native: Arc<NativeLibrariesStatic>,
 
     classes_info: ClassesInfo,
+    pub method_info: MethodInfo,
 
     // Caching of various ids
     char_array_id: Option<ClassId>,
@@ -247,6 +250,7 @@ impl State {
             native: Arc::new(NativeLibrariesStatic::new()),
 
             classes_info: ClassesInfo::default(),
+            method_info: MethodInfo::default(),
 
             char_array_id: None,
             string_class_id: None,
@@ -562,18 +566,16 @@ fn main() {
 
     // Initialize State
     let mut state = State::new(conf);
-    {
-        unsafe {
-            // libjava.so depends on libjvm and can't find it itself
-            state
-                .native
-                .load_library_blocking("./rhojvm/ex/lib/amd64/server/libjvm.so")
-                .expect("Failed to load libjvm");
-            state
-                .native
-                .load_library_blocking("./rhojvm/ex/lib/amd64/libjava.so")
-                .expect("Failed to load libjava");
-        }
+    unsafe {
+        // libjava.so depends on libjvm and can't find it itself
+        state
+            .native
+            .load_library_blocking("./rhojvm/ex/lib/amd64/server/libjvm.so")
+            .expect("Failed to load libjvm");
+        state
+            .native
+            .load_library_blocking("./rhojvm/ex/lib/amd64/libjava.so")
+            .expect("Failed to load libjava");
     };
 
     // Load the entry point
