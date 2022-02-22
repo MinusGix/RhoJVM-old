@@ -15,11 +15,7 @@
 #![allow(clippy::similar_names)]
 
 use std::{
-    borrow::{BorrowMut, Cow},
-    collections::HashMap,
-    num::NonZeroUsize,
-    path::Path,
-    sync::{Arc, RwLock},
+    borrow::Cow, collections::HashMap, num::NonZeroUsize, ops::DerefMut, path::Path, sync::Arc,
     thread::ThreadId,
 };
 
@@ -33,7 +29,7 @@ use classfile_parser::{
 };
 use eval::{EvalError, EvalMethodValue};
 use gc::{Gc, GcRef};
-use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibraries, NativeLibrariesStatic};
+use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibrariesStatic};
 use method::MethodInfo;
 // use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
@@ -53,10 +49,12 @@ use smallvec::{smallvec, SmallVec};
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
+use util::Env;
 
 use crate::{
     class_instance::ReferenceArrayInstance,
     eval::{eval_method, Frame, Locals, ValueException},
+    jni::native_interface::NativeInterface,
 };
 
 // #[global_allocator]
@@ -220,10 +218,24 @@ struct ClassInfo {
 /// State that is per-thread
 pub struct ThreadData {
     id: ThreadId,
+    // pub jni: *mut
+    // /// [`JNIEnv`] are pinned to a specific place in memory per each thread
+    // /// The reason we use a raw pointer is that
+    // pub jni: Pin<Box<jni::JNIEnv<'static>>>,
 }
 impl ThreadData {
     #[must_use]
     pub fn new(thread_id: ThreadId) -> ThreadData {
+        // TODO: Don't box and leak the native interface
+        // This can basically always be shared between threads, so we could do a lazy static version
+        // or even just give it a typical shorter lifetime?
+        // let native_interface = Box::leak(Box::new(JNINativeInterface::new_typical()));
+        // let jni = JNIEnv::new(native_interface);
+
+        // ThreadData {
+        //     id: thread_id,
+        //     jni: Box::pin(jni),
+        // }
         ThreadData { id: thread_id }
     }
 }
@@ -553,11 +565,11 @@ fn main() {
     info!("RhoJVM Initializing");
 
     let mut class_directories: ClassDirectories = ClassDirectories::default();
-    let mut class_names: ClassNames = ClassNames::default();
-    let mut class_files: ClassFiles = ClassFiles::default();
-    let mut classes: Classes = Classes::default();
-    let mut packages: Packages = Packages::default();
-    let mut methods: Methods = Methods::default();
+    let class_names: ClassNames = ClassNames::default();
+    let class_files: ClassFiles = ClassFiles::default();
+    let classes: Classes = Classes::default();
+    let packages: Packages = Packages::default();
+    let methods: Methods = Methods::default();
 
     let entry_point_cp = ["HelloWorld"];
     let class_dirs = [
@@ -577,7 +589,7 @@ fn main() {
     }
 
     // Initialize State
-    let mut state = State::new(conf);
+    let state = State::new(conf);
     unsafe {
         // libjava.so depends on libjvm and can't find it itself
         state
@@ -590,48 +602,60 @@ fn main() {
             .expect("Failed to load libjava");
     };
 
-    let mut main_thread_data = ThreadData::new(std::thread::current().id());
+    let main_thread_data = ThreadData::new(std::thread::current().id());
+
+    // The general environment structure
+    // This is also used for passing it directly into native functions
+    let env = Env {
+        interface: Box::leak(Box::new(NativeInterface::new_typical())),
+        class_directories,
+        class_names,
+        class_files,
+        classes,
+        packages,
+        methods,
+        state,
+        tdata: main_thread_data,
+    };
+    // We pin this, because each
+    let mut env = Box::pin(env);
+    let mut env: &mut Env = &mut *env;
 
     // Load the entry point
-    let entrypoint_id: ClassId = class_files
-        .load_by_class_path_slice(&class_directories, &mut class_names, &entry_point_cp)
+    let entrypoint_id: ClassId = env
+        .class_files
+        .load_by_class_path_slice(
+            &env.class_directories,
+            &mut env.class_names,
+            &entry_point_cp,
+        )
         .unwrap();
-    classes
+    env.classes
         .load_class(
-            &class_directories,
-            &mut class_names,
-            &mut class_files,
-            &mut packages,
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.packages,
             entrypoint_id,
         )
         .unwrap();
-    state.entry_point_class = Some(entrypoint_id);
+    env.state.entry_point_class = Some(entrypoint_id);
 
     if let Err(err) = verify_from_entrypoint(
-        &class_directories,
-        &mut class_names,
-        &mut class_files,
-        &mut classes,
-        &mut packages,
-        &mut methods,
-        &mut state,
+        &env.class_directories,
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+        &mut env.methods,
+        &mut env.state,
         entrypoint_id,
     ) {
         tracing::error!("failed to verify entrypoint class: {:?}", err);
         return;
     }
 
-    if let Err(err) = initialize_class(
-        &class_directories,
-        &mut class_names,
-        &mut class_files,
-        &mut classes,
-        &mut packages,
-        &mut methods,
-        &mut state,
-        &mut main_thread_data,
-        entrypoint_id,
-    ) {
+    if let Err(err) = initialize_class(&mut env, entrypoint_id) {
         tracing::error!("failed to initialize entrypoint class {:?}", err);
         return;
     }
@@ -640,43 +664,34 @@ fn main() {
     // We could check this early to make so errors from a missing main show up faster, but that is
     // an edge-case, and doesn't matter.
     {
-        let string_id = class_names.gcid_from_bytes(b"java/lang/String");
+        let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
         let main_name = b"main";
         let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
             DescriptorTypeBasic::Class(string_id),
         )]);
-        let main_method_id = methods
+        let main_method_id = env
+            .methods
             .load_method_from_desc(
-                &class_directories,
-                &mut class_names,
-                &mut class_files,
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
                 entrypoint_id,
                 main_name,
                 &main_descriptor,
             )
             .expect("Failed to load main method");
         let args = {
-            let array_id = class_names
+            let array_id = env
+                .class_names
                 .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), string_id)
                 .expect("Failed to construct type for String[]");
             // TODO: actually construct args
             let array = ReferenceArrayInstance::new(array_id, string_id, Vec::new());
-            let array_ref = state.gc.alloc(array);
+            let array_ref = env.state.gc.alloc(array);
             array_ref.into_generic()
         };
         let frame = Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(args)]));
-        match eval_method(
-            &class_directories,
-            &mut class_names,
-            &mut class_files,
-            &mut classes,
-            &mut packages,
-            &mut methods,
-            &mut state,
-            &mut main_thread_data,
-            main_method_id,
-            frame,
-        ) {
+        match eval_method(&mut env, main_method_id, frame) {
             Ok(res) => match res {
                 EvalMethodValue::ReturnVoid => (),
                 EvalMethodValue::Return(v) => {
@@ -699,52 +714,35 @@ fn main() {
 /// # Returns
 /// Returns the [`GcRef`] for the static-class instance
 pub(crate) fn initialize_class(
-    class_directories: &ClassDirectories,
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
-    tdata: &mut ThreadData,
+    env: &mut Env<'_>,
     class_id: ClassId,
 ) -> Result<BegunStatus<ValueException<GcRef<StaticClassInstance>>>, GeneralError> {
-    let info = state.classes_info.get_mut_init(class_id);
+    let info = env.state.classes_info.get_mut_init(class_id);
     if let Some(initialize_begun) = info.initialized.into_begun() {
         return Ok(initialize_begun);
     }
 
     verify_class(
-        class_directories,
-        class_names,
-        class_files,
-        classes,
-        packages,
-        methods,
-        state,
+        &env.class_directories,
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+        &mut env.methods,
+        &mut env.state,
         class_id,
     )?;
 
-    let class = classes.get(&class_id).unwrap();
+    let class = env.classes.get(&class_id).unwrap();
     if let Some(super_id) = class.super_id() {
-        initialize_class(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            super_id,
-        )?;
+        initialize_class(env, super_id)?;
     }
 
     // TODO: initialize interfaces
 
     // TODO: Handle arrays
 
-    let class_file = class_files.get(&class_id).unwrap();
+    let class_file = env.class_files.get(&class_id).unwrap();
     let mut fields = Fields::default();
 
     // TODO: It'd be nice if we could avoid allocating
@@ -752,7 +750,7 @@ pub(crate) fn initialize_class(
         .load_field_values_iter()
         .collect::<SmallVec<[_; 8]>>();
     for field_info in field_iter {
-        let class_file = class_files.get(&class_id).unwrap();
+        let class_file = env.class_files.get(&class_id).unwrap();
 
         let (field_info, constant_index) = field_info.map_err(GeneralError::ClassFileLoad)?;
         if !field_info.access_flags.contains(FieldAccessFlags::STATIC) {
@@ -780,9 +778,10 @@ pub(crate) fn initialize_class(
             return Err(GeneralError::UnparsedFieldType);
         }
         // Convert to alternative descriptor type
-        let field_type = DescriptorType::from_class_file_desc(class_names, field_type);
+        let field_type = DescriptorType::from_class_file_desc(&mut env.class_names, field_type);
         let field_type: RuntimeType<ClassId> =
-            RuntimeType::from_descriptor_type(class_names, field_type).map_err(StepError::BadId)?;
+            RuntimeType::from_descriptor_type(&mut env.class_names, field_type)
+                .map_err(StepError::BadId)?;
         // Note that we don't initialize field classes
 
         let is_final = field_info.access_flags.contains(FieldAccessFlags::FINAL);
@@ -807,24 +806,14 @@ pub(crate) fn initialize_class(
                         .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
                         .collect::<Vec<RuntimeValuePrimitive>>();
 
-                    let string_ref = util::construct_string(
-                        class_directories,
-                        class_names,
-                        class_files,
-                        classes,
-                        packages,
-                        methods,
-                        state,
-                        tdata,
-                        text,
-                    )?;
+                    let string_ref = util::construct_string(env, text)?;
                     match string_ref {
                         ValueException::Value(string_ref) => {
                             RuntimeValue::Reference(string_ref.into_generic())
                         }
                         // TODO: include information that it was due to initializing a field
                         ValueException::Exception(exc) => {
-                            let info = state.classes_info.get_mut_init(class_id);
+                            let info = env.state.classes_info.get_mut_init(class_id);
                             info.initialized = Status::Done(ValueException::Exception(exc));
                             return Ok(BegunStatus::Done(ValueException::Exception(exc)));
                         }
@@ -847,41 +836,30 @@ pub(crate) fn initialize_class(
     }
 
     let instance = StaticClassInstance::new(class_id, fields);
-    let instance_ref = state.gc.alloc(instance);
+    let instance_ref = env.state.gc.alloc(instance);
 
-    let info = state.classes_info.get_mut_init(class_id);
+    let info = env.state.classes_info.get_mut_init(class_id);
     info.initialized = Status::Done(ValueException::Value(instance_ref));
 
     // TODO: This could potentially be gc'd, we could just store the id?
     // TODO: Should this be done before or after we set initialized?
     let clinit_name = b"<clinit>";
     let clinit_desc = MethodDescriptor::new_empty();
-    match methods.load_method_from_desc(
-        class_directories,
-        class_names,
-        class_files,
+    match env.methods.load_method_from_desc(
+        &env.class_directories,
+        &mut env.class_names,
+        &mut env.class_files,
         class_id,
         clinit_name,
         &clinit_desc,
     ) {
         Ok(method_id) => {
             let frame = Frame::default();
-            match eval_method(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
-                tdata,
-                method_id,
-                frame,
-            )? {
+            match eval_method(env, method_id, frame)? {
                 EvalMethodValue::ReturnVoid => (),
                 EvalMethodValue::Return(_) => tracing::warn!("<clinit> method returned a value"),
                 EvalMethodValue::Exception(exc) => {
-                    let info = state.classes_info.get_mut_init(class_id);
+                    let info = env.state.classes_info.get_mut_init(class_id);
                     info.initialized = Status::Done(ValueException::Exception(exc));
                     return Ok(BegunStatus::Done(ValueException::Exception(exc)));
                 }

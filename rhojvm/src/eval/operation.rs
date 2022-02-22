@@ -13,11 +13,7 @@ use rhojvm_base::code::{
     types::{JavaChar, LocalVariableIndex},
 };
 
-use crate::{
-    eval::EvalError,
-    rv::{RuntimeValue, RuntimeValuePrimitive},
-    GeneralError,
-};
+use crate::{eval::EvalError, rv::RuntimeValuePrimitive, GeneralError};
 
 use super::{RunInst, RunInstArgs, RunInstValue};
 

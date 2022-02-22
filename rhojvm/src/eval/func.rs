@@ -122,14 +122,7 @@ impl RunInst for InvokeStatic {
     fn run(
         self,
         RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
+            env,
             method_id,
             frame,
             ..
@@ -138,7 +131,8 @@ impl RunInst for InvokeStatic {
         let index = self.index;
 
         let (class_id, _) = method_id.decompose();
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -163,7 +157,7 @@ impl RunInst for InvokeStatic {
         let target_class_name = class_file.get_text_b(target_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(target_class.name_index.into_generic()),
         )?;
-        let target_class_id = class_names.gcid_from_bytes(target_class_name);
+        let target_class_id = env.class_names.gcid_from_bytes(target_class_name);
 
         let method_nat =
             class_file
@@ -182,39 +176,30 @@ impl RunInst for InvokeStatic {
         let method_descriptor = class_file.get_text_b(method_nat.descriptor_index).ok_or(
             EvalError::InvalidConstantPoolIndex(method_nat.descriptor_index.into_generic()),
         )?;
-        let method_descriptor = MethodDescriptor::from_text(method_descriptor, class_names)
-            .map_err(EvalError::InvalidMethodDescriptor)?;
+        let method_descriptor =
+            MethodDescriptor::from_text(method_descriptor, &mut env.class_names)
+                .map_err(EvalError::InvalidMethodDescriptor)?;
 
         // TODO: Some of these errors should be exceptions
         resolve_derive(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
             target_class_id,
             class_id,
         )?;
 
         // TODO: Some of these errors should be exceptions
-        initialize_class(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            target_class_id,
-        )?;
+        initialize_class(env, target_class_id)?;
 
-        let target_method_id = methods.load_method_from_desc(
-            class_directories,
-            class_names,
-            class_files,
+        let target_method_id = env.methods.load_method_from_desc(
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
             target_class_id,
             &method_name,
             &method_descriptor,
@@ -223,13 +208,13 @@ impl RunInst for InvokeStatic {
         let mut locals = Locals::default();
         for parameter in method_descriptor.parameters() {
             let value = grab_runtime_value_from_stack_for_function(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.classes,
+                &mut env.packages,
+                &mut env.methods,
+                &mut env.state,
                 frame,
                 parameter,
             )?;
@@ -238,18 +223,7 @@ impl RunInst for InvokeStatic {
         }
 
         let frame = Frame::new_locals(locals);
-        let res = eval_method(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            target_method_id,
-            frame,
-        )?;
+        let res = eval_method(env, target_method_id, frame)?;
 
         Ok(match res {
             // TODO: Check that these are valid return types!
@@ -272,14 +246,7 @@ impl RunInst for InvokeSpecial {
     fn run(
         self,
         RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
+            env,
             method_id,
             frame,
             inst_index,
@@ -294,7 +261,8 @@ impl RunInst for InvokeSpecial {
             .expect("TODO: NullReferenceException");
 
         let (class_id, _) = method_id.decompose();
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -319,7 +287,7 @@ impl RunInst for InvokeSpecial {
         let target_class_name = class_file.get_text_b(target_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(target_class.name_index.into_generic()),
         )?;
-        let target_class_id = class_names.gcid_from_bytes(target_class_name);
+        let target_class_id = env.class_names.gcid_from_bytes(target_class_name);
 
         let method_nat =
             class_file
@@ -338,39 +306,30 @@ impl RunInst for InvokeSpecial {
         let method_descriptor = class_file.get_text_b(method_nat.descriptor_index).ok_or(
             EvalError::InvalidConstantPoolIndex(method_nat.descriptor_index.into_generic()),
         )?;
-        let method_descriptor = MethodDescriptor::from_text(method_descriptor, class_names)
-            .map_err(EvalError::InvalidMethodDescriptor)?;
+        let method_descriptor =
+            MethodDescriptor::from_text(method_descriptor, &mut env.class_names)
+                .map_err(EvalError::InvalidMethodDescriptor)?;
 
         // TODO: Some of these errors should be exceptions
         resolve_derive(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
             target_class_id,
             class_id,
         )?;
 
         // TODO: Some of these errors should be exceptions
-        initialize_class(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            target_class_id,
-        )?;
+        initialize_class(env, target_class_id)?;
 
-        let target_method_id = methods.load_method_from_desc(
-            class_directories,
-            class_names,
-            class_files,
+        let target_method_id = env.methods.load_method_from_desc(
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
             target_class_id,
             &method_name,
             &method_descriptor,
@@ -382,13 +341,13 @@ impl RunInst for InvokeSpecial {
 
         for parameter in method_descriptor.parameters() {
             let value = grab_runtime_value_from_stack_for_function(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.classes,
+                &mut env.packages,
+                &mut env.methods,
+                &mut env.state,
                 frame,
                 parameter,
             )?;
@@ -397,18 +356,7 @@ impl RunInst for InvokeSpecial {
         }
 
         let frame = Frame::new_locals(locals);
-        let res = eval_method(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            target_method_id,
-            frame,
-        )?;
+        let res = eval_method(env, target_method_id, frame)?;
 
         Ok(match res {
             // TODO: Check that these are valid return types!
@@ -539,14 +487,7 @@ impl RunInst for InvokeVirtual {
     fn run(
         self,
         RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
+            env,
             method_id,
             frame,
             inst_index,
@@ -562,7 +503,8 @@ impl RunInst for InvokeVirtual {
             .into_reference()
             .ok_or(EvalError::ExpectedStackValueReference)?
             .expect("TODO: NullReferenceException");
-        let instance = state
+        let instance = env
+            .state
             .gc
             .deref(instance_ref)
             .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
@@ -573,7 +515,8 @@ impl RunInst for InvokeVirtual {
         };
 
         let (class_id, _) = method_id.decompose();
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -598,7 +541,7 @@ impl RunInst for InvokeVirtual {
         let target_class_name = class_file.get_text_b(target_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(target_class.name_index.into_generic()),
         )?;
-        let target_class_id = class_names.gcid_from_bytes(target_class_name);
+        let target_class_id = env.class_names.gcid_from_bytes(target_class_name);
 
         let method_nat =
             class_file
@@ -617,41 +560,32 @@ impl RunInst for InvokeVirtual {
         let method_descriptor = class_file.get_text_b(method_nat.descriptor_index).ok_or(
             EvalError::InvalidConstantPoolIndex(method_nat.descriptor_index.into_generic()),
         )?;
-        let method_descriptor = MethodDescriptor::from_text(method_descriptor, class_names)
-            .map_err(EvalError::InvalidMethodDescriptor)?;
+        let method_descriptor =
+            MethodDescriptor::from_text(method_descriptor, &mut env.class_names)
+                .map_err(EvalError::InvalidMethodDescriptor)?;
 
         // TODO: Some of these errors should be exceptions
         resolve_derive(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
             target_class_id,
             class_id,
         )?;
 
         // TODO: Some of these errors should be exceptions
-        initialize_class(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            target_class_id,
-        )?;
+        initialize_class(env, target_class_id)?;
 
         let target_method_id = find_virtual_method(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            methods,
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.methods,
             target_class_id,
             instance_id,
             &method_name,
@@ -666,13 +600,13 @@ impl RunInst for InvokeVirtual {
 
         for parameter in method_descriptor.parameters() {
             let value = grab_runtime_value_from_stack_for_function(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.classes,
+                &mut env.packages,
+                &mut env.methods,
+                &mut env.state,
                 frame,
                 parameter,
             )?;
@@ -681,18 +615,7 @@ impl RunInst for InvokeVirtual {
         }
 
         let frame = Frame::new_locals(locals);
-        let res = eval_method(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            target_method_id,
-            frame,
-        )?;
+        let res = eval_method(env, target_method_id, frame)?;
 
         Ok(match res {
             // TODO: Check that these are valid return types!

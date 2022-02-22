@@ -1,5 +1,13 @@
+use std::ffi::CStr;
+
+use usize_cast::IntoIsize;
+
+use crate::util::Env;
+
+use super::{JBoolean, JByte, JChar, JClass, JInt, JObject, JSize, JThrowable};
+
 #[repr(C)]
-pub struct JNINativeInterface {
+pub struct NativeInterface {
     // These first four methods are reserved for future use by the JVM
     pub empty_0: NullMethod,
     pub empty_1: NullMethod,
@@ -277,9 +285,9 @@ pub struct JNINativeInterface {
 
     pub get_module: NullMethod,
 }
-impl JNINativeInterface {
-    pub(crate) fn new_typical() -> JNINativeInterface {
-        JNINativeInterface {
+impl NativeInterface {
+    pub(crate) fn new_typical() -> NativeInterface {
+        NativeInterface {
             empty_0: NullMethod::default(),
             empty_1: NullMethod::default(),
             empty_2: NullMethod::default(),
@@ -527,14 +535,14 @@ impl Default for NullMethod {
     }
 }
 
-pub type UnimplNoneFn = unsafe extern "C" fn(env: *mut JNIEnv);
-fn unimpl_none<T: std::any::Any>(_: *mut JNIEnv) {
+pub type UnimplNoneFn = unsafe extern "C" fn(env: *mut Env);
+fn unimpl_none<T: std::any::Any>(_: *mut Env) {
     unimpl(std::any::type_name::<T>())
 }
 
 // We don't need to specify return type since it will abort
-pub type UnimplOnePtrFn = unsafe extern "C" fn(env: *mut JNIEnv, ptr: *mut std::ffi::c_void);
-fn unimpl_one_ptr<T: std::any::Any>(_: *mut JNIEnv, _: *mut std::ffi::c_void) {
+pub type UnimplOnePtrFn = unsafe extern "C" fn(env: *mut Env, ptr: *mut std::ffi::c_void);
+fn unimpl_one_ptr<T: std::any::Any>(_: *mut Env, _: *mut std::ffi::c_void) {
     unimpl(std::any::type_name::<T>())
 }
 
@@ -555,14 +563,8 @@ fn unimpl(message: &str) -> ! {
 // Such as `get_version`, which in the future will probably be unsafe since it will need to access
 // the env to get data
 
-use std::ffi::CStr;
-
-use usize_cast::IntoIsize;
-
-use super::{JBoolean, JByte, JChar, JClass, JInt, JNIEnv, JObject, JSize, JThrowable};
-
-pub type GetVersionFn = unsafe extern "C" fn(env: *mut JNIEnv) -> JInt;
-extern "C" fn get_version(_: *mut JNIEnv) -> JInt {
+pub type GetVersionFn = unsafe extern "C" fn(env: *mut Env) -> JInt;
+extern "C" fn get_version(_: *mut Env) -> JInt {
     // TODO: Return a better number depending on which JVM we're acting as
     // Currently this is the JDK8 number
     0x0001_0008
@@ -585,14 +587,14 @@ extern "C" fn get_version(_: *mut JNIEnv) -> JInt {
 /// `OutOfMemoryError`: If the system runs out of memory
 /// `SecurityException`: If the caller attempts to define a class in the 'java' package tree
 pub type DefineClassFn = unsafe extern "C" fn(
-    env: *mut JNIEnv,
+    env: *mut Env,
     name: *const JChar,
     loader: JObject,
     buf: *const JByte,
     buf_len: JSize,
 ) -> JClass;
 extern "C" fn define_class(
-    env: *mut JNIEnv,
+    env: *mut Env,
     name: *const JChar,
     loader: JObject,
     buf: *const JByte,
@@ -601,64 +603,60 @@ extern "C" fn define_class(
     unimpl("DefineClass")
 }
 
-pub type FindClassFn = unsafe extern "C" fn(env: *mut JNIEnv, name: *const JChar) -> JClass;
-extern "C" fn find_class(env: *mut JNIEnv, name: *const JChar) -> JClass {
+pub type FindClassFn = unsafe extern "C" fn(env: *mut Env, name: *const JChar) -> JClass;
+extern "C" fn find_class(env: *mut Env, name: *const JChar) -> JClass {
     unimpl("FindClass")
 }
 
-pub type GetSuperclassFn = unsafe extern "C" fn(env: *mut JNIEnv, class: JClass) -> JClass;
-extern "C" fn get_superclass(env: *mut JNIEnv, class: JClass) -> JClass {
+pub type GetSuperclassFn = unsafe extern "C" fn(env: *mut Env, class: JClass) -> JClass;
+extern "C" fn get_superclass(env: *mut Env, class: JClass) -> JClass {
     unimpl("GetSuperclass")
 }
 
 pub type IsAssignableFromFn =
-    unsafe extern "C" fn(env: *mut JNIEnv, class: JClass, target_class: JClass) -> JBoolean;
-extern "C" fn is_assignable_from(
-    env: *mut JNIEnv,
-    class: JClass,
-    target_class: JClass,
-) -> JBoolean {
+    unsafe extern "C" fn(env: *mut Env, class: JClass, target_class: JClass) -> JBoolean;
+extern "C" fn is_assignable_from(env: *mut Env, class: JClass, target_class: JClass) -> JBoolean {
     unimpl("IsAssignableFrom")
 }
 
-pub type GetModuleFn = unsafe extern "C" fn(env: *mut JNIEnv, class: JClass) -> JObject;
-extern "C" fn get_module(env: *mut JNIEnv, class: JClass) -> JObject {
+pub type GetModuleFn = unsafe extern "C" fn(env: *mut Env, class: JClass) -> JObject;
+extern "C" fn get_module(env: *mut Env, class: JClass) -> JObject {
     unimpl("GetModule")
 }
 
-pub type ThrowFn = unsafe extern "C" fn(env: *mut JNIEnv, obj: JThrowable) -> JInt;
-extern "C" fn throw(env: *mut JNIEnv, obj: JThrowable) -> JInt {
+pub type ThrowFn = unsafe extern "C" fn(env: *mut Env, obj: JThrowable) -> JInt;
+extern "C" fn throw(env: *mut Env, obj: JThrowable) -> JInt {
     unimpl("Throw")
 }
 
 pub type ThrowNewFn =
-    unsafe extern "C" fn(env: *mut JNIEnv, class: JClass, message: *const JChar) -> JInt;
-extern "C" fn throw_new(env: *mut JNIEnv, class: JClass, message: *const JChar) -> JInt {
+    unsafe extern "C" fn(env: *mut Env, class: JClass, message: *const JChar) -> JInt;
+extern "C" fn throw_new(env: *mut Env, class: JClass, message: *const JChar) -> JInt {
     unimpl("ThrowNew")
 }
 
-pub type ExceptionOccurredFn = unsafe extern "C" fn(env: *mut JNIEnv) -> JThrowable;
-extern "C" fn exception_occurred(env: *mut JNIEnv) -> JThrowable {
+pub type ExceptionOccurredFn = unsafe extern "C" fn(env: *mut Env) -> JThrowable;
+extern "C" fn exception_occurred(env: *mut Env) -> JThrowable {
     unimpl("ExceptionOccurred")
 }
 
-pub type ExceptionDescribeFn = unsafe extern "C" fn(env: *mut JNIEnv);
-extern "C" fn exception_describe(env: *mut JNIEnv) {
+pub type ExceptionDescribeFn = unsafe extern "C" fn(env: *mut Env);
+extern "C" fn exception_describe(env: *mut Env) {
     unimpl("ExceptionDescribe")
 }
 
-pub type ExceptionClearFn = unsafe extern "C" fn(env: *mut JNIEnv);
-extern "C" fn exception_clear(env: *mut JNIEnv) {
+pub type ExceptionClearFn = unsafe extern "C" fn(env: *mut Env);
+extern "C" fn exception_clear(env: *mut Env) {
     unimpl("ExceptionClear")
 }
 
-pub type FatalErrorFn = unsafe extern "C" fn(env: *mut JNIEnv, msg: *const JChar);
-extern "C" fn fatal_error(env: *mut JNIEnv, msg: *const JChar) {
+pub type FatalErrorFn = unsafe extern "C" fn(env: *mut Env, msg: *const JChar);
+extern "C" fn fatal_error(env: *mut Env, msg: *const JChar) {
     unimpl("FatalError")
 }
 
-pub type ExceptionCheckFn = unsafe extern "C" fn(env: *mut JNIEnv) -> JBoolean;
-extern "C" fn exception_check(env: *mut JNIEnv) -> JBoolean {
+pub type ExceptionCheckFn = unsafe extern "C" fn(env: *mut Env) -> JBoolean;
+extern "C" fn exception_check(env: *mut Env) -> JBoolean {
     unimpl("ExceptionCheck")
 }
 
@@ -674,13 +672,13 @@ pub struct JNINativeMethod {
 /// signatures, and function pointers of the native methods.
 /// The name and signature fields of the [`JNINativeMethod`] are pointers to modified UTF-8 strings.
 pub type RegisterNativesFn = unsafe extern "C" fn(
-    env: *mut JNIEnv,
+    env: *mut Env,
     class: JClass,
     methods: *const JNINativeMethod,
     num_methods: JInt,
 ) -> JInt;
 unsafe extern "C" fn register_natives(
-    env: *mut JNIEnv,
+    env: *mut Env,
     class: JClass,
     methods: *const JNINativeMethod,
     num_methods: JInt,

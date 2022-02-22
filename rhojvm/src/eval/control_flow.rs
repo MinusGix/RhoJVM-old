@@ -16,7 +16,8 @@ use crate::{
     class_instance::ReferenceInstance,
     eval::EvalError,
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util, GeneralError,
+    util::{self, Env},
+    GeneralError,
 };
 
 use super::{RunInst, RunInstArgs, RunInstValue};
@@ -133,15 +134,7 @@ impl RunInst for Goto {
 impl RunInst for AThrow {
     fn run(
         self,
-        RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            state,
-            frame,
-            ..
-        }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         // TODO: monitor
 
@@ -149,17 +142,18 @@ impl RunInst for AThrow {
         match object {
             RuntimeValue::NullReference => todo!("return null pointer exception"),
             RuntimeValue::Reference(gc_ref) => {
-                let instance = state
+                let instance = env
+                    .state
                     .gc
                     .deref(gc_ref)
                     .ok_or(EvalError::InvalidGcRef(gc_ref.into_generic()))?;
                 if let ReferenceInstance::Class(instance) = instance {
-                    let throwable_id = class_names.gcid_from_bytes(b"java/lang/Throwable");
+                    let throwable_id = env.class_names.gcid_from_bytes(b"java/lang/Throwable");
                     if does_extend_class(
-                        class_directories,
-                        class_names,
-                        class_files,
-                        classes,
+                        &env.class_directories,
+                        &mut env.class_names,
+                        &mut env.class_files,
+                        &mut env.classes,
                         instance.instanceof,
                         throwable_id,
                     )? {

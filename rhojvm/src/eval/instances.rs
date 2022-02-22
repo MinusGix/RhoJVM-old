@@ -25,21 +25,15 @@ impl RunInst for New {
     fn run(
         self,
         RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
+            env,
             method_id,
             frame,
             ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -52,17 +46,17 @@ impl RunInst for New {
         let target_class_name = class_file.get_text_b(target_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(target_class.name_index.into_generic()),
         )?;
-        let target_class_id = class_names.gcid_from_bytes(target_class_name);
+        let target_class_id = env.class_names.gcid_from_bytes(target_class_name);
 
         // TODO: This provides some errors that should be exceptions
         resolve_derive(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
             target_class_id,
             class_id,
         )?;
@@ -70,23 +64,13 @@ impl RunInst for New {
         // TODO: Should we check if the status indicates that we already started (so we might be in
         // a loop?)
         // TODO: Some errors returned by this should be exceptions
-        let status = initialize_class(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            target_class_id,
-        )?;
+        let status = initialize_class(env, target_class_id)?;
         let target_ref = match status.into_value() {
             ValueException::Value(target) => target,
             ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
         };
 
-        let target_class = classes.get(&target_class_id).unwrap();
+        let target_class = env.classes.get(&target_class_id).unwrap();
         if target_class.is_interface()
             || target_class
                 .access_flags()
@@ -103,7 +87,7 @@ impl RunInst for New {
         };
 
         // Allocate the class instance
-        let class_ref = state.gc.alloc(class);
+        let class_ref = env.state.gc.alloc(class);
         frame
             .stack
             .push(RuntimeValue::Reference(class_ref.into_generic()))?;
@@ -116,21 +100,15 @@ impl RunInst for ANewArray {
     fn run(
         self,
         RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
+            env,
             method_id,
             frame,
             ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -143,17 +121,17 @@ impl RunInst for ANewArray {
         let elem_class_name = class_file.get_text_b(elem_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(elem_class.name_index.into_generic()),
         )?;
-        let elem_class_id = class_names.gcid_from_bytes(elem_class_name);
+        let elem_class_id = env.class_names.gcid_from_bytes(elem_class_name);
 
         // TODO: This provides some errors that should be exceptions
         resolve_derive(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
             elem_class_id,
             class_id,
         )?;
@@ -161,17 +139,7 @@ impl RunInst for ANewArray {
         // TODO: Should we check if the status indicates that we already started (so we might be in
         // a loop?)
         // TODO: Some errors returned by this should be exceptions
-        let _status = initialize_class(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            elem_class_id,
-        )?;
+        let _status = initialize_class(env, elem_class_id)?;
 
         let count = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let count = count
@@ -185,11 +153,11 @@ impl RunInst for ANewArray {
         let count = (count as u32).into_usize();
 
         // Register the class for arrays of this type
-        let array_id = classes.load_array_of_instances(
-            class_directories,
-            class_names,
-            class_files,
-            packages,
+        let array_id = env.classes.load_array_of_instances(
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.packages,
             elem_class_id,
         )?;
 
@@ -197,7 +165,7 @@ impl RunInst for ANewArray {
         elements.resize(count, None);
 
         let array_inst = ReferenceArrayInstance::new(array_id, elem_class_id, elements);
-        let array_ref = state.gc.alloc(array_inst);
+        let array_ref = env.state.gc.alloc(array_inst);
         frame
             .stack
             .push(RuntimeValue::Reference(array_ref.into_generic()))?;
@@ -215,13 +183,7 @@ impl RunInst for MultiANewArray {
 impl RunInst for NewArray {
     fn run(
         self,
-        RunInstArgs {
-            class_names,
-            classes,
-            state,
-            frame,
-            ..
-        }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let count = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let count = count
@@ -240,13 +202,15 @@ impl RunInst for NewArray {
         let elem_type = RuntimeTypePrimitive::from(elem_prim_type);
 
         // Register the class for arrays of this type
-        let array_id = classes.load_array_of_primitives(class_names, elem_prim_type)?;
+        let array_id = env
+            .classes
+            .load_array_of_primitives(&mut env.class_names, elem_prim_type)?;
 
         let mut elements: Vec<RuntimeValuePrimitive> = Vec::new();
         elements.resize(count, elem_type.default_value());
 
         let array_inst = PrimitiveArrayInstance::new(array_id, elem_type, elements);
-        let array_ref = state.gc.alloc(array_inst);
+        let array_ref = env.state.gc.alloc(array_inst);
         frame
             .stack
             .push(RuntimeValue::Reference(array_ref.into_generic()))?;
@@ -501,13 +465,7 @@ impl RunInst for CheckCast {
     fn run(
         self,
         RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            env,
             method_id,
             frame,
             ..
@@ -522,13 +480,15 @@ impl RunInst for CheckCast {
             RuntimeValue::Reference(gc_ref) => gc_ref,
             RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
         };
-        let val_inst = state
+        let val_inst = env
+            .state
             .gc
             .deref(val)
             .ok_or(EvalError::InvalidGcRef(val.into_generic()))?;
 
         let (class_id, _) = method_id.decompose();
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -541,7 +501,7 @@ impl RunInst for CheckCast {
         let cast_target_name = class_file.get_text_b(cast_target.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(cast_target.name_index.into_generic()),
         )?;
-        let cast_target_id = class_names.gcid_from_bytes(cast_target_name);
+        let cast_target_id = env.class_names.gcid_from_bytes(cast_target_name);
 
         let id = match val_inst {
             ReferenceInstance::Class(class) => class.instanceof,
@@ -552,13 +512,13 @@ impl RunInst for CheckCast {
         // We currently represent the reference as completely unmodified, but we do have to
         // perform these checks so that we can determine if the cast is correct
         match try_casting(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
             id,
             cast_target_id,
             |class_directories,
@@ -599,13 +559,7 @@ impl RunInst for InstanceOf {
     fn run(
         self,
         RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            env,
             method_id,
             frame,
             ..
@@ -620,13 +574,15 @@ impl RunInst for InstanceOf {
             RuntimeValue::Reference(gc_ref) => gc_ref,
             RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
         };
-        let val_inst = state
+        let val_inst = env
+            .state
             .gc
             .deref(val)
             .ok_or(EvalError::InvalidGcRef(val.into_generic()))?;
 
         let (class_id, _) = method_id.decompose();
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -639,7 +595,7 @@ impl RunInst for InstanceOf {
         let cast_target_name = class_file.get_text_b(cast_target.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(cast_target.name_index.into_generic()),
         )?;
-        let cast_target_id = class_names.gcid_from_bytes(cast_target_name);
+        let cast_target_id = env.class_names.gcid_from_bytes(cast_target_name);
 
         let id = match val_inst {
             ReferenceInstance::Class(class) => class.instanceof,
@@ -650,13 +606,13 @@ impl RunInst for InstanceOf {
         // We currently represent the reference as completely unmodified, but we do have to
         // perform these checks so that we can determine if the cast is correct
         match try_casting(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
             id,
             cast_target_id,
             |_, _, _, _, _, _, _, _, _, _| Ok(CastResult::Failure),

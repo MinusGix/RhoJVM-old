@@ -22,9 +22,10 @@ use rhojvm_base::{
 use crate::{
     class_instance::{ClassInstance, Instance},
     gc::GcRef,
-    jni::{self, native_interface::JNINativeInterface, JNIEnv},
+    jni::{self},
     method::NativeMethod,
     rv::{RuntimeType, RuntimeValue, RuntimeValuePrimitive},
+    util::Env,
     GeneralError, State, ThreadData,
 };
 
@@ -273,28 +274,22 @@ pub enum EvalMethodValue {
 
 /// `method_id` should already be loaded
 pub fn eval_method(
-    class_directories: &ClassDirectories,
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
-    tdata: &mut ThreadData,
+    env: &mut Env,
     method_id: MethodId,
     mut frame: Frame,
 ) -> Result<EvalMethodValue, GeneralError> {
     let (class_id, _) = method_id.decompose();
 
-    let method = methods
+    let method = env
+        .methods
         .get_mut(&method_id)
         .ok_or(EvalError::MissingMethod(method_id))?;
-    method.load_code(class_files)?;
+    method.load_code(&mut env.class_files)?;
 
     {
-        if let Some(class_file) = class_files.get(&class_id) {
+        if let Some(class_file) = env.class_files.get(&class_id) {
             let method_name = class_file.get_text_b(method.name_index()).unwrap();
-            let class_name = class_names.tpath(class_id);
+            let class_name = env.class_names.tpath(class_id);
             tracing::info!(
                 "Executing Method: {}::{}",
                 class_name,
@@ -305,18 +300,22 @@ pub fn eval_method(
         }
     }
 
+    // TODO: Move to separate function to make it easier to reason about and maintain safety
     if method.access_flags().contains(MethodAccessFlags::NATIVE) {
         tracing::info!("\tNative Method");
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(GeneralError::MissingLoadedClassFile(class_id))?;
-        let (class_name, _) = class_names
+        let (class_name, _) = env
+            .class_names
             .name_from_gcid(class_id)
             .map_err(StepError::BadId)?;
 
         // Get the native function if it exists
         // If it does not exist then we find it given the name of the native function
-        let native_func = if let Some(native_func) = state
+        let native_func = if let Some(native_func) = env
+            .state
             .method_info
             .get(method_id)
             .and_then(|x| x.native_func.clone())
@@ -329,11 +328,14 @@ pub fn eval_method(
 
             let name = jni::name::make_native_method_name(class_name.get(), method_name);
 
-            let native_func =
-                unsafe { state.native.find_symbol_blocking_jni_opaque_method(&name) }?;
+            let native_func = unsafe {
+                env.state
+                    .native
+                    .find_symbol_blocking_jni_opaque_method(&name)
+            }?;
             let native_func = NativeMethod::OpaqueFound(native_func);
 
-            state.method_info.modify_init_with(method_id, |data| {
+            env.state.method_info.modify_init_with(method_id, |data| {
                 data.native_func = Some(native_func.clone());
             });
 
@@ -341,12 +343,10 @@ pub fn eval_method(
         };
         let native_func = native_func.get().clone();
 
-        // tracing::info!("\tNative Name: {}")
-
         if method.descriptor().is_nullary_void() {
             let class_ref: GcRef<Instance> =
                 if method.access_flags().contains(MethodAccessFlags::STATIC) {
-                    state
+                    env.state
                         .find_static_class_instance(class_id)
                         .ok_or(EvalError::MissingStaticClassRef(class_id))?
                 } else {
@@ -364,14 +364,6 @@ pub fn eval_method(
                     }
                 };
 
-            // TODO: This is wrong. The jni pointer passed into native methods should be the same on
-            // each thread. This might technically get it, but is not something we should rely on.
-            // We create the JNIEnv inside the if, because it will need access to a lot of the state
-            // which `method` is borrowed from
-            let jni_interface = JNINativeInterface::new_typical();
-            let mut jni_env = JNIEnv::new(&jni_interface);
-
-            let jni_env_ptr = std::ptr::addr_of_mut!(jni_env);
             let class_ref_ptr = std::ptr::addr_of!(class_ref);
 
             // Safety: We rely on the declared parameter types of java being correct
@@ -379,9 +371,17 @@ pub fn eval_method(
             // in a `*mut JNIEnv`, and `JObject` and returns nothing.
             // However, the safety of this call depends entirely on the safety of the function
             // itself.
+            // The native code can store this pointer for use later, but the JVM spec only allows
+            // it to be valid on the same thread. Since they can't use it from a different thread,
+            // I believe we can rely on that they can't reasonably use it unless we call into them.
+            // The pointer.
+            // TODO: Is it valid for there to maybe be live mutable pointers to a mutable
+            // reference, if they aren't used? I'm not sure how we'd get around that if it
+            // isn't...
+            let env_ptr = env as *mut Env<'_>;
             let native_func = native_func.get();
             unsafe {
-                (native_func)(jni_env_ptr, class_ref_ptr);
+                (native_func)(env_ptr, class_ref_ptr);
             };
         } else {
             todo!("Fully implement native methods");
@@ -392,7 +392,8 @@ pub fn eval_method(
     let mut pc = InstructionIndex(0);
 
     loop {
-        let method = methods
+        let method = env
+            .methods
             .get_mut(&method_id)
             .ok_or(EvalError::MissingMethod(method_id))?;
 
@@ -407,11 +408,11 @@ pub fn eval_method(
 
         {
             let (class_id, _) = method_id.decompose();
-            if let Some(class_file) = class_files.get(&class_id) {
+            if let Some(class_file) = env.class_files.get(&class_id) {
                 tracing::info!(
                     "# ({}) {}",
                     pc.0,
-                    inst.as_pretty_string(class_names, class_file)
+                    inst.as_pretty_string(&mut env.class_names, class_file)
                 );
             } else {
                 tracing::info!("# ({}) {:?}", pc.0, inst);
@@ -419,14 +420,7 @@ pub fn eval_method(
         }
 
         let args = RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
+            env,
             method_id,
             frame: &mut frame,
             inst_index: pc,
@@ -462,15 +456,8 @@ pub enum RunInstValue {
     ContinueAt(InstructionIndex),
 }
 
-pub struct RunInstArgs<'cd, 'cn, 'cf, 'c, 'p, 'm, 's, 'f> {
-    pub class_directories: &'cd ClassDirectories,
-    pub class_names: &'cn mut ClassNames,
-    pub class_files: &'cf mut ClassFiles,
-    pub classes: &'c mut Classes,
-    pub packages: &'p mut Packages,
-    pub methods: &'m mut Methods,
-    pub state: &'s mut State,
-    pub tdata: &'s mut ThreadData,
+pub struct RunInstArgs<'e, 'i, 'f> {
+    pub env: &'e mut Env<'i>,
     pub method_id: MethodId,
     pub frame: &'f mut Frame,
     /// Index into 'bytes' of instructions, which is more commonly used in code

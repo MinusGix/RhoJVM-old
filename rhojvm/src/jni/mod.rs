@@ -5,12 +5,7 @@
 // For now, while many of these are unimplemented,
 #![allow(unused_variables)]
 
-use crate::{
-    class_instance::{Instance, ReferenceInstance},
-    gc::GcRef,
-};
-
-use self::{native_interface::JNINativeInterface, native_lib::StaticSymbol};
+use crate::{class_instance::Instance, gc::GcRef, util::Env};
 
 pub mod name;
 pub mod native_interface;
@@ -57,21 +52,6 @@ pub type JFloatArray = JObject;
 pub type JDoubleArray = JObject;
 pub type JThrowable = JObject;
 
-/// A `JNIEnv*` is passed into most functions
-/// The first field _must_ be a pointer to some `JNINativeInterface`
-/// It can be assumed to only be accessed from one thread
-#[repr(C)]
-pub struct JNIEnv<'a> {
-    pub interface: &'a JNINativeInterface,
-}
-impl<'a> JNIEnv<'a> {
-    /// Construct a JNI environment with the given native interface virtual table
-    #[must_use]
-    pub fn new(interface: &'a JNINativeInterface) -> JNIEnv<'a> {
-        JNIEnv { interface }
-    }
-}
-
 /// A method for a class that is 'opaque' in that not all of its arguments are known
 /// This is primarily for storing, where get the method descriptor but we can't really
 /// statically represent the type in a good manner.
@@ -105,7 +85,7 @@ impl std::fmt::Debug for OpaqueClassMethod {
 }
 
 /// A JNI function that only takes the environment
-pub type MethodNoArguments = unsafe extern "C" fn(env: *mut JNIEnv);
+pub type MethodNoArguments = unsafe extern "C" fn(env: *mut Env);
 /// A JNI function that only takes the environment and the static class it is in
 /// For example, `registerNatives` is typically like this
-pub type MethodClassNoArguments = unsafe extern "C" fn(env: *mut JNIEnv, class: JClass);
+pub type MethodClassNoArguments = unsafe extern "C" fn(env: *mut Env, class: JClass);

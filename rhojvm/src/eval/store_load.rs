@@ -36,8 +36,8 @@ use crate::{
     gc::GcRef,
     initialize_class,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{self},
-    GeneralError, State, ThreadData,
+    util::{self, Env},
+    GeneralError, State,
 };
 
 use super::{EvalError, Frame, RunInst, RunInstArgs, RunInstValue, ValueException};
@@ -47,19 +47,13 @@ enum DestRes {
     RunInst(RunInstValue),
 }
 fn get_field_dest(
-    class_directories: &ClassDirectories,
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
-    tdata: &mut ThreadData,
+    env: &mut Env,
     frame: &mut Frame,
     index: ConstantPoolIndexRaw<FieldRefConstant>,
     class_id: ClassId,
 ) -> Result<DestRes, GeneralError> {
-    let class_file = class_files
+    let class_file = env
+        .class_files
         .get(&class_id)
         .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -79,22 +73,12 @@ fn get_field_dest(
         let dest_class_id = class_file.get_text_b(dest_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(dest_class.name_index.into_generic()),
         )?;
-        let dest_class_id = class_names.gcid_from_bytes(dest_class_id);
+        let dest_class_id = env.class_names.gcid_from_bytes(dest_class_id);
 
         // TODO: Check the begun status
         // Initialize the target class, since we're going to need to get a field from it
         // and so it has to be all initialized before we can do that
-        let status = initialize_class(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            dest_class_id,
-        )?;
+        let status = initialize_class(env, dest_class_id)?;
         let dest_ref = match status.into_value() {
             ValueException::Value(dest) => dest,
             ValueException::Exception(exc) => {
@@ -112,14 +96,7 @@ impl RunInst for GetStatic {
     fn run(
         self,
         RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
+            env,
             method_id,
             frame,
             ..
@@ -127,26 +104,15 @@ impl RunInst for GetStatic {
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
 
-        let (dest_ref, field) = match get_field_dest(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            frame,
-            self.index,
-            class_id,
-        )? {
+        let (dest_ref, field) = match get_field_dest(env, frame, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
         };
 
         // TODO: Should we load the class file since initalize class might have done a lot?
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
         let field = class_file.get_t(field.name_and_type_index).ok_or(
@@ -160,7 +126,8 @@ impl RunInst for GetStatic {
                     field.name_index.into_generic(),
                 ))?;
 
-        let dest_instance = state
+        let dest_instance = env
+            .state
             .gc
             .deref(dest_ref)
             .ok_or(EvalError::InvalidGcRef(dest_ref.into_generic()))?;
@@ -190,14 +157,7 @@ impl RunInst for GetField {
     fn run(
         self,
         RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
+            env,
             method_id,
             frame,
             inst_index,
@@ -214,25 +174,14 @@ impl RunInst for GetField {
             None => todo!("Return null pointer exception"),
         };
 
-        let (_, field) = match get_field_dest(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            frame,
-            self.index,
-            class_id,
-        )? {
+        let (_, field) = match get_field_dest(env, frame, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably an exception
             DestRes::RunInst(v) => return Ok(v),
         };
 
-        let instance = state
+        let instance = env
+            .state
             .gc
             .deref(instance_ref)
             .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
@@ -246,7 +195,8 @@ impl RunInst for GetField {
         // TODO: use more generic container
         let instance_ref: GcRef<ClassInstance> = instance_ref.unchecked_as();
 
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
         let field = class_file.get_t(field.name_and_type_index).ok_or(
@@ -259,7 +209,8 @@ impl RunInst for GetField {
                     field.name_index.into_generic(),
                 ))?;
 
-        let instance = state
+        let instance = env
+            .state
             .gc
             .deref(instance_ref)
             .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
@@ -284,14 +235,7 @@ impl RunInst for PutField {
 
 fn load_constant(
     RunInstArgs {
-        class_directories,
-        class_names,
-        class_files,
-        classes,
-        packages,
-        methods,
-        state,
-        tdata,
+        env,
         method_id,
         frame,
         inst_index,
@@ -299,7 +243,8 @@ fn load_constant(
     index: ConstantPoolIndexRaw<ConstantInfo>,
 ) -> Result<RunInstValue, GeneralError> {
     let (class_id, _) = method_id.decompose();
-    let class_file = class_files
+    let class_file = env
+        .class_files
         .get(&class_id)
         .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -314,7 +259,7 @@ fn load_constant(
             let class_name = class_file.get_text_b(class.name_index).ok_or(
                 EvalError::InvalidConstantPoolIndex(class.name_index.into_generic()),
             )?;
-            let class_id = class_names.gcid_from_bytes(class_name);
+            let class_id = env.class_names.gcid_from_bytes(class_name);
 
             todo!()
         }
@@ -328,17 +273,7 @@ fn load_constant(
                 .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
                 .collect::<Vec<_>>();
 
-            let string_ref = util::construct_string(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
-                tdata,
-                char_arr,
-            )?;
+            let string_ref = util::construct_string(env, char_arr)?;
             match string_ref {
                 ValueException::Value(string_ref) => frame
                     .stack
@@ -371,14 +306,15 @@ impl RunInst for LoadConstant2Wide {
     fn run(
         self,
         RunInstArgs {
-            class_files,
+            env,
             method_id,
             frame,
             ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
-        let class_file = class_files
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
@@ -1033,7 +969,7 @@ impl RunInst for DoubleConst1 {
 impl RunInst for ArrayLength {
     fn run(
         self,
-        RunInstArgs { state, frame, .. }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let array_ref = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let array_ref = match array_ref {
@@ -1041,7 +977,8 @@ impl RunInst for ArrayLength {
             RuntimeValue::NullReference => todo!("Return NullPointerException"),
             RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
         };
-        let array_inst = state
+        let array_inst = env
+            .state
             .gc
             .deref(array_ref)
             .ok_or(EvalError::InvalidGcRef(array_ref.into_generic()))?;
@@ -1179,6 +1116,7 @@ fn array_store(
     let value = convert_value(&mut args, value)?;
 
     let array_inst = args
+        .env
         .state
         .gc
         .deref_mut(array_ref)
@@ -1208,27 +1146,15 @@ fn array_store(
 impl RunInst for AALoad {
     fn run(
         self,
-        RunInstArgs { state, frame, .. }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
-        array_load(state, frame, RuntimeType::Reference(()))
+        array_load(&mut env.state, frame, RuntimeType::Reference(()))
     }
 }
 impl RunInst for AAStore {
     fn run(
         self,
-        RunInstArgs {
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            tdata,
-            method_id,
-            frame,
-            inst_index,
-        }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let index = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let index = index
@@ -1254,7 +1180,8 @@ impl RunInst for AAStore {
         // This is calculated before because it needs immutable acess to state.gc but array inst
         // needs mutable access
         let id = if let Some(value_ref) = value_ref {
-            let value_inst = state
+            let value_inst = env
+                .state
                 .gc
                 .deref(value_ref)
                 .ok_or(EvalError::InvalidGcRef(value_ref.into_generic()))?;
@@ -1268,7 +1195,8 @@ impl RunInst for AAStore {
             None
         };
 
-        let array_inst = state
+        let array_inst = env
+            .state
             .gc
             .deref_mut(array_ref)
             .ok_or(EvalError::InvalidGcRef(array_ref.into_generic()))?;
@@ -1305,9 +1233,9 @@ impl RunInst for AAStore {
 impl RunInst for FloatArrayLoad {
     fn run(
         self,
-        RunInstArgs { state, frame, .. }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
-        array_load(state, frame, RuntimeTypePrimitive::F32)
+        array_load(&mut env.state, frame, RuntimeTypePrimitive::F32)
     }
 }
 impl RunInst for FloatArrayStore {
@@ -1325,9 +1253,9 @@ impl RunInst for FloatArrayStore {
 impl RunInst for DoubleArrayLoad {
     fn run(
         self,
-        RunInstArgs { state, frame, .. }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
-        array_load(state, frame, RuntimeTypePrimitive::F64)
+        array_load(&mut env.state, frame, RuntimeTypePrimitive::F64)
     }
 }
 impl RunInst for DoubleArrayStore {
@@ -1345,9 +1273,9 @@ impl RunInst for DoubleArrayStore {
 impl RunInst for LongArrayLoad {
     fn run(
         self,
-        RunInstArgs { state, frame, .. }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
-        array_load(state, frame, RuntimeTypePrimitive::I64)
+        array_load(&mut env.state, frame, RuntimeTypePrimitive::I64)
     }
 }
 impl RunInst for LongArrayStore {
@@ -1365,9 +1293,9 @@ impl RunInst for LongArrayStore {
 impl RunInst for ShortArrayLoad {
     fn run(
         self,
-        RunInstArgs { state, frame, .. }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
-        array_load(state, frame, RuntimeTypePrimitive::I16)
+        array_load(&mut env.state, frame, RuntimeTypePrimitive::I16)
     }
 }
 impl RunInst for ShortArrayStore {
@@ -1390,9 +1318,9 @@ impl RunInst for ShortArrayStore {
 impl RunInst for IntALoad {
     fn run(
         self,
-        RunInstArgs { state, frame, .. }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
-        array_load(state, frame, RuntimeTypePrimitive::I32)
+        array_load(&mut env.state, frame, RuntimeTypePrimitive::I32)
     }
 }
 impl RunInst for IntArrayStore {
@@ -1415,9 +1343,9 @@ impl RunInst for IntArrayStore {
 impl RunInst for ByteArrayLoad {
     fn run(
         self,
-        RunInstArgs { state, frame, .. }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
-        array_load(state, frame, RuntimeTypePrimitive::I8)
+        array_load(&mut env.state, frame, RuntimeTypePrimitive::I8)
     }
 }
 impl RunInst for ByteArrayStore {
@@ -1440,9 +1368,9 @@ impl RunInst for ByteArrayStore {
 impl RunInst for CharArrayLoad {
     fn run(
         self,
-        RunInstArgs { state, frame, .. }: RunInstArgs,
+        RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
-        array_load(state, frame, RuntimeTypePrimitive::Char)
+        array_load(&mut env.state, frame, RuntimeTypePrimitive::Char)
     }
 }
 impl RunInst for CharArrayStore {
