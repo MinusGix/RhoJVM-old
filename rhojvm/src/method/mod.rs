@@ -54,6 +54,7 @@ pub enum NativeMethod {
     // TODO: Variants for like jitted methods or overrides
 }
 impl NativeMethod {
+    #[must_use]
     pub fn get(&self) -> &OpaqueClassMethod {
         match self {
             NativeMethod::OpaqueFound(x) | NativeMethod::OpaqueRegistered(x) => x,

@@ -15,8 +15,7 @@
 #![allow(clippy::similar_names)]
 
 use std::{
-    borrow::Cow, collections::HashMap, num::NonZeroUsize, ops::DerefMut, path::Path, sync::Arc,
-    thread::ThreadId,
+    borrow::Cow, collections::HashMap, num::NonZeroUsize, path::Path, sync::Arc, thread::ThreadId,
 };
 
 use class_instance::{Field, FieldAccess, Fields, Instance, StaticClassInstance};
@@ -218,24 +217,10 @@ struct ClassInfo {
 /// State that is per-thread
 pub struct ThreadData {
     id: ThreadId,
-    // pub jni: *mut
-    // /// [`JNIEnv`] are pinned to a specific place in memory per each thread
-    // /// The reason we use a raw pointer is that
-    // pub jni: Pin<Box<jni::JNIEnv<'static>>>,
 }
 impl ThreadData {
     #[must_use]
     pub fn new(thread_id: ThreadId) -> ThreadData {
-        // TODO: Don't box and leak the native interface
-        // This can basically always be shared between threads, so we could do a lazy static version
-        // or even just give it a typical shorter lifetime?
-        // let native_interface = Box::leak(Box::new(JNINativeInterface::new_typical()));
-        // let jni = JNIEnv::new(native_interface);
-
-        // ThreadData {
-        //     id: thread_id,
-        //     jni: Box::pin(jni),
-        // }
         ThreadData { id: thread_id }
     }
 }
@@ -655,7 +640,7 @@ fn main() {
         return;
     }
 
-    if let Err(err) = initialize_class(&mut env, entrypoint_id) {
+    if let Err(err) = initialize_class(env, entrypoint_id) {
         tracing::error!("failed to initialize entrypoint class {:?}", err);
         return;
     }
@@ -691,7 +676,7 @@ fn main() {
             array_ref.into_generic()
         };
         let frame = Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(args)]));
-        match eval_method(&mut env, main_method_id, frame) {
+        match eval_method(env, main_method_id, frame) {
             Ok(res) => match res {
                 EvalMethodValue::ReturnVoid => (),
                 EvalMethodValue::Return(v) => {

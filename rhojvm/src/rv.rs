@@ -67,11 +67,13 @@ impl RuntimeValuePrimitive {
 
     #[must_use]
     pub fn into_byte(self) -> Option<i8> {
+        #[allow(clippy::cast_possible_truncation)]
         self.into_int().map(|x| x as i8)
     }
 
     #[must_use]
     pub fn into_short(self) -> Option<i16> {
+        #[allow(clippy::cast_possible_truncation)]
         self.into_int().map(|x| x as i16)
     }
 

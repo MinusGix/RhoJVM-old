@@ -1,4 +1,4 @@
-//! Implements JNI functions, structures, and behavior for the RhoJVM.
+//! Implements JNI functions, structures, and behavior for the `RhoJVM`.
 //! This has to implement from the specification, since I found it ambiguous if one could use
 //! bindgen on the openjdk `jni.h` files without inheriting the GPL license.
 
