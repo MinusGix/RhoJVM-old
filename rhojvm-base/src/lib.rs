@@ -31,6 +31,7 @@ use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
     rc::Rc,
+    sync::atomic::{self, AtomicU64},
 };
 
 use class::{
@@ -1147,16 +1148,16 @@ impl ClassNameInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ClassNames {
-    next_id: u64,
+    next_id: AtomicU64,
     names: IndexMap<RawClassName, ClassNameInfo>,
 }
 impl ClassNames {
     #[must_use]
     pub fn new() -> Self {
         let mut class_names = ClassNames {
-            next_id: 0,
+            next_id: AtomicU64::new(0),
             // TODO: We could probably choose a better and more accurate default
             // For a basic program, it might fit under this limit
             names: IndexMap::with_capacity(32),
@@ -1170,9 +1171,9 @@ impl ClassNames {
 
     /// Construct a new unique id
     fn get_new_id(&mut self) -> ClassId {
-        let id = ClassId::new_unchecked(self.next_id);
-        self.next_id += 1;
-        id
+        // Based on https://en.cppreference.com/w/cpp/atomic/memory_order in the Relaxed ordering
+        // section, Relaxed ordering should work good for a counter that is only incrementing.
+        ClassId::new_unchecked(self.next_id.fetch_add(1, atomic::Ordering::Relaxed))
     }
 
     /// Get the id of `b"java/lang/Object"`. Cached.
