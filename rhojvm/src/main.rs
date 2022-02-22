@@ -14,7 +14,13 @@
 // Too error prone
 #![allow(clippy::similar_names)]
 
-use std::{borrow::Cow, collections::HashMap, num::NonZeroUsize, path::Path};
+use std::{
+    borrow::{BorrowMut, Cow},
+    collections::HashMap,
+    num::NonZeroUsize,
+    path::Path,
+    sync::{Arc, RwLock},
+};
 
 use class_instance::{Field, FieldAccess, Fields, Instance, StaticClassInstance};
 use classfile_parser::{
@@ -26,7 +32,7 @@ use classfile_parser::{
 };
 use eval::{EvalError, EvalMethodValue};
 use gc::{Gc, GcRef};
-use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibraries};
+use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibraries, NativeLibrariesStatic};
 // use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
     class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassFileData, ClassVariant},
@@ -214,7 +220,7 @@ pub struct State {
 
     gc: Gc,
 
-    native: NativeLibraries,
+    native: Arc<NativeLibrariesStatic>,
 
     classes_info: ClassesInfo,
 
@@ -232,7 +238,13 @@ impl State {
 
             gc: Gc::new(),
 
-            native: NativeLibraries::new(),
+            // The native libraries is wrapped in an `RwLock` since loading libraries is relatively
+            // uncommon, but extracting symbols (immutable op) is more common.
+            // We leak it so that the libraries will last forever, since unloading seems to be weird
+            // and it is hard to ensure that things live long enough and also have lifetimes
+            // pointing to the same structure..
+            // Leaking it will allow us to also convert symbols into raw function pointers.
+            native: Arc::new(NativeLibrariesStatic::new()),
 
             classes_info: ClassesInfo::default(),
 
@@ -550,17 +562,19 @@ fn main() {
 
     // Initialize State
     let mut state = State::new(conf);
-    unsafe {
-        // libjava.so depends on libjvm and can't find it itself
-        state
-            .native
-            .load_library("./rhojvm/ex/lib/amd64/server/libjvm.so")
-            .expect("Failed to load libjvm");
-        state
-            .native
-            .load_library("./rhojvm/ex/lib/amd64/libjava.so")
-            .expect("Failed to load libjava");
-    }
+    {
+        unsafe {
+            // libjava.so depends on libjvm and can't find it itself
+            state
+                .native
+                .load_library_blocking("./rhojvm/ex/lib/amd64/server/libjvm.so")
+                .expect("Failed to load libjvm");
+            state
+                .native
+                .load_library_blocking("./rhojvm/ex/lib/amd64/libjava.so")
+                .expect("Failed to load libjava");
+        }
+    };
 
     // Load the entry point
     let entrypoint_id: ClassId = class_files

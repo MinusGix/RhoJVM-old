@@ -368,12 +368,20 @@ pub fn eval_method(
             let jni_interface = JNINativeInterface::new_typical();
             let mut jni_env = JNIEnv::new(&jni_interface);
 
-            // TODO: Static nullary void is incorrect for non-nullary
-            // Safety: The Java given method descriptor defines it as taking no arguments
-            // and it is a static method. This means that it will only get the `*mut JNIEnv` and
-            // `JClass` of the class itself
-            // Otherwise, the safety of this relies on the safety of what we are being told by Java
-            let native_func = unsafe { state.native.find_symbol_jni_static_nullary_void(&name) }?;
+            let native_func = {
+                // TODO: Static nullary void is incorrect for non-nullary
+                // Safety: The Java given method descriptor defines it as taking no arguments
+                // and it is a static method. This means that it will only get the `*mut JNIEnv` and
+                // `JClass` of the class itself
+                // Otherwise, the safety of this relies on the safety of what we are being told by // Java
+                let native_func = unsafe {
+                    state
+                        .native
+                        .find_symbol_blocking_jni_static_nullary_void(&name)
+                }?;
+                native_func
+            };
+
             // The safety of this relies on Java's described parameters being accurate
             // As well as the code itself being safe, which we can only hope since this is
             // arbitrary code.
