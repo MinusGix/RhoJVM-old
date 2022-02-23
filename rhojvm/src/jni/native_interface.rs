@@ -1,8 +1,14 @@
 use std::ffi::CStr;
 
+use rhojvm_base::code::method::MethodDescriptor;
 use usize_cast::IntoIsize;
 
-use crate::util::Env;
+use crate::{
+    class_instance::Instance,
+    jni::{self, OpaqueClassMethod},
+    method::NativeMethod,
+    util::Env,
+};
 
 use super::{JBoolean, JByte, JChar, JClass, JInt, JObject, JSize, JThrowable};
 
@@ -667,6 +673,7 @@ pub struct JNINativeMethod {
     pub fn_ptr: *mut std::os::raw::c_void,
 }
 
+pub const REGISTER_NATIVE_SUCCESS: JInt = 0;
 /// Registers native methods with the class specified.
 /// The methods parameter specifies an array of [`JNINativeMethod`]s that contain the names,
 /// signatures, and function pointers of the native methods.
@@ -683,20 +690,115 @@ unsafe extern "C" fn register_natives(
     methods: *const JNINativeMethod,
     num_methods: JInt,
 ) -> JInt {
-    for i in 0..num_methods {
-        let method = methods.offset(i.into_isize());
-        let name = CStr::from_ptr((*method).name);
-        let signature = CStr::from_ptr((*method).signature);
-        let fn_ptr = (*method).fn_ptr;
-        tracing::info!(
-            "\tRegistering {} :: {} => 0x{:X}",
-            name.to_str().unwrap(),
-            signature.to_str().unwrap(),
-            fn_ptr as usize,
-        );
+    assert!(!env.is_null(), "Native method's env was a nullptr");
+    // Technically num_methods can't be 0, but lenient
+    if num_methods == 0 {
+        tracing::warn!("Native method passed in zero num_methods to RegisterNative");
+        // We are lenient in this check
+        if methods.is_null() {
+            tracing::warn!("Native method passed in nullptr to RegisterNative");
+        }
+        return REGISTER_NATIVE_SUCCESS;
     }
 
-    unimpl("RegisterNatives");
+    assert!(!methods.is_null(), "RegisterNative's methods was a nullptr");
+    assert!(!class.is_null(), "RegisterNative's class was nullptr");
 
-    return 0;
+    // Safety: No other thread should be modifying this
+    // We also assume it is a valid ref and hasn't been internally modified
+    // in such a way as to make it invalid
+    // We asserted that it is not null
+    let class = *class;
+
+    // Safety: No other thread should be using this
+    // Though this relies on the native code being valid.
+    // We already assert that it is not null
+    let env = &mut *env;
+
+    // The class id of the class we were given
+    let class_id = match env.state.gc.deref(class) {
+        Some(class_id) => match class_id {
+            Instance::StaticClass(x) => x.id,
+            Instance::Reference(x) => {
+                // TODO: is is this actually fine? Maybe you're allowed to pass a reference to a
+                // Class<T> class?
+                tracing::warn!("Native method gave non static class reference to RegisterNatives");
+                x.instanceof()
+            }
+        },
+        None => todo!(),
+    };
+
+    for i in 0..num_methods {
+        let method = methods.offset(i.into_isize());
+        let name = (*method).name;
+        let signature = (*method).signature;
+        let fn_ptr = (*method).fn_ptr;
+
+        // None of these should be null
+        assert!(
+            !name.is_null(),
+            "RegisterNatives method's name was a nullptr"
+        );
+        assert!(
+            !signature.is_null(),
+            "RegisterNative's method's signature was a nullptr"
+        );
+        assert!(
+            !fn_ptr.is_null(),
+            "RegisterNative's method's function-ptr was a nullptr"
+        );
+
+        // Safety of both of these:
+        // We've already checked that it is non-null
+        // We know that we are not calling back into C-code, so as long as there is no
+        // weird asynchronous shenanigans, it won't be freed out from under us.
+        // As well, we are not modifying it from behind it, the shadowing making that somewhat
+        // easier to rely on.
+        // However, we have no guarantee that these actually end in a null-byte.
+        // And, we have no guarantee that their length is < isize::MAX
+        // TODO: Checked CStr constructor so we can provide exceptions on bad input?
+        let name = CStr::from_ptr(name);
+        let signature = CStr::from_ptr(signature);
+
+        let descriptor =
+            match MethodDescriptor::from_text(signature.to_bytes(), &mut env.class_names) {
+                Ok(descriptor) => descriptor,
+                Err(_) => todo!("Handle MethodDescriptor parse error"),
+            };
+
+        let method_id = match env.methods.load_method_from_desc(
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            class_id,
+            // Note that we're relying on the name ptr not aliasing env!
+            name.to_bytes(),
+            &descriptor,
+        ) {
+            Ok(method_id) => method_id,
+            Err(_err) => {
+                // todo!("Handle failing to find method");
+                // TODO: Print name
+                tracing::warn!("RegisterNatives: Failed to find method");
+                // Indicates failure
+                return -1;
+            }
+        };
+
+        // Safety: we've already asserted that the function pointer is non-null
+        // Otherwise, we're relying on the correctness of our caller
+        let method_func =
+            std::mem::transmute::<*mut std::ffi::c_void, jni::MethodClassNoArguments>(fn_ptr);
+
+        let method_func = OpaqueClassMethod::new(method_func);
+
+        // Store the native method on the method info structure so that it can be called when the
+        // function is invoked
+        env.state.method_info.modify_init_with(method_id, |data| {
+            data.native_func = Some(NativeMethod::OpaqueRegistered(method_func));
+        });
+    }
+
+    REGISTER_NATIVE_SUCCESS
 }
