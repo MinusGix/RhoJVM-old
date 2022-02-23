@@ -1475,7 +1475,6 @@ impl ClassFiles {
         }
 
         let _span_ = span!(Level::TRACE, "CF::load_by_class_path_id",).entered();
-        info!("=> CF{:?}", class_names.tpath(class_file_id));
 
         let (class_name, class_info) = class_names
             .name_from_gcid(class_file_id)
@@ -1485,6 +1484,8 @@ impl ClassFiles {
         if !class_info.has_class_file() {
             return Ok(());
         }
+
+        info!("=> CF{:?}", class_names.tpath(class_file_id));
 
         // TODO: Is this the correct way of converting it?
         let path = convert_classfile_text(class_name.0);
