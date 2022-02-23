@@ -383,9 +383,9 @@ pub fn eval_method(
             unsafe {
                 (native_func)(env_ptr, class_ref_ptr);
             };
-        } else {
-            todo!("Fully implement native methods");
+            return Ok(EvalMethodValue::ReturnVoid);
         }
+        todo!("Fully implement native methods");
     }
 
     let mut frame = frame;
