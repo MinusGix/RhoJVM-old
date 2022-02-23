@@ -137,6 +137,14 @@ impl ReferenceInstance {
             ReferenceInstance::ReferenceArray(x) => x.fields.iter(),
         }
     }
+
+    pub(crate) fn instanceof(&self) -> ClassId {
+        match self {
+            ReferenceInstance::Class(x) => x.instanceof,
+            ReferenceInstance::PrimitiveArray(x) => x.instanceof,
+            ReferenceInstance::ReferenceArray(x) => x.instanceof,
+        }
+    }
 }
 impl MemorySize for ReferenceInstance {
     fn memory_size(&self) -> usize {
