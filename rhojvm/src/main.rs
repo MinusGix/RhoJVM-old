@@ -13,6 +13,8 @@
 #![allow(clippy::missing_panics_doc)]
 // Too error prone
 #![allow(clippy::similar_names)]
+// Annoying. Really shouldn't highlight the entire thing.
+#![allow(clippy::unnecessary_wraps)]
 
 use std::{
     borrow::Cow, collections::HashMap, num::NonZeroUsize, path::Path, sync::Arc, thread::ThreadId,
@@ -26,7 +28,8 @@ use classfile_parser::{
     field_info::FieldAccessFlags,
     LoadError,
 };
-use eval::{EvalError, EvalMethodValue};
+use either::Either;
+use eval::{instances::make_fields, EvalError, EvalMethodValue};
 use gc::{Gc, GcRef};
 use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibrariesStatic};
 use method::MethodInfo;
@@ -727,98 +730,16 @@ pub(crate) fn initialize_class(
 
     // TODO: Handle arrays
 
-    let class_file = env.class_files.get(&class_id).unwrap();
-    let mut fields = Fields::default();
-
-    // TODO: It'd be nice if we could avoid allocating
-    let field_iter = class_file
-        .load_field_values_iter()
-        .collect::<SmallVec<[_; 8]>>();
-    for field_info in field_iter {
-        let class_file = env.class_files.get(&class_id).unwrap();
-
-        let (field_info, constant_index) = field_info.map_err(GeneralError::ClassFileLoad)?;
-        if !field_info.access_flags.contains(FieldAccessFlags::STATIC) {
-            // We are supposed to ignore the ConstantValue attribute for any fields that are not
-            // static
-            // As well, we only store the static fields on the StaticClassInstance
-            continue;
+    let fields = match make_fields(env, class_id, |field_info| {
+        field_info.access_flags.contains(FieldAccessFlags::STATIC)
+    })? {
+        Either::Left(fields) => fields,
+        Either::Right(exc) => {
+            let info = env.state.classes_info.get_mut_init(class_id);
+            info.initialized = Status::Done(ValueException::Exception(exc));
+            return Ok(BegunStatus::Done(ValueException::Exception(exc)));
         }
-
-        let field_name = class_file
-            .get_text_t(field_info.name_index)
-            .map(Cow::into_owned)
-            .ok_or(GeneralError::BadClassFileIndex(
-                field_info.name_index.into_generic(),
-            ))?;
-
-        let field_descriptor = class_file.get_text_b(field_info.descriptor_index).ok_or(
-            GeneralError::BadClassFileIndex(field_info.descriptor_index.into_generic()),
-        )?;
-        // Parse the type of the field
-        let (field_type, rem) = DescriptorTypeCF::parse(field_descriptor)
-            .map_err(GeneralError::InvalidDescriptorType)?;
-        // There shouldn't be any remaining data.
-        if !rem.is_empty() {
-            return Err(GeneralError::UnparsedFieldType);
-        }
-        // Convert to alternative descriptor type
-        let field_type = DescriptorType::from_class_file_desc(&mut env.class_names, field_type);
-        let field_type: RuntimeType<ClassId> =
-            RuntimeType::from_descriptor_type(&mut env.class_names, field_type)
-                .map_err(StepError::BadId)?;
-        // Note that we don't initialize field classes
-
-        let is_final = field_info.access_flags.contains(FieldAccessFlags::FINAL);
-        let field_access = FieldAccess::from_access_flags(field_info.access_flags);
-        if let Some(constant_index) = constant_index {
-            let constant = class_file
-                .get_t(constant_index)
-                .ok_or(GeneralError::BadClassFileIndex(constant_index))?
-                .clone();
-            let value = match constant {
-                ConstantInfo::Integer(x) => RuntimeValuePrimitive::I32(x.value).into(),
-                ConstantInfo::Float(x) => RuntimeValuePrimitive::F32(x.value).into(),
-                ConstantInfo::Double(x) => RuntimeValuePrimitive::F64(x.value).into(),
-                ConstantInfo::Long(x) => RuntimeValuePrimitive::I64(x.value).into(),
-                ConstantInfo::String(x) => {
-                    // TODO: Better string conversion
-                    let text = class_file.get_text_t(x.string_index).ok_or(
-                        GeneralError::BadClassFileIndex(x.string_index.into_generic()),
-                    )?;
-                    let text = text
-                        .encode_utf16()
-                        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
-                        .collect::<Vec<RuntimeValuePrimitive>>();
-
-                    let string_ref = util::construct_string(env, text)?;
-                    match string_ref {
-                        ValueException::Value(string_ref) => {
-                            RuntimeValue::Reference(string_ref.into_generic())
-                        }
-                        // TODO: include information that it was due to initializing a field
-                        ValueException::Exception(exc) => {
-                            let info = env.state.classes_info.get_mut_init(class_id);
-                            info.initialized = Status::Done(ValueException::Exception(exc));
-                            return Ok(BegunStatus::Done(ValueException::Exception(exc)));
-                        }
-                    }
-                }
-                // TODO: Better error
-                _ => return Err(GeneralError::BadClassFileIndex(constant_index)),
-            };
-
-            // TODO: Validate that the value is the right type
-            fields.insert(field_name, Field::new(value, is_final, field_access));
-        } else {
-            // otherwise, we give it the default value for its type
-            let default_value = field_type.default_value();
-            fields.insert(
-                field_name,
-                Field::new(default_value, is_final, field_access),
-            );
-        }
-    }
+    };
 
     let instance = StaticClassInstance::new(class_id, fields);
     let instance_ref = env.state.gc.alloc(instance);

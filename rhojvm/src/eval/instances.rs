@@ -1,25 +1,162 @@
-use classfile_parser::ClassAccessFlags;
+use classfile_parser::{
+    constant_info::ConstantInfo,
+    descriptor::DescriptorType as DescriptorTypeCF,
+    field_info::{FieldAccessFlags, FieldInfoOpt},
+    ClassAccessFlags,
+};
+use either::Either;
 use rhojvm_base::{
     class::ArrayClass,
-    code::op::{ANewArray, CheckCast, InstanceOf, MultiANewArray, New, NewArray},
+    code::{
+        method::DescriptorType,
+        op::{ANewArray, CheckCast, InstanceOf, MultiANewArray, New, NewArray},
+        types::JavaChar,
+    },
     id::ClassId,
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
+    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
 };
+use smallvec::SmallVec;
 use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{
-        ClassInstance, Fields, PrimitiveArrayInstance, ReferenceArrayInstance, ReferenceInstance,
+        ClassInstance, Field, FieldAccess, Fields, PrimitiveArrayInstance, ReferenceArrayInstance,
+        ReferenceInstance,
     },
     eval::EvalError,
     gc::GcRef,
     initialize_class, resolve_derive,
-    rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    util::{self, Env},
     GeneralError, State,
 };
 
 use super::{RunInst, RunInstArgs, RunInstValue, ValueException};
+
+/// Loads all the fields, filtered by some function
+/// initializing them with their value
+/// Returns either an exception or the fields
+/// Takes a filter function so that this can be used for static class initialization and normal
+/// class init
+///     Should return true if it should be kept
+pub(crate) fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
+    env: &mut Env,
+    class_id: ClassId,
+    filter_fn: F,
+) -> Result<Either<Fields, GcRef<ClassInstance>>, GeneralError> {
+    let mut fields = Fields::default();
+
+    let class_file = env
+        .class_files
+        .get(&class_id)
+        .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+
+    // TODO: It'd be nice if we could avoid potentially allocating
+    // We could probably do this if we cloned the Rc for the class file data
+    let field_iter = class_file
+        .load_field_values_iter()
+        .collect::<SmallVec<[_; 8]>>();
+    for field_info in field_iter {
+        // Reget the class file
+        let class_file = env
+            .class_files
+            .get(&class_id)
+            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+
+        let (field_info, constant_index) = field_info.map_err(GeneralError::ClassFileLoad)?;
+        if !filter_fn(&field_info) {
+            // Skip past this field
+            continue;
+        }
+
+        // TODO: We could avoid allocations
+        let field_name = class_file
+            .get_text_b(field_info.name_index)
+            .ok_or(GeneralError::BadClassFileIndex(
+                field_info.name_index.into_generic(),
+            ))?
+            .to_owned();
+        let field_descriptor = class_file.get_text_b(field_info.descriptor_index).ok_or(
+            GeneralError::BadClassFileIndex(field_info.descriptor_index.into_generic()),
+        )?;
+        // Parse the type of the field
+        let (field_type, rem) = DescriptorTypeCF::parse(field_descriptor)
+            .map_err(GeneralError::InvalidDescriptorType)?;
+        // There shouldn't be any remaining data.
+        if !rem.is_empty() {
+            return Err(GeneralError::UnparsedFieldType);
+        }
+        // Convert to alternative descriptor type
+        let field_type = DescriptorType::from_class_file_desc(&mut env.class_names, field_type);
+        let field_type: RuntimeType<ClassId> =
+            RuntimeType::from_descriptor_type(&mut env.class_names, field_type)
+                .map_err(StepError::BadId)?;
+
+        // Reget the class file
+        let class_file = env
+            .class_files
+            .get(&class_id)
+            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+
+        let is_final = field_info.access_flags.contains(FieldAccessFlags::FINAL);
+        let field_access = FieldAccess::from_access_flags(field_info.access_flags);
+        if let Some(constant_index) = constant_index {
+            let constant = class_file
+                .get_t(constant_index)
+                .ok_or(GeneralError::BadClassFileIndex(constant_index))?
+                .clone();
+            let value = match constant {
+                ConstantInfo::Integer(x) => RuntimeValuePrimitive::I32(x.value).into(),
+                ConstantInfo::Float(x) => RuntimeValuePrimitive::F32(x.value).into(),
+
+                ConstantInfo::Double(x) => RuntimeValuePrimitive::F64(x.value).into(),
+
+                ConstantInfo::Long(x) => RuntimeValuePrimitive::I64(x.value).into(),
+
+                ConstantInfo::String(x) => {
+                    // TODO: Better string conversion
+                    let text = class_file.get_text_t(x.string_index).ok_or(
+                        GeneralError::BadClassFileIndex(x.string_index.into_generic()),
+                    )?;
+                    let text = text
+                        .encode_utf16()
+                        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+                        .collect::<Vec<RuntimeValuePrimitive>>();
+
+                    let string_ref = util::construct_string(env, text)?;
+                    match string_ref {
+                        ValueException::Value(string_ref) => {
+                            RuntimeValue::Reference(string_ref.into_generic())
+                        }
+
+                        // TODO: include information that it was due to initializing a field
+                        ValueException::Exception(exc) => {
+                            return Ok(Either::Right(exc));
+                        }
+                    }
+                }
+                // TODO: Better error
+                _ => return Err(GeneralError::BadClassFileIndex(constant_index)),
+            };
+
+            // TODO: Validate that the value is the right type
+            fields.insert(
+                field_name,
+                Field::new(value, field_type, is_final, field_access),
+            );
+        } else {
+            // otherwise, we give it the default value for its type
+            let default_value = field_type.default_value();
+            fields.insert(
+                field_name,
+                Field::new(default_value, field_type, is_final, field_access),
+            );
+        }
+    }
+
+    Ok(Either::Left(fields))
+}
 
 impl RunInst for New {
     fn run(
@@ -79,11 +216,20 @@ impl RunInst for New {
             todo!("return InstantiationError exception")
         }
 
+        let fields = match make_fields(env, target_class_id, |field_info| {
+            !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+        })? {
+            Either::Left(fields) => fields,
+            Either::Right(exc) => {
+                return Ok(RunInstValue::Exception(exc));
+            }
+        };
+
         // new does not run a constructor, it only initializes it
         let class = ClassInstance {
             instanceof: target_class_id,
             static_ref: target_ref,
-            fields: Fields::default(),
+            fields,
         };
 
         // Allocate the class instance

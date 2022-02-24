@@ -6,7 +6,7 @@ use rhojvm_base::{id::ClassId, util::MemorySize};
 
 use crate::{
     gc::{GcRef, GcValueMarker},
-    rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
 };
 
 macro_rules! impl_instance_conv {
@@ -104,7 +104,7 @@ impl Instance {
     /// for its fields.
     pub(crate) fn fields(
         &self,
-    ) -> Either<impl Iterator<Item = (&str, &Field)>, impl Iterator<Item = (&str, &Field)>> {
+    ) -> Either<impl Iterator<Item = (&[u8], &Field)>, impl Iterator<Item = (&[u8], &Field)>> {
         match self {
             Instance::StaticClass(x) => Either::Left(x.fields.iter()),
             Instance::Reference(x) => Either::Right(x.fields()),
@@ -130,7 +130,7 @@ pub enum ReferenceInstance {
 }
 impl ReferenceInstance {
     /// Note that this does not peek upwards into the static class for its fields
-    pub(crate) fn fields(&self) -> impl Iterator<Item = (&str, &Field)> {
+    pub(crate) fn fields(&self) -> impl Iterator<Item = (&[u8], &Field)> {
         match self {
             ReferenceInstance::Class(x) => x.fields.iter(),
             ReferenceInstance::PrimitiveArray(x) => x.fields.iter(),
@@ -333,27 +333,29 @@ impl GcValueMarker for ReferenceArrayInstance {}
 
 #[derive(Default, Debug, Clone)]
 pub struct Fields {
-    fields: HashMap<String, Field>,
+    fields: HashMap<Vec<u8>, Field>,
 }
 impl Fields {
     #[must_use]
-    pub fn get(&self, name: &str) -> Option<&Field> {
+    pub fn get(&self, name: &[u8]) -> Option<&Field> {
         self.fields.get(name)
     }
 
     #[must_use]
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut Field> {
+    pub fn get_mut(&mut self, name: &[u8]) -> Option<&mut Field> {
         self.fields.get_mut(name)
     }
 
-    pub fn insert(&mut self, name: impl Into<String>, field: Field) {
+    pub fn insert(&mut self, name: impl Into<Vec<u8>>, field: Field) {
         self.fields.insert(name.into(), field);
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &Field)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&[u8], &Field)> {
         self.fields.iter().map(|x| (x.0.as_ref(), x.1))
     }
 }
+
+pub type FieldType = RuntimeType<ClassId>;
 
 /// A field with some value
 /// This does not keep track of the name
@@ -361,14 +363,28 @@ impl Fields {
 #[derive(Debug, Clone)]
 pub struct Field {
     value: RuntimeValue,
+    // FIXME: Make the GC look into field type's for the class id
+    /// The type of the field
+    /// Value should be able to be reasonably treated as this
+    /// This is stored because it shouldn't be modified at runtime anyway, so we don't have to
+    /// bother looking it up in the class file each time.
+    /// We store the class id instead of a gcref to the static class (for references)
+    /// because doing the circular initialization is a bit of a paint
+    typ: FieldType,
     /// Whether it is a final value or not, so it cannot change after initialization
     is_final: bool,
     access: FieldAccess,
 }
 impl Field {
-    pub(crate) fn new(value: RuntimeValue, is_final: bool, access: FieldAccess) -> Field {
+    pub(crate) fn new(
+        value: RuntimeValue,
+        typ: FieldType,
+        is_final: bool,
+        access: FieldAccess,
+    ) -> Field {
         Field {
             value,
+            typ,
             is_final,
             access,
         }
@@ -377,6 +393,16 @@ impl Field {
     #[must_use]
     pub fn value(&self) -> RuntimeValue {
         self.value
+    }
+
+    #[must_use]
+    pub fn value_mut(&mut self) -> &mut RuntimeValue {
+        &mut self.value
+    }
+
+    #[must_use]
+    pub fn typ(&self) -> FieldType {
+        self.typ
     }
 }
 

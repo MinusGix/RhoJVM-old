@@ -31,7 +31,7 @@ use crate::{
 
 mod control_flow;
 mod func;
-mod instances;
+pub mod instances;
 mod operation;
 mod store_load;
 

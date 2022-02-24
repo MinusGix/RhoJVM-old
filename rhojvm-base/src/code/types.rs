@@ -32,6 +32,12 @@ impl JavaChar {
     pub fn as_int(&self) -> i32 {
         self.0.into()
     }
+
+    #[allow(clippy::cast_possible_wrap)]
+    #[must_use]
+    pub fn as_i16(&self) -> i16 {
+        self.0 as i16
+    }
 }
 
 /// Internal

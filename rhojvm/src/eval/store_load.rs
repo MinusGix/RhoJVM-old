@@ -32,7 +32,7 @@ use rhojvm_base::{
 use usize_cast::IntoUsize;
 
 use crate::{
-    class_instance::{ClassInstance, ReferenceInstance, StaticClassInstance},
+    class_instance::{ClassInstance, FieldType, ReferenceInstance, StaticClassInstance},
     gc::GcRef,
     initialize_class,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
@@ -92,6 +92,141 @@ fn get_field_dest(
     Ok(DestRes::GcRef((dest_ref, field)))
 }
 
+/// Theoretically, this shouldn't error since it would've been checked by stack map verifier
+/// already.
+fn convert_field_type_store(
+    class_directories: &ClassDirectories,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    packages: &mut Packages,
+    state: &mut State,
+    dest: FieldType,
+    src: RuntimeValue,
+) -> Result<RuntimeValue, GeneralError> {
+    Ok(match (dest, src) {
+        // TODO: This might be more lenient than it should be?
+        // A lot of these automatic shrinking/expanding integer casts are due to them being
+        // represented as the same on the stack in typical jvm, but we keep what they are,
+        // and so we have to properly narrow/expand them,
+        // but that doesn't apply to i64
+        #[allow(clippy::cast_possible_truncation, clippy::match_same_arms)]
+        (RuntimeType::Primitive(lprim), RuntimeValue::Primitive(rprim)) => match (lprim, rprim) {
+            (RuntimeTypePrimitive::I64, RuntimeValuePrimitive::I64(_)) => src,
+            // TODO: Do other values get cast automatically into i64? probably not
+            // (RuntimeTypePrimitive::I64, RuntimeValuePrimitive::I32(_)) => todo!(),
+            // (RuntimeTypePrimitive::I64, RuntimeValuePrimitive::I16(_)) => todo!(),
+            // (RuntimeTypePrimitive::I64, RuntimeValuePrimitive::I8(_)) => todo!(),
+            // (RuntimeTypePrimitive::I64, RuntimeValuePrimitive::Char(_)) => todo!(),
+            // (RuntimeTypePrimitive::I64, RuntimeValuePrimitive::Bool(_)) => todo!(),
+
+            // (RuntimeTypePrimitive::I32, RuntimeValuePrimitive::I64(_)) => todo!(),
+            (RuntimeTypePrimitive::I32, RuntimeValuePrimitive::I32(_)) => src,
+            (RuntimeTypePrimitive::I32, RuntimeValuePrimitive::I16(x)) => {
+                RuntimeValuePrimitive::I32(x.into()).into()
+            }
+            (RuntimeTypePrimitive::I32, RuntimeValuePrimitive::I8(x)) => {
+                RuntimeValuePrimitive::I32(x.into()).into()
+            }
+            // (RuntimeTypePrimitive::I32, RuntimeValuePrimitive::F32(_)) => todo!(),
+            // (RuntimeTypePrimitive::I32, RuntimeValuePrimitive::F64(_)) => todo!(),
+            (RuntimeTypePrimitive::I32, RuntimeValuePrimitive::Char(x)) => {
+                RuntimeValuePrimitive::I32(x.as_int()).into()
+            }
+            (RuntimeTypePrimitive::I32, RuntimeValuePrimitive::Bool(x)) => {
+                RuntimeValuePrimitive::I32(i32::from(x)).into()
+            }
+            // (RuntimeTypePrimitive::I16, RuntimeValuePrimitive::I64(_)) => todo!(),
+            (RuntimeTypePrimitive::I16, RuntimeValuePrimitive::I32(x)) => {
+                RuntimeValuePrimitive::I16(x as i16).into()
+            }
+            (RuntimeTypePrimitive::I16, RuntimeValuePrimitive::I16(_)) => src,
+            (RuntimeTypePrimitive::I16, RuntimeValuePrimitive::I8(x)) => {
+                RuntimeValuePrimitive::I16(i16::from(x)).into()
+            }
+            // (RuntimeTypePrimitive::I16, RuntimeValuePrimitive::F32(_)) => todo!(),
+            // (RuntimeTypePrimitive::I16, RuntimeValuePrimitive::F64(_)) => todo!(),
+            (RuntimeTypePrimitive::I16, RuntimeValuePrimitive::Char(x)) => {
+                RuntimeValuePrimitive::I16(x.as_i16()).into()
+            }
+            (RuntimeTypePrimitive::I16, RuntimeValuePrimitive::Bool(x)) => {
+                RuntimeValuePrimitive::I16(i16::from(x)).into()
+            }
+            // (RuntimeTypePrimitive::I8, RuntimeValuePrimitive::I64(_)) => todo!(),
+            (RuntimeTypePrimitive::I8, RuntimeValuePrimitive::I32(x)) => {
+                RuntimeValuePrimitive::I8(x as i8).into()
+            }
+            (RuntimeTypePrimitive::I8, RuntimeValuePrimitive::I16(x)) => {
+                RuntimeValuePrimitive::I8(x as i8).into()
+            }
+            (RuntimeTypePrimitive::I8, RuntimeValuePrimitive::I8(_)) => src,
+            (RuntimeTypePrimitive::I8, RuntimeValuePrimitive::Char(x)) => {
+                RuntimeValuePrimitive::I8(x.as_i16() as i8).into()
+            }
+            (RuntimeTypePrimitive::I8, RuntimeValuePrimitive::Bool(x)) => {
+                RuntimeValuePrimitive::I8(i8::from(x)).into()
+            }
+            // TODO: Do floats get any automatic conversion from integers or f64?
+            (RuntimeTypePrimitive::F32, RuntimeValuePrimitive::F32(_)) => src,
+            // (RuntimeTypePrimitive::F32, RuntimeValuePrimitive::F64(_)) => todo!(),// (RuntimeTypePrimitive::F64, RuntimeValuePrimitive::F32(_)) => todo!(),
+            (RuntimeTypePrimitive::F64, RuntimeValuePrimitive::F64(_)) => src,
+            (RuntimeTypePrimitive::Char, RuntimeValuePrimitive::I32(x)) => {
+                RuntimeValuePrimitive::Char(JavaChar::from_int(x)).into()
+            }
+            (RuntimeTypePrimitive::Char, RuntimeValuePrimitive::I16(x)) => {
+                RuntimeValuePrimitive::Char(JavaChar::from_int(x.into())).into()
+            }
+            (RuntimeTypePrimitive::Char, RuntimeValuePrimitive::I8(x)) => {
+                RuntimeValuePrimitive::Char(JavaChar::from_int(x.into())).into()
+            }
+            (RuntimeTypePrimitive::Char, RuntimeValuePrimitive::Char(_)) => src,
+            (RuntimeTypePrimitive::Char, RuntimeValuePrimitive::Bool(x)) => {
+                RuntimeValuePrimitive::Char(JavaChar::from_int(x.into())).into()
+            }
+            _ => todo!("Error"),
+        },
+        // TODO: Does the JVM autocast Integer into an int?
+        // (RuntimeType::Primitive(_), RuntimeValue::Reference(_)) => todo!(),
+        // (RuntimeType::Reference(_), RuntimeValue::Primitive(_)) => todo!(),
+
+        // Storing a null pointer is allowed
+        (RuntimeType::Reference(_), RuntimeValue::NullReference) => src,
+        (RuntimeType::Reference(id), RuntimeValue::Reference(src_ref)) => {
+            // TODO: We could probably do a bit less work if we condition on it being an array or
+            // a normal reference
+            let src = state
+                .gc
+                .deref(src_ref)
+                .ok_or(EvalError::InvalidGcRef(src_ref.into_generic()))?;
+            let instance_id = src.instanceof();
+
+            let is_castable = instance_id == id
+                || classes.is_super_class(
+                    class_directories,
+                    class_names,
+                    class_files,
+                    packages,
+                    instance_id,
+                    id,
+                )?
+                || classes.implements_interface(
+                    class_directories,
+                    class_names,
+                    class_files,
+                    instance_id,
+                    id,
+                )?;
+
+            if is_castable {
+                RuntimeValue::Reference(src_ref)
+            } else {
+                todo!("Type was not castable")
+            }
+        }
+        _ => todo!("Error"),
+    })
+}
+
 impl RunInst for GetStatic {
     fn run(
         self,
@@ -121,7 +256,7 @@ impl RunInst for GetStatic {
 
         let field_name =
             class_file
-                .get_text_t(field.name_index)
+                .get_text_b(field.name_index)
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     field.name_index.into_generic(),
                 ))?;
@@ -131,7 +266,7 @@ impl RunInst for GetStatic {
             .gc
             .deref(dest_ref)
             .ok_or(EvalError::InvalidGcRef(dest_ref.into_generic()))?;
-        let field = dest_instance.fields.get(&field_name);
+        let field = dest_instance.fields.get(field_name);
 
         if let Some(field) = field {
             // TODO: JVM says it throws incompatible class change error if the resolved field is not
@@ -149,8 +284,76 @@ impl RunInst for GetStatic {
     }
 }
 impl RunInst for PutStaticField {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
-        todo!()
+    fn run(
+        self,
+        RunInstArgs {
+            env,
+            method_id,
+            frame,
+            ..
+        }: RunInstArgs,
+    ) -> Result<RunInstValue, GeneralError> {
+        let (class_id, _) = method_id.decompose();
+
+        // Get the value we are storing to the field
+        // Put static field works for any category of type
+        let value = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+
+        let (dest_ref, field) = match get_field_dest(env, frame, self.index, class_id)? {
+            DestRes::GcRef(v) => v,
+            // Probably threw an exception
+            DestRes::RunInst(v) => return Ok(v),
+        };
+
+        // TODO: Should we load the class file since initalize class might have done a lot?
+        let class_file = env
+            .class_files
+            .get(&class_id)
+            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+        let field = class_file.get_t(field.name_and_type_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
+        )?;
+
+        // TODO: Avoid allocation
+        let field_name = class_file
+            .get_text_b(field.name_index)
+            .ok_or(EvalError::InvalidConstantPoolIndex(
+                field.name_index.into_generic(),
+            ))?
+            .to_owned();
+
+        let dest_instance = env
+            .state
+            .gc
+            .deref(dest_ref)
+            .ok_or(EvalError::InvalidGcRef(dest_ref.into_generic()))?;
+        let field = dest_instance.fields.get(&field_name);
+
+        if let Some(field) = field {
+            let field_type = field.typ();
+
+            // TODO: Some of the errors should be exceptions
+            let field_value = convert_field_type_store(
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.classes,
+                &mut env.packages,
+                &mut env.state,
+                field_type,
+                value,
+            )?;
+
+            // The gcref should still exist, and the field should still exist
+            let dest_instance = env.state.gc.deref_mut(dest_ref).unwrap();
+            let field = dest_instance.fields.get_mut(&field_name).unwrap();
+
+            *field.value_mut() = field_value;
+        } else {
+            todo!("Return no such field exception")
+        }
+
+        Ok(RunInstValue::Continue)
     }
 }
 impl RunInst for GetField {
@@ -204,7 +407,7 @@ impl RunInst for GetField {
         )?;
         let field_name =
             class_file
-                .get_text_t(field.name_index)
+                .get_text_b(field.name_index)
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     field.name_index.into_generic(),
                 ))?;
@@ -215,7 +418,7 @@ impl RunInst for GetField {
             .deref(instance_ref)
             .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
         tracing::info!("Fields: {:#?}", instance.fields);
-        let field = instance.fields.get(&field_name);
+        let field = instance.fields.get(field_name);
 
         if let Some(field) = field {
             let field_value = field.value();

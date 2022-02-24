@@ -3,13 +3,13 @@ use rhojvm_base::{
 };
 
 use crate::{
-    class_instance::{ClassInstance, Fields, PrimitiveArrayInstance},
+    class_instance::{ClassInstance, Fields, PrimitiveArrayInstance, StaticClassInstance},
     eval::{eval_method, EvalMethodValue, Frame, Locals, ValueException},
     gc::GcRef,
     initialize_class,
     jni::native_interface::NativeInterface,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    GeneralError, State, ThreadData,
+    BegunStatus, GeneralError, State, ThreadData,
 };
 
 /// A struct that holds references to several of the important structures in their typical usage
@@ -51,6 +51,15 @@ pub(crate) const fn signed_offset_16(lhs: u16, rhs: i16) -> Option<u16> {
     }
 }
 
+/// Gets a reference to the string class, initializing it if it doesn't exist
+pub(crate) fn get_string_ref(
+    env: &mut Env,
+) -> Result<ValueException<GcRef<StaticClassInstance>>, GeneralError> {
+    // Initialize the string class if it somehow isn't already ready
+    let string_id = env.state.string_class_id(&mut env.class_names);
+    initialize_class(env, string_id).map(BegunStatus::into_value)
+}
+
 /// Construct a JVM String given some string
 /// Note that `utf16_text` should be completely `RuntimeValuePrimitive::Char`
 pub(crate) fn construct_string(
@@ -67,12 +76,10 @@ pub(crate) fn construct_string(
 
     // Create the initial string reference, which could be uninitialized
     let string_ref = {
-        // Initialize the string class if it somehow isn't already ready
         let string_id = env.state.string_class_id(&mut env.class_names);
-        let string_ref = initialize_class(env, string_id)?;
-
+        let string_ref = get_string_ref(env)?;
         // Allocate the uninitialized instance
-        let string_ref = match string_ref.into_value() {
+        let string_ref = match string_ref {
             ValueException::Value(string_ref) => string_ref,
             ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
         };
