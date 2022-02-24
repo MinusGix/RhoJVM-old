@@ -193,10 +193,10 @@ impl<REF> RuntimeValue<REF> {
         }
     }
 
-    /// Convert this into a reference, if it is one
-    /// If the first layer is None, that means it was a non-reference
-    /// If the second layer is None, that means it is a null reference
-    /// If the second layer is Some, that means it is a valid reference
+    /// Convert this into a reference, if it is one.
+    /// If the first layer is None, that means it was a non-reference.
+    /// If the second layer is None, that means it is a null reference.
+    /// If the second layer is Some, that means it is a valid reference.
     #[must_use]
     pub fn into_reference(self) -> Option<Option<GcRef<REF>>> {
         match self {

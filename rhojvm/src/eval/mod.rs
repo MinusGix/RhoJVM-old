@@ -181,6 +181,13 @@ impl Locals {
         Locals { locals }
     }
 
+    pub fn prepush_transform(&mut self, value: RuntimeValue) {
+        let local = Local::from_runtime_value(value);
+        for l in local.into_iter().rev().flatten() {
+            self.locals.insert(0, l);
+        }
+    }
+
     /// Push a value onto the locals stack, transforming it into as many instances as it needs.
     /// Because, values like Long/Double take up two indices on the local stack.
     pub fn push_transform(&mut self, value: RuntimeValue) {

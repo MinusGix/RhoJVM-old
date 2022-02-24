@@ -206,7 +206,7 @@ impl RunInst for InvokeStatic {
         )?;
 
         let mut locals = Locals::default();
-        for parameter in method_descriptor.parameters() {
+        for parameter in method_descriptor.parameters().iter().rev() {
             let value = grab_runtime_value_from_stack_for_function(
                 &env.class_directories,
                 &mut env.class_names,
@@ -219,7 +219,7 @@ impl RunInst for InvokeStatic {
                 parameter,
             )?;
 
-            locals.push_transform(value);
+            locals.prepush_transform(value);
         }
 
         let frame = Frame::new_locals(locals);
@@ -253,12 +253,6 @@ impl RunInst for InvokeSpecial {
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let index = self.index;
-
-        let instance_class = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
-        let instance_ref = instance_class
-            .into_reference()
-            .ok_or(EvalError::ExpectedStackValueReference)?
-            .expect("TODO: NullReferenceException");
 
         let (class_id, _) = method_id.decompose();
         let class_file = env
@@ -336,10 +330,8 @@ impl RunInst for InvokeSpecial {
         )?;
 
         let mut locals = Locals::default();
-        // Push this
-        locals.push_transform(RuntimeValue::Reference(instance_ref));
 
-        for parameter in method_descriptor.parameters() {
+        for parameter in method_descriptor.parameters().iter().rev() {
             let value = grab_runtime_value_from_stack_for_function(
                 &env.class_directories,
                 &mut env.class_names,
@@ -352,11 +344,22 @@ impl RunInst for InvokeSpecial {
                 parameter,
             )?;
 
-            locals.push_transform(value);
+            tracing::info!("Got value for function {:?}", value);
+
+            locals.prepush_transform(value);
         }
 
-        let frame = Frame::new_locals(locals);
-        let res = eval_method(env, target_method_id, frame)?;
+        let instance_class = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let instance_ref = instance_class
+            .into_reference()
+            .ok_or(EvalError::ExpectedStackValueReference)?
+            .expect("TODO: NullReferenceException");
+        // Push this
+        locals.prepush_transform(RuntimeValue::Reference(instance_ref));
+
+        // Construct a frame for the function we're calling and invoke it
+        let new_frame = Frame::new_locals(locals);
+        let res = eval_method(env, target_method_id, new_frame)?;
 
         Ok(match res {
             // TODO: Check that these are valid return types!
@@ -598,7 +601,7 @@ impl RunInst for InvokeVirtual {
         // Add the this parameter
         locals.push_transform(RuntimeValue::Reference(instance_ref));
 
-        for parameter in method_descriptor.parameters() {
+        for parameter in method_descriptor.parameters().iter().rev() {
             let value = grab_runtime_value_from_stack_for_function(
                 &env.class_directories,
                 &mut env.class_names,
@@ -611,7 +614,7 @@ impl RunInst for InvokeVirtual {
                 parameter,
             )?;
 
-            locals.push_transform(value);
+            locals.prepush_transform(value);
         }
 
         let frame = Frame::new_locals(locals);
