@@ -71,42 +71,32 @@ fn grab_runtime_value_from_stack_for_function(
                             .gc
                             .deref(p_ref)
                             .ok_or(EvalError::InvalidGcRef(p_ref.into_generic()))?;
-                        match p {
-                            ReferenceInstance::Class(c) => {
-                                let instance_id = c.instanceof;
+                        let instance_id = p.instanceof();
 
-                                let is_castable = instance_id == *id
-                                    || classes.is_super_class(
-                                        class_directories,
-                                        class_names,
-                                        class_files,
-                                        packages,
-                                        instance_id,
-                                        *id,
-                                    )?
-                                    || classes.implements_interface(
-                                        class_directories,
-                                        class_names,
-                                        class_files,
-                                        instance_id,
-                                        *id,
-                                    )?;
+                        let is_castable = instance_id == *id
+                            || classes.is_super_class(
+                                class_directories,
+                                class_names,
+                                class_files,
+                                packages,
+                                instance_id,
+                                *id,
+                            )?
+                            || classes.implements_interface(
+                                class_directories,
+                                class_names,
+                                class_files,
+                                instance_id,
+                                *id,
+                            )?;
 
-                                if is_castable {
-                                    RuntimeValue::Reference(p_ref)
-                                } else {
-                                    todo!("Type was not castable")
-                                }
-                            }
-                            // TODO: I think we need to check if it is a super class
-                            // (though that is just object for arrays) and then check if
-                            // the class is some array interface
-                            // then use is_castable_array, or does it already do that
-                            // earlier stuff?
-                            ReferenceInstance::PrimitiveArray(_) => todo!(),
-                            ReferenceInstance::ReferenceArray(_) => todo!(),
+                        if is_castable {
+                            RuntimeValue::Reference(p_ref)
+                        } else {
+                            todo!("Type was not castable")
                         }
                     }
+
                     RuntimeValue::NullReference => RuntimeValue::NullReference,
                     RuntimeValue::Primitive(_) => {
                         return Err(EvalError::ExpectedStackValueReference.into())
@@ -344,8 +334,6 @@ impl RunInst for InvokeSpecial {
                 parameter,
             )?;
 
-            tracing::info!("Got value for function {:?}", value);
-
             locals.prepush_transform(value);
         }
 
@@ -511,11 +499,7 @@ impl RunInst for InvokeVirtual {
             .gc
             .deref(instance_ref)
             .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
-        let instance_id = match instance {
-            ReferenceInstance::Class(instance) => instance.instanceof,
-            ReferenceInstance::PrimitiveArray(_) => todo!(),
-            ReferenceInstance::ReferenceArray(_) => todo!(),
-        };
+        let instance_id = instance.instanceof();
 
         let (class_id, _) = method_id.decompose();
         let class_file = env

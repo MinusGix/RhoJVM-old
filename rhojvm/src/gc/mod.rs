@@ -392,6 +392,12 @@ fn trace_instance(
                 let x = class.static_ref;
                 gc.mark(x.into_generic());
             }
+            ReferenceInstance::StaticForm(class) => {
+                let class_ref = class.inner.static_ref;
+                let held_ref = class.of;
+                gc.mark(class_ref.into_generic());
+                gc.mark(held_ref.into_generic());
+            }
             ReferenceInstance::PrimitiveArray(_) => (),
             ReferenceInstance::ReferenceArray(array) => {
                 // TODO: It would be great if we could avoid allocating here

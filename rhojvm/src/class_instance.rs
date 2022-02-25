@@ -125,6 +125,7 @@ impl GcValueMarker for Instance {}
 #[derive(Debug)]
 pub enum ReferenceInstance {
     Class(ClassInstance),
+    StaticForm(StaticFormInstance),
     PrimitiveArray(PrimitiveArrayInstance),
     ReferenceArray(ReferenceArrayInstance),
 }
@@ -133,6 +134,7 @@ impl ReferenceInstance {
     pub(crate) fn fields(&self) -> impl Iterator<Item = (&[u8], &Field)> {
         match self {
             ReferenceInstance::Class(x) => x.fields.iter(),
+            ReferenceInstance::StaticForm(x) => x.inner.fields.iter(),
             ReferenceInstance::PrimitiveArray(x) => x.fields.iter(),
             ReferenceInstance::ReferenceArray(x) => x.fields.iter(),
         }
@@ -141,6 +143,7 @@ impl ReferenceInstance {
     pub(crate) fn instanceof(&self) -> ClassId {
         match self {
             ReferenceInstance::Class(x) => x.instanceof,
+            ReferenceInstance::StaticForm(x) => x.inner.instanceof,
             ReferenceInstance::PrimitiveArray(x) => x.instanceof,
             ReferenceInstance::ReferenceArray(x) => x.instanceof,
         }
@@ -150,6 +153,7 @@ impl MemorySize for ReferenceInstance {
     fn memory_size(&self) -> usize {
         match self {
             ReferenceInstance::Class(x) => x.memory_size(),
+            ReferenceInstance::StaticForm(x) => x.memory_size(),
             ReferenceInstance::PrimitiveArray(x) => x.memory_size(),
             ReferenceInstance::ReferenceArray(x) => x.memory_size(),
         }
@@ -194,6 +198,33 @@ impl<'a> TryFrom<&'a mut Instance> for &'a mut ReferenceInstance {
         }
     }
 }
+
+/// A special cased structure for Class<T>
+#[derive(Debug, Clone)]
+pub struct StaticFormInstance {
+    pub(crate) inner: ClassInstance,
+    /// The T in Class<T>
+    pub(crate) of: GcRef<StaticClassInstance>,
+}
+impl StaticFormInstance {
+    #[must_use]
+    pub(crate) fn new(
+        inner_instance: ClassInstance,
+        of: GcRef<StaticClassInstance>,
+    ) -> StaticFormInstance {
+        StaticFormInstance {
+            inner: inner_instance,
+            of,
+        }
+    }
+}
+impl_reference_instance_conv!(StaticForm => StaticFormInstance);
+impl MemorySize for StaticFormInstance {
+    fn memory_size(&self) -> usize {
+        std::mem::size_of::<Self>()
+    }
+}
+impl GcValueMarker for StaticFormInstance {}
 
 /// An instance of some class
 #[derive(Debug, Clone)]

@@ -3,7 +3,9 @@
 use classfile_parser::{
     constant_info::{ConstantInfo, FieldRefConstant},
     constant_pool::ConstantPoolIndexRaw,
+    field_info::FieldAccessFlags,
 };
+use either::Either;
 use rhojvm_base::{
     code::{
         op::{
@@ -32,9 +34,12 @@ use rhojvm_base::{
 use usize_cast::IntoUsize;
 
 use crate::{
-    class_instance::{ClassInstance, FieldType, ReferenceInstance, StaticClassInstance},
+    class_instance::{
+        ClassInstance, FieldType, ReferenceInstance, StaticClassInstance, StaticFormInstance,
+    },
+    eval::{eval_method, instances::make_fields},
     gc::GcRef,
-    initialize_class,
+    initialize_class, resolve_derive,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{self, Env},
     GeneralError, State,
@@ -392,11 +397,12 @@ impl RunInst for GetField {
             ReferenceInstance::Class(class) => {
                 // TODO: Check that it is the right class instance!
             }
+            ReferenceInstance::StaticForm(class) => {
+                // TODO: Check that it is correct class instance!
+            }
             ReferenceInstance::PrimitiveArray(_) => todo!(),
             ReferenceInstance::ReferenceArray(_) => todo!(),
         }
-        // TODO: use more generic container
-        let instance_ref: GcRef<ClassInstance> = instance_ref.unchecked_as();
 
         let class_file = env
             .class_files
@@ -417,8 +423,7 @@ impl RunInst for GetField {
             .gc
             .deref(instance_ref)
             .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
-        tracing::info!("Fields: {:#?}", instance.fields);
-        let field = instance.fields.get(field_name);
+        let field = instance.fields().find(|x| x.0 == field_name).map(|x| x.1);
 
         if let Some(field) = field {
             let field_value = field.value();
@@ -459,12 +464,81 @@ fn load_constant(
         ConstantInfo::Integer(v) => frame.stack.push(RuntimeValuePrimitive::I32(v.value))?,
         ConstantInfo::Float(v) => frame.stack.push(RuntimeValuePrimitive::F32(v.value))?,
         ConstantInfo::Class(class) => {
-            let class_name = class_file.get_text_b(class.name_index).ok_or(
+            let target_class_name = class_file.get_text_b(class.name_index).ok_or(
                 EvalError::InvalidConstantPoolIndex(class.name_index.into_generic()),
             )?;
-            let class_id = env.class_names.gcid_from_bytes(class_name);
+            let target_class_id = env.class_names.gcid_from_bytes(target_class_name);
 
-            todo!()
+            // I believe this is basically loading the java.lang.Class<ClassRef> for it
+
+            // TODO: Technically the docs only say resolve, not initialize..
+            // TODO: Some of these errors should be exceptions
+            resolve_derive(
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.classes,
+                &mut env.packages,
+                &mut env.methods,
+                &mut env.state,
+                target_class_id,
+                class_id,
+            )?;
+
+            // TODO: Some of these errors should be exceptions
+            let static_ref = initialize_class(env, target_class_id)?.into_value();
+            let static_ref = match static_ref {
+                ValueException::Value(v) => v,
+                ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+            };
+
+            // TODO: Maybe this should always be loaded, and always by bootstrap?
+            let class_form_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+            // TODO: Some of these errors should be exceptions
+            resolve_derive(
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.classes,
+                &mut env.packages,
+                &mut env.methods,
+                &mut env.state,
+                class_form_id,
+                class_id,
+            )?;
+
+            // TODO: Some of these errors should be exceptions
+            let class_form_ref = initialize_class(env, class_form_id)?.into_value();
+            let class_form_ref = match class_form_ref {
+                ValueException::Value(v) => v,
+                ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+            };
+
+            let fields = match make_fields(env, class_form_id, |field_info| {
+                !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+            })? {
+                Either::Left(fields) => fields,
+                Either::Right(exc) => {
+                    return Ok(RunInstValue::Exception(exc));
+                }
+            };
+
+            // new does not run a constructor, it only initializes it
+            let inner_class = ClassInstance {
+                instanceof: class_form_id,
+                static_ref: class_form_ref,
+                fields,
+            };
+
+            // TODO: Run constructor?
+            // eval_method(env, method_id, frame)?;
+
+            let static_form = StaticFormInstance::new(inner_class, static_ref);
+            let static_form_ref = env.state.gc.alloc(static_form);
+
+            frame
+                .stack
+                .push(RuntimeValue::Reference(static_form_ref.into_generic()))?;
         }
         ConstantInfo::String(string) => {
             // TODO: This conversion could go directly from cesu8 to utf16
@@ -1388,11 +1462,7 @@ impl RunInst for AAStore {
                 .gc
                 .deref(value_ref)
                 .ok_or(EvalError::InvalidGcRef(value_ref.into_generic()))?;
-            let id = match value_inst {
-                ReferenceInstance::Class(class) => class.instanceof,
-                ReferenceInstance::PrimitiveArray(class) => class.instanceof,
-                ReferenceInstance::ReferenceArray(class) => class.instanceof,
-            };
+            let id = value_inst.instanceof();
             Some(id)
         } else {
             None

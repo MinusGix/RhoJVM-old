@@ -649,11 +649,7 @@ impl RunInst for CheckCast {
         )?;
         let cast_target_id = env.class_names.gcid_from_bytes(cast_target_name);
 
-        let id = match val_inst {
-            ReferenceInstance::Class(class) => class.instanceof,
-            ReferenceInstance::PrimitiveArray(array) => array.instanceof,
-            ReferenceInstance::ReferenceArray(array) => array.instanceof,
-        };
+        let id = val_inst.instanceof();
 
         // We currently represent the reference as completely unmodified, but we do have to
         // perform these checks so that we can determine if the cast is correct
@@ -743,11 +739,7 @@ impl RunInst for InstanceOf {
         )?;
         let cast_target_id = env.class_names.gcid_from_bytes(cast_target_name);
 
-        let id = match val_inst {
-            ReferenceInstance::Class(class) => class.instanceof,
-            ReferenceInstance::PrimitiveArray(array) => array.instanceof,
-            ReferenceInstance::ReferenceArray(array) => array.instanceof,
-        };
+        let id = val_inst.instanceof();
 
         // We currently represent the reference as completely unmodified, but we do have to
         // perform these checks so that we can determine if the cast is correct
