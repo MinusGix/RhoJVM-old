@@ -545,12 +545,21 @@ fn load_constant(
             let string = class_file.get_text_t(string.string_index).ok_or(
                 EvalError::InvalidConstantPoolIndex(string.string_index.into_generic()),
             )?;
-            let char_arr = string
-                .encode_utf16()
-                .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
-                .collect::<Vec<_>>();
 
-            let string_ref = util::construct_string(env, char_arr)?;
+            // TODO: This method of avoiding circularity feels hacky
+            let string_ref = if string.is_empty() {
+                // This special casing for the empty string is primarily done to avoid circularity
+                // issues, because the normal string constructor can use loadconstant with
+                // an empty string.
+                env.get_empty_string()?
+            } else {
+                let char_arr = string
+                    .encode_utf16()
+                    .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+                    .collect::<Vec<_>>();
+
+                util::construct_string(env, char_arr)?
+            };
             match string_ref {
                 ValueException::Value(string_ref) => frame
                     .stack

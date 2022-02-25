@@ -1,14 +1,19 @@
+use classfile_parser::field_info::FieldAccessFlags;
+use either::Either;
 use rhojvm_base::{
     package::Packages, util::MemorySize, ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
 };
 
 use crate::{
-    class_instance::{ClassInstance, Fields, PrimitiveArrayInstance, StaticClassInstance},
-    eval::{eval_method, EvalMethodValue, Frame, Locals, ValueException},
+    class_instance::{ClassInstance, PrimitiveArrayInstance, StaticClassInstance},
+    eval::{
+        eval_method, instances::make_fields, EvalError, EvalMethodValue, Frame, Locals,
+        ValueException,
+    },
     gc::GcRef,
     initialize_class,
     jni::native_interface::NativeInterface,
-    rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     BegunStatus, GeneralError, State, ThreadData,
 };
 
@@ -26,6 +31,59 @@ pub struct Env<'i> {
     pub methods: Methods,
     pub(crate) state: State,
     pub(crate) tdata: ThreadData,
+}
+impl<'i> Env<'i> {
+    pub(crate) fn get_empty_string(
+        &mut self,
+    ) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
+        if let Some(empty_string_ref) = self.state.empty_string_ref {
+            return Ok(ValueException::Value(empty_string_ref));
+        }
+
+        // This code feels kinda hacky, but I'm unsure of a great way past it
+        // The issue primarily is that String relies on itself for all of its constructors
+        // Even its default constructor, which ldcs an empty string and gets its char array
+        // then uses that reference as its own char array (because it is a clone of the empty
+        // string)
+        // TODO: Is there a better way?
+
+        let string_ref = match alloc_string(self)? {
+            ValueException::Value(string_ref) => string_ref,
+            ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+        };
+
+        // We try to find the correct field to modify based on types, and we have to modify since
+        // an array is initialized to null, not an empty array
+        // This should harden us a bit against different implementations
+        // And we only do this once, so the extra calculation time is insignificant
+        let char_array_id = self.state.char_array_id(&mut self.class_names);
+        let empty_array =
+            PrimitiveArrayInstance::new(char_array_id, RuntimeTypePrimitive::Char, Vec::new());
+        let empty_array_ref = self.state.gc.alloc(empty_array);
+
+        let string = self
+            .state
+            .gc
+            .deref_mut(string_ref)
+            .ok_or(EvalError::InvalidGcRef(string_ref.into_generic()))?;
+
+        let mut found_storage_field = false;
+        for (_field_name, field) in string.fields.iter_mut() {
+            if field.typ() == RuntimeType::Reference(char_array_id) {
+                *field.value_mut() = RuntimeValue::Reference(empty_array_ref.into_generic());
+                found_storage_field = true;
+                break;
+            }
+        }
+
+        if !found_storage_field {
+            return Err(GeneralError::StringNoValueField);
+        }
+
+        self.state.empty_string_ref = Some(string_ref);
+
+        Ok(ValueException::Value(string_ref))
+    }
 }
 
 // TODO: A JavaString is obviously not exactly equivalent to a Rust string..
@@ -60,6 +118,32 @@ pub(crate) fn get_string_ref(
     initialize_class(env, string_id).map(BegunStatus::into_value)
 }
 
+pub(crate) fn alloc_string(
+    env: &mut Env,
+) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
+    let string_id = env.state.string_class_id(&mut env.class_names);
+    let string_ref = get_string_ref(env)?;
+    // Allocate the uninitialized instance
+    let string_ref = match string_ref {
+        ValueException::Value(string_ref) => string_ref,
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    };
+
+    let fields = match make_fields(env, string_id, |field_info| {
+        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+    })? {
+        Either::Left(fields) => fields,
+        Either::Right(exc) => {
+            return Ok(ValueException::Exception(exc));
+        }
+    };
+
+    // new does not run a constructor, it only initializes it
+    let instance = ClassInstance::new(string_id, string_ref, fields);
+
+    Ok(ValueException::Value(env.state.gc.alloc(instance)))
+}
+
 /// Construct a JVM String given some string
 /// Note that `utf16_text` should be completely `RuntimeValuePrimitive::Char`
 pub(crate) fn construct_string(
@@ -74,19 +158,9 @@ pub(crate) fn construct_string(
         env.state.gc.alloc(char_arr)
     };
 
-    // Create the initial string reference, which could be uninitialized
-    let string_ref = {
-        let string_id = env.state.string_class_id(&mut env.class_names);
-        let string_ref = get_string_ref(env)?;
-        // Allocate the uninitialized instance
-        let string_ref = match string_ref {
-            ValueException::Value(string_ref) => string_ref,
-            ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
-        };
-        // TODO: Init fields better?
-        env.state
-            .gc
-            .alloc(ClassInstance::new(string_id, string_ref, Fields::default()))
+    let string_ref = match alloc_string(env)? {
+        ValueException::Value(string_ref) => string_ref,
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
     };
 
     // Get the string constructor that would take a char[], bool
@@ -101,6 +175,7 @@ pub(crate) fn construct_string(
         env,
         string_char_array_constructor,
         Frame::new_locals(Locals::new_with_array([
+            RuntimeValue::Reference(string_ref.into_generic()),
             RuntimeValue::Reference(char_arr_ref.into_generic()),
             RuntimeValue::Primitive(RuntimeValuePrimitive::Bool(true)),
         ])),
