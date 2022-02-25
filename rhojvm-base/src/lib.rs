@@ -288,6 +288,9 @@ impl Default for Config {
 
 #[derive(Debug, Default, Clone)]
 pub struct Classes {
+    /// Whether to log that we're loading a class
+    /// Uses `tracing::info!`
+    pub log_load: bool,
     map: HashMap<
         ClassId,
         ClassVariant,
@@ -298,6 +301,7 @@ impl Classes {
     #[must_use]
     pub fn new() -> Classes {
         Classes {
+            log_load: false,
             map: HashMap::with_hasher(BuildHasherDefault::default()),
         }
     }
@@ -356,7 +360,9 @@ impl Classes {
         let (_, class_info) = class_names
             .name_from_gcid(class_file_id)
             .map_err(StepError::BadId)?;
-        info!("====> C{:?}", class_names.tpath(class_file_id));
+        if self.log_load {
+            info!("====> C{:?}", class_names.tpath(class_file_id));
+        }
 
         if !class_info.has_class_file() {
             // Just load the array class
@@ -1527,6 +1533,9 @@ impl Default for ClassNames {
 
 #[derive(Debug, Default, Clone)]
 pub struct ClassFiles {
+    /// Whether to log that we are loading a class
+    /// Uses `tracing::info!`
+    pub log_load: bool,
     map: HashMap<
         ClassId,
         ClassFileData,
@@ -1537,6 +1546,7 @@ impl ClassFiles {
     #[must_use]
     pub fn new() -> ClassFiles {
         ClassFiles {
+            log_load: false,
             map: HashMap::with_hasher(BuildHasherDefault::default()),
         }
     }
@@ -1621,7 +1631,9 @@ impl ClassFiles {
             return Ok(());
         }
 
-        info!("=> CF{:?}", class_names.tpath(class_file_id));
+        if self.log_load {
+            info!("=> CF{:?}", class_names.tpath(class_file_id));
+        }
 
         // TODO: Is this the correct way of converting it?
         let path = convert_classfile_text(class_name.0);
