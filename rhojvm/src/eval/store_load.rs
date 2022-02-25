@@ -436,8 +436,94 @@ impl RunInst for GetField {
     }
 }
 impl RunInst for PutField {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
-        todo!()
+    fn run(
+        self,
+        RunInstArgs {
+            env,
+            method_id,
+            frame,
+            inst_index,
+        }: RunInstArgs,
+    ) -> Result<RunInstValue, GeneralError> {
+        let (class_id, _) = method_id.decompose();
+
+        // Get the value we are storing to the field
+        // Put static field works for any category of type
+        let value = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+
+        let instance_ref = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let instance_ref = instance_ref
+            .into_reference()
+            .ok_or(EvalError::ExpectedStackValueReference)?;
+        let instance_ref = if let Some(instance_ref) = instance_ref {
+            instance_ref
+        } else {
+            todo!("Null Pointer Exception")
+        };
+
+        let (_, field) = match get_field_dest(env, frame, self.index, class_id)? {
+            DestRes::GcRef(v) => v,
+            // Probably threw an exception
+            DestRes::RunInst(v) => return Ok(v),
+        };
+
+        // TODO: Should we load the class file since initalize class might have done a lot?
+        let class_file = env
+            .class_files
+            .get(&class_id)
+            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+        let field = class_file.get_t(field.name_and_type_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
+        )?;
+
+        // TODO: Avoid allocation
+        let field_name = class_file
+            .get_text_b(field.name_index)
+            .ok_or(EvalError::InvalidConstantPoolIndex(
+                field.name_index.into_generic(),
+            ))?
+            .to_owned();
+
+        let dest_instance = env
+            .state
+            .gc
+            .deref(instance_ref)
+            .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
+        let dest_instance_fields = if let Some(fields) = dest_instance.get_class_fields() {
+            fields
+        } else {
+            // You can't put field on an array, but it doesn't detail an exception for that.
+            // Probably illegal access error?
+            todo!("Some exception here");
+        };
+        let field = dest_instance_fields.get(&field_name);
+
+        if let Some(field) = field {
+            let field_type = field.typ();
+
+            // TODO: Some of the errors should be exceptions
+            let field_value = convert_field_type_store(
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.classes,
+                &mut env.packages,
+                &mut env.state,
+                field_type,
+                value,
+            )?;
+
+            // The gcref should still exist, and the field should still exist
+            let dest_instance = env.state.gc.deref_mut(instance_ref).unwrap();
+            let dest_instance_fields = dest_instance.get_class_fields_mut().unwrap();
+            let field = dest_instance_fields.get_mut(&field_name).unwrap();
+
+            *field.value_mut() = field_value;
+        } else {
+            todo!("Return no such field exception")
+        }
+
+        Ok(RunInstValue::Continue)
     }
 }
 

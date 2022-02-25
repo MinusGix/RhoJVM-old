@@ -148,6 +148,26 @@ impl ReferenceInstance {
             ReferenceInstance::ReferenceArray(x) => x.instanceof,
         }
     }
+
+    /// Get the fields for Class instances
+    /// This includes `ClassInstance` and `StaticFormInstance`
+    pub(crate) fn get_class_fields(&self) -> Option<&Fields> {
+        match self {
+            ReferenceInstance::Class(x) => Some(&x.fields),
+            ReferenceInstance::StaticForm(x) => Some(&x.inner.fields),
+            ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => None,
+        }
+    }
+
+    /// Get the fields for Class instances
+    /// This includes `ClassInstance` and `StaticFormInstance`
+    pub(crate) fn get_class_fields_mut(&mut self) -> Option<&mut Fields> {
+        match self {
+            ReferenceInstance::Class(x) => Some(&mut x.fields),
+            ReferenceInstance::StaticForm(x) => Some(&mut x.inner.fields),
+            ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => None,
+        }
+    }
 }
 impl MemorySize for ReferenceInstance {
     fn memory_size(&self) -> usize {
