@@ -25,8 +25,9 @@
 
 use std::{
     borrow::Cow,
+    collections::HashMap,
     fs::File,
-    hash::{Hash, Hasher},
+    hash::{BuildHasherDefault, Hash, Hasher},
     io::Read,
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -285,8 +286,54 @@ impl Default for Config {
     }
 }
 
-__make_map!(pub Classes<ClassId, ClassVariant>; access);
+#[derive(Debug, Default, Clone)]
+pub struct Classes {
+    map: HashMap<
+        ClassId,
+        ClassVariant,
+        <util::HashWrapper as util::HashWrapperTrait<ClassId>>::HashMapHasher,
+    >,
+}
 impl Classes {
+    #[must_use]
+    pub fn new() -> Classes {
+        Classes {
+            map: HashMap::with_hasher(BuildHasherDefault::default()),
+        }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    #[must_use]
+    pub fn contains_key(&self, key: &ClassId) -> bool {
+        self.map.contains_key(key)
+    }
+
+    #[must_use]
+    pub fn get(&self, key: &ClassId) -> Option<&ClassVariant> {
+        self.map.get(key)
+    }
+
+    #[must_use]
+    pub fn get_mut(&mut self, key: &ClassId) -> Option<&mut ClassVariant> {
+        self.map.get_mut(key)
+    }
+
+    pub(crate) fn set_at(&mut self, key: ClassId, val: ClassVariant) {
+        if self.map.insert(key, val).is_some() {
+            tracing::warn!("Duplicate setting for Classes with {:?}", key);
+            debug_assert!(false);
+        }
+    }
+
     // FIXME: This doesn't force any verification
     /// The given array class must have valid and correct fields!
     pub fn register_array_class(&mut self, array_class: ArrayClass) {
@@ -841,8 +888,51 @@ impl Classes {
         )?)
     }
 }
-__make_map!(typical pub Methods<MethodId, Method>; access);
+
+#[derive(Debug, Default, Clone)]
+pub struct Methods {
+    map: HashMap<MethodId, Method>,
+}
 impl Methods {
+    #[must_use]
+    pub fn new() -> Methods {
+        Methods {
+            map: HashMap::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    #[must_use]
+    pub fn contains_key(&self, key: &MethodId) -> bool {
+        self.map.contains_key(key)
+    }
+
+    #[must_use]
+    pub fn get(&self, key: &MethodId) -> Option<&Method> {
+        self.map.get(key)
+    }
+
+    #[must_use]
+    pub fn get_mut(&mut self, key: &MethodId) -> Option<&mut Method> {
+        self.map.get_mut(key)
+    }
+
+    pub(crate) fn set_at(&mut self, key: MethodId, val: Method) {
+        if self.map.insert(key, val).is_some() {
+            tracing::warn!("Duplicate setting for Methods with {:?}", key);
+            debug_assert!(false);
+        }
+    }
+
     // TODO: Version that gets the class directly and the method's index
 
     /// If this returns `Ok(())` then it it assured to exist on this with the same id
@@ -1435,8 +1525,54 @@ impl Default for ClassNames {
     }
 }
 
-__make_map!(pub ClassFiles<ClassId, ClassFileData>; access);
+#[derive(Debug, Default, Clone)]
+pub struct ClassFiles {
+    map: HashMap<
+        ClassId,
+        ClassFileData,
+        <util::HashWrapper as util::HashWrapperTrait<ClassId>>::HashMapHasher,
+    >,
+}
 impl ClassFiles {
+    #[must_use]
+    pub fn new() -> ClassFiles {
+        ClassFiles {
+            map: HashMap::with_hasher(BuildHasherDefault::default()),
+        }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    #[must_use]
+    pub fn contains_key(&self, key: &ClassId) -> bool {
+        self.map.contains_key(key)
+    }
+
+    #[must_use]
+    pub fn get(&self, key: &ClassId) -> Option<&ClassFileData> {
+        self.map.get(key)
+    }
+
+    #[must_use]
+    pub fn get_mut(&mut self, key: &ClassId) -> Option<&mut ClassFileData> {
+        self.map.get_mut(key)
+    }
+
+    pub(crate) fn set_at(&mut self, key: ClassId, val: ClassFileData) {
+        if self.map.insert(key, val).is_some() {
+            tracing::warn!("Duplicate setting for Classes with {:?}", key);
+            debug_assert!(false);
+        }
+    }
+
     /// This is primarily for the JVM impl to load classes from user input
     pub fn load_by_class_path_slice<T: AsRef<str>>(
         &mut self,
