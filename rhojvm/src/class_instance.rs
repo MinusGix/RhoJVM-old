@@ -384,6 +384,10 @@ impl Fields {
     pub fn iter(&self) -> impl Iterator<Item = (&[u8], &Field)> {
         self.fields.iter().map(|x| (x.0.as_ref(), x.1))
     }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&[u8], &mut Field)> {
+        self.fields.iter_mut().map(|x| (x.0.as_ref(), x.1))
+    }
 }
 
 pub type FieldType = RuntimeType<ClassId>;
