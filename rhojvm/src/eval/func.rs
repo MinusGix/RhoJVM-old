@@ -11,7 +11,6 @@ use rhojvm_base::{
 use smallvec::SmallVec;
 
 use crate::{
-    class_instance::ReferenceInstance,
     eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals},
     initialize_class, map_interface_index_small_vec_to_ids, resolve_derive,
     rv::{RuntimeValue, RuntimeValuePrimitive},
@@ -212,16 +211,18 @@ impl RunInst for InvokeStatic {
             locals.prepush_transform(value);
         }
 
-        let frame = Frame::new_locals(locals);
-        let res = eval_method(env, target_method_id, frame)?;
+        let call_frame = Frame::new_locals(locals);
+        let res = eval_method(env, target_method_id, call_frame)?;
 
-        Ok(match res {
+        match res {
             // TODO: Check that these are valid return types!
             // We can use the casting code we wrote above for the check, probably?
-            EvalMethodValue::ReturnVoid => RunInstValue::ReturnVoid,
-            EvalMethodValue::Return(v) => RunInstValue::Return(v),
-            EvalMethodValue::Exception(exc) => RunInstValue::Exception(exc),
-        })
+            EvalMethodValue::ReturnVoid => (),
+            EvalMethodValue::Return(v) => frame.stack.push(v)?,
+            EvalMethodValue::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+        }
+
+        Ok(RunInstValue::Continue)
     }
 }
 
@@ -346,16 +347,18 @@ impl RunInst for InvokeSpecial {
         locals.prepush_transform(RuntimeValue::Reference(instance_ref));
 
         // Construct a frame for the function we're calling and invoke it
-        let new_frame = Frame::new_locals(locals);
-        let res = eval_method(env, target_method_id, new_frame)?;
+        let call_frame = Frame::new_locals(locals);
+        let res = eval_method(env, target_method_id, call_frame)?;
 
-        Ok(match res {
+        match res {
             // TODO: Check that these are valid return types!
             // We can use the casting code we wrote above for the check, probably?
-            EvalMethodValue::ReturnVoid => RunInstValue::ReturnVoid,
-            EvalMethodValue::Return(v) => RunInstValue::Return(v),
-            EvalMethodValue::Exception(exc) => RunInstValue::Exception(exc),
-        })
+            EvalMethodValue::ReturnVoid => (),
+            EvalMethodValue::Return(v) => frame.stack.push(v)?,
+            EvalMethodValue::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+        }
+
+        Ok(RunInstValue::Continue)
     }
 }
 
@@ -601,16 +604,18 @@ impl RunInst for InvokeVirtual {
             locals.prepush_transform(value);
         }
 
-        let frame = Frame::new_locals(locals);
-        let res = eval_method(env, target_method_id, frame)?;
+        let call_frame = Frame::new_locals(locals);
+        let res = eval_method(env, target_method_id, call_frame)?;
 
-        Ok(match res {
+        match res {
             // TODO: Check that these are valid return types!
             // We can use the casting code we wrote above for the check, probably?
-            EvalMethodValue::ReturnVoid => RunInstValue::ReturnVoid,
-            EvalMethodValue::Return(v) => RunInstValue::Return(v),
-            EvalMethodValue::Exception(exc) => RunInstValue::Exception(exc),
-        })
+            EvalMethodValue::ReturnVoid => (),
+            EvalMethodValue::Return(v) => frame.stack.push(v)?,
+            EvalMethodValue::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+        }
+
+        Ok(RunInstValue::Continue)
     }
 }
 

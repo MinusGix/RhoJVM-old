@@ -89,7 +89,7 @@ pub(crate) fn construct_string(
             .alloc(ClassInstance::new(string_id, string_ref, Fields::default()))
     };
 
-    // Get the string constructor that would take a char[]
+    // Get the string constructor that would take a char[], bool
     let string_char_array_constructor = env.state.get_string_char_array_constructor(
         &env.class_directories,
         &mut env.class_names,
@@ -100,9 +100,10 @@ pub(crate) fn construct_string(
     let string_inst = eval_method(
         env,
         string_char_array_constructor,
-        Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(
-            char_arr_ref.into_generic(),
-        )])),
+        Frame::new_locals(Locals::new_with_array([
+            RuntimeValue::Reference(char_arr_ref.into_generic()),
+            RuntimeValue::Primitive(RuntimeValuePrimitive::Bool(true)),
+        ])),
     )?;
 
     match string_inst {

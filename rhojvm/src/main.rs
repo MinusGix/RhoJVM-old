@@ -296,9 +296,10 @@ impl State {
         }
     }
 
-    // TODO: Use the direct constructor? I'm unsure if we're guaranteed that it exists, but since
-    // it directly takes the char array rather than copying, it would certainly be better.
-    /// Get the method id for the String(char[]) constructor
+    // TODO: Should we be using the direct constructor?
+    // I'm unsure if we're guaranteed that it exists, but since
+    // it directly takes the char array rather than copying, it is better
+    /// Get the method id for the String(char[], bool) constructor
     pub fn get_string_char_array_constructor(
         &mut self,
         class_directories: &ClassDirectories,
@@ -314,10 +315,13 @@ impl State {
         class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
 
         let char_array_descriptor = MethodDescriptor::new(
-            smallvec![DescriptorType::Array {
-                level: NonZeroUsize::new(1).unwrap(),
-                component: DescriptorTypeBasic::Char,
-            }],
+            smallvec![
+                DescriptorType::Array {
+                    level: NonZeroUsize::new(1).unwrap(),
+                    component: DescriptorTypeBasic::Char,
+                },
+                DescriptorType::Basic(DescriptorTypeBasic::Boolean)
+            ],
             None,
         );
 
