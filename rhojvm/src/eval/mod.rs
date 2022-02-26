@@ -8,25 +8,25 @@ use classfile_parser::{
 };
 use rhojvm_base::{
     code::{
+        method::Method,
         op::{Inst, Wide, WideInst},
         types::{Instruction, LocalVariableIndex},
     },
     convert_classfile_text,
     id::{ClassId, MethodId},
     map_inst,
-    package::Packages,
     util::MemorySizeU16,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
+    StepError,
 };
 
 use crate::{
-    class_instance::{ClassInstance, Instance},
+    class_instance::{ClassInstance, Instance, ReferenceInstance},
     gc::GcRef,
-    jni::{self},
+    jni::{self, JObject, JValue},
     method::NativeMethod,
     rv::{RuntimeType, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
-    GeneralError, State, ThreadData,
+    GeneralError, State,
 };
 
 mod control_flow;
@@ -259,6 +259,41 @@ impl Frame {
     }
 }
 
+// FIXME: Class ref should probably give the function the Class<T> instance?
+/// Helper function to get the class ref value for static/nonstatic methods
+/// For native functions, which take a pointer to a gcref
+fn get_class_ref(
+    state: &mut State,
+    frame: &mut Frame,
+    class_id: ClassId,
+    method: &Method,
+) -> Result<ValueException<GcRef<Instance>>, GeneralError> {
+    Ok(
+        if method.access_flags().contains(MethodAccessFlags::STATIC) {
+            ValueException::Value(
+                state
+                    .find_static_class_instance(class_id)
+                    .ok_or(EvalError::MissingStaticClassRef(class_id))?,
+            )
+        } else {
+            // The first local parameter is the this ptr in non-static methods
+            let refer = frame
+                .locals
+                .get(0)
+                .ok_or(EvalError::ExpectedLocalVariable(0))?
+                .as_value()
+                .ok_or(EvalError::ExpectedLocalVariableWithValue(0))?
+                .into_reference()
+                .ok_or(EvalError::ExpectedLocalVariableReference(0))?;
+            if let Some(refer) = refer {
+                ValueException::Value(refer.into_generic())
+            } else {
+                todo!("Null pointer exception?")
+            }
+        },
+    )
+}
+
 /// Either a value or an exception
 #[derive(Debug, Clone, Copy)]
 pub enum ValueException<V> {
@@ -350,27 +385,29 @@ pub fn eval_method(
         };
         let native_func = native_func.get().clone();
 
-        if method.descriptor().is_nullary_void() {
-            let class_ref: GcRef<Instance> =
-                if method.access_flags().contains(MethodAccessFlags::STATIC) {
-                    env.state
-                        .find_static_class_instance(class_id)
-                        .ok_or(EvalError::MissingStaticClassRef(class_id))?
-                } else {
-                    // If it isn't a static method then it will pop a reference from the stack
-                    let refer = frame
-                        .stack
-                        .pop()
-                        .ok_or(EvalError::ExpectedStackValue)?
-                        .into_reference()
-                        .ok_or(EvalError::ExpectedStackValueReference)?;
-                    if let Some(refer) = refer {
-                        refer.into_generic()
-                    } else {
-                        todo!("Null pointer exception?")
-                    }
-                };
+        let is_static = method.access_flags().contains(MethodAccessFlags::STATIC);
+        let return_type = method.descriptor().return_type().copied();
 
+        if method.descriptor().is_nullary_void() {
+            // TODO: Are pointers to objects guaranteed to stay the same? I imagine not since that
+            // limits potential optimizations.
+            // FIXME: Pointers to objects should stay valid! This is currently UB because the pointer
+            // given to the native function can't be kept around even if they do perform it legally!
+            // We could maybe do some hacky stuff where we allocate it, then free it afterwards
+            // (or have a reusable one)
+            // but if they use the proper api to request to keep it, we just store it somewhere where
+            // it won't get modified, though that probably breaks some Rust guarantees if we don't make
+            // it immutable..
+            // Theoretically, since we're passing pointers in, we could do hackery where we store the gc
+            // data in the pointer, but that is bleeeeeeeeech.
+            // We could give the Gc a vector of pinned references, like
+            // `pinned_refs: Vec<Pin<Box<GcRef<Instance>>>>`
+            // or it could be one a specific GcRef so that they can know their own
+            // This isn't cheap but lets us keep them around and lets the Gc know about them properly
+            let class_ref = match get_class_ref(&mut env.state, &mut frame, class_id, method)? {
+                ValueException::Value(class_ref) => class_ref,
+                ValueException::Exception(exc) => return Ok(EvalMethodValue::Exception(exc)),
+            };
             let class_ref_ptr = std::ptr::addr_of!(class_ref);
 
             // Safety: We rely on the declared parameter types of java being correct
@@ -391,6 +428,81 @@ pub fn eval_method(
                 (native_func)(env_ptr, class_ref_ptr);
             };
             return Ok(EvalMethodValue::ReturnVoid);
+        }
+
+        if method.descriptor().parameters().len() == 1
+            && method.descriptor().parameters()[0].is_reference()
+        {
+            // fn(JNIEnv*, JObject, JObject) -> ?
+
+            let class_ref = match get_class_ref(&mut env.state, &mut frame, class_id, method)? {
+                ValueException::Value(class_ref) => class_ref,
+                ValueException::Exception(exc) => return Ok(EvalMethodValue::Exception(exc)),
+            };
+
+            let param_index = if is_static { 0 } else { 1 };
+            let param: Option<GcRef<Instance>> = frame
+                .locals
+                .get(param_index)
+                .ok_or(EvalError::ExpectedLocalVariable(param_index))?
+                .as_value()
+                .ok_or(EvalError::ExpectedLocalVariableWithValue(param_index))?
+                .into_reference()
+                .ok_or(EvalError::ExpectedLocalVariableReference(param_index))?
+                .map(GcRef::into_generic);
+
+            // TODO: We could just use a match
+            if let Some(return_type) = return_type {
+                // fn(JNIEnv*, JObject, JObject) -> jvalue
+
+                let class_ref_ptr: *const GcRef<Instance> = std::ptr::addr_of!(class_ref);
+                let param_ptr: *const GcRef<Instance> = if let Some(param) = &param {
+                    param as *const GcRef<Instance>
+                } else {
+                    std::ptr::null()
+                };
+
+                let env_ptr = env as *mut Env<'_>;
+                // The native function is only partially defined, we have to convert it into a more
+                // specific form
+                let native_func = native_func.get();
+                // Safety: Relying on java's declared parameter types
+                let native_func = unsafe {
+                    std::mem::transmute::<
+                        unsafe extern "C" fn(*mut Env, JObject),
+                        unsafe extern "C" fn(*mut Env, JObject, JObject) -> JValue,
+                    >(native_func)
+                };
+
+                // Safety: Relying on java's declared types and the safety of the code we are
+                // calling.
+                let value = unsafe { (native_func)(env_ptr, class_ref_ptr, param_ptr) };
+
+                // For value, we can only assume the value is of the same type as the one were
+                // given as the return type
+                let value = unsafe { value.narrow_from_desc_type_into_value(return_type) };
+
+                // TODO: Typecheck return value for classes since they could return a different
+                // gcref pointer
+
+                let value: RuntimeValue<ReferenceInstance> = match value {
+                    RuntimeValue::Primitive(prim) => prim.into(),
+                    RuntimeValue::NullReference => RuntimeValue::NullReference,
+                    RuntimeValue::Reference(re) => {
+                        let inst = env.state.gc.deref(re).ok_or(EvalError::InvalidGcRef(re))?;
+                        if matches!(inst, Instance::Reference(_)) {
+                            RuntimeValue::Reference(re.unchecked_as())
+                        } else {
+                            todo!("Native function return gcref to static class");
+                        }
+                    }
+                };
+
+                return Ok(EvalMethodValue::Return(value));
+            }
+
+            // fn(JNIEnv*, JObject, JObject) -> void
+            todo!("impl native (one) -> void");
         }
         todo!("Fully implement native methods");
     }
