@@ -415,6 +415,14 @@ impl DescriptorType {
         }
     }
 
+    #[must_use]
+    pub fn is_reference(&self) -> bool {
+        matches!(
+            self,
+            DescriptorType::Array { .. } | DescriptorType::Basic(DescriptorTypeBasic::Class(_))
+        )
+    }
+
     pub fn as_class_id(&self, class_names: &mut ClassNames) -> Result<Option<ClassId>, BadIdError> {
         match self {
             DescriptorType::Basic(x) => Ok(x.as_class_id()),
