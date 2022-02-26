@@ -5,7 +5,17 @@
 // For now, while many of these are unimplemented,
 #![allow(unused_variables)]
 
-use crate::{class_instance::Instance, gc::GcRef, util::Env};
+use rhojvm_base::code::{
+    method::{DescriptorType, DescriptorTypeBasic},
+    types::JavaChar,
+};
+
+use crate::{
+    class_instance::Instance,
+    gc::GcRef,
+    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    util::Env,
+};
 
 pub mod name;
 pub mod native_interface;
@@ -17,7 +27,7 @@ pub type JByte = i8;
 pub type JChar = u16;
 pub type JShort = i16;
 pub type JInt = i32;
-pub type JLong = i32;
+pub type JLong = i64;
 pub type JFloat = f32;
 pub type JDouble = f64;
 
@@ -34,6 +44,75 @@ pub union JValue {
     pub f: JFloat,
     pub d: JDouble,
     pub l: JObject,
+}
+impl JValue {
+    /// Convert the value into the value it would be as decided by a [`DescriptorType`]
+    /// Note that this does not check if it is a proper instance for a class
+    /// # Safety
+    /// The type should match what it was originally stored as
+    #[must_use]
+    pub unsafe fn narrow_from_desc_type_into_value(
+        self,
+        typ: DescriptorType,
+    ) -> RuntimeValue<Instance> {
+        match typ {
+            DescriptorType::Basic(b) => match b {
+                DescriptorTypeBasic::Byte => RuntimeValuePrimitive::I8(self.b).into(),
+                DescriptorTypeBasic::Char => RuntimeValuePrimitive::Char(JavaChar(self.c)).into(),
+                DescriptorTypeBasic::Double => RuntimeValuePrimitive::F64(self.d).into(),
+                DescriptorTypeBasic::Float => RuntimeValuePrimitive::F32(self.f).into(),
+                DescriptorTypeBasic::Int => RuntimeValuePrimitive::I32(self.i).into(),
+                DescriptorTypeBasic::Long => RuntimeValuePrimitive::I64(self.j).into(),
+                DescriptorTypeBasic::Short => RuntimeValuePrimitive::I16(self.s).into(),
+                // We treat the any invalid bool values as if they were true
+                DescriptorTypeBasic::Boolean => RuntimeValuePrimitive::Bool(self.z != 0).into(),
+                DescriptorTypeBasic::Class(_) => {
+                    if self.l.is_null() {
+                        RuntimeValue::NullReference
+                    } else {
+                        // TODO: If we keep the pointer around we can actually do a check for if it
+                        // is a pointer we gave out, since it can't forge instances!
+                        // Safety: All we can really do is assume the pointer is valid
+                        RuntimeValue::Reference(*self.l)
+                    }
+                }
+            },
+            DescriptorType::Array { .. } => {
+                if self.l.is_null() {
+                    RuntimeValue::NullReference
+                } else {
+                    // TODO: If we keep the pointer around we can actually do a check for if it
+                    // is a pointer we gave out, since it can't forge instances!
+                    // Safety: All we can really do is assume the pointer is valid
+                    RuntimeValue::Reference(*self.l)
+                }
+            }
+        }
+    }
+
+    /// Convert the value into the value it would be as decided by a [`RuntimeType`]
+    /// # Safety
+    /// The type should match what it was originally stored as
+    /// We assume that the representation of a byte is equivalent to a bool
+    #[must_use]
+    pub unsafe fn narrow_from_runtime_type_into_value(
+        self,
+        typ: RuntimeType,
+    ) -> Option<RuntimeValue> {
+        Some(match typ {
+            RuntimeType::Primitive(prim) => match prim {
+                RuntimeTypePrimitive::I64 => RuntimeValuePrimitive::I64(self.j).into(),
+                RuntimeTypePrimitive::I32 => RuntimeValuePrimitive::I32(self.i).into(),
+                RuntimeTypePrimitive::I16 => RuntimeValuePrimitive::I16(self.s).into(),
+                // Our code assumes that the representation of a bool and u8 are the same
+                RuntimeTypePrimitive::I8 => RuntimeValuePrimitive::I8(self.b).into(),
+                RuntimeTypePrimitive::F32 => RuntimeValuePrimitive::F32(self.f).into(),
+                RuntimeTypePrimitive::F64 => RuntimeValuePrimitive::F64(self.d).into(),
+                RuntimeTypePrimitive::Char => RuntimeValuePrimitive::Char(JavaChar(self.c)).into(),
+            },
+            RuntimeType::Reference(_) => return None,
+        })
+    }
 }
 
 pub type JObject = *const GcRef<Instance>;
