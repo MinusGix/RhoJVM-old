@@ -17,6 +17,8 @@ use crate::{
     util::Env,
 };
 
+use self::native_interface::NullMethod;
+
 pub mod name;
 pub mod native_interface;
 pub mod native_lib;
@@ -168,3 +170,84 @@ pub type MethodNoArguments = unsafe extern "C" fn(env: *mut Env);
 /// A JNI function that only takes the environment and the static class it is in
 /// For example, `registerNatives` is typically like this
 pub type MethodClassNoArguments = unsafe extern "C" fn(env: *mut Env, class: JClass);
+
+#[repr(C)]
+pub struct JVMInterface {
+    pub empty_0: NullMethod,
+    pub empty_1: NullMethod,
+    pub empty_2: NullMethod,
+
+    pub destroy_java_vm: DestroyJVMFn,
+    pub attach_current_thread: AttachCurrentThreadFn,
+    pub detach_current_thread: DetachCurrentThreadFn,
+
+    pub get_env: GetEnvFn,
+
+    pub attach_current_thread_as_daemon: AttachCurrentThreadAsDaemonFn,
+}
+impl JVMInterface {
+    pub(crate) fn make_typical() -> JVMInterface {
+        JVMInterface {
+            empty_0: NullMethod::default(),
+            empty_1: NullMethod::default(),
+            empty_2: NullMethod::default(),
+            destroy_java_vm,
+            attach_current_thread,
+            detach_current_thread,
+            get_env,
+            attach_current_thread_as_daemon,
+        }
+    }
+}
+
+#[repr(C)]
+pub struct JVMData {
+    /// This must be the first field
+    pub interface: JVMInterface,
+}
+pub type JVMNoArguments = unsafe extern "C" fn(vm: *mut JVMData);
+pub type JVMNoArgumentsRet<R> = unsafe extern "C" fn(vm: *mut JVMData) -> R;
+pub type JNIOnLoadFn = extern "C" fn(vm: *mut JVMData, reserved: *const ());
+
+pub type DestroyJVMFn = unsafe extern "C" fn(vm: *mut JVMData) -> JInt;
+unsafe extern "C" fn destroy_java_vm(vm: *mut JVMData) -> JInt {
+    todo!("destroy_java_vm");
+}
+
+#[repr(C)]
+pub struct JVMAttachArgs {
+    version: JInt,
+    name: *mut std::os::raw::c_char,
+    group: JObject,
+}
+
+pub type AttachCurrentThreadFn =
+    unsafe extern "C" fn(vm: *mut JVMData, *mut *mut Env, *mut JVMAttachArgs) -> JInt;
+unsafe extern "C" fn attach_current_thread(
+    vm: *mut JVMData,
+    out_env: *mut *mut Env<'_>,
+    thr_args: *mut JVMAttachArgs,
+) -> JInt {
+    todo!("attach_current_thread");
+}
+
+pub type AttachCurrentThreadAsDaemonFn =
+    unsafe extern "C" fn(vm: *mut JVMData, *mut *mut Env, *mut JVMAttachArgs) -> JInt;
+unsafe extern "C" fn attach_current_thread_as_daemon(
+    vm: *mut JVMData,
+    out_env: *mut *mut Env<'_>,
+    thr_args: *mut JVMAttachArgs,
+) -> JInt {
+    todo!("attach_current_thread_as_daemon");
+}
+
+pub type DetachCurrentThreadFn = unsafe extern "C" fn(vm: *mut JVMData) -> JInt;
+unsafe extern "C" fn detach_current_thread(vm: *mut JVMData) -> JInt {
+    todo!("detach_current_thread");
+}
+
+pub type GetEnvFn =
+    unsafe extern "C" fn(vm: *mut JVMData, out_env: *mut *mut Env, version: JInt) -> JInt;
+unsafe extern "C" fn get_env(vm: *mut JVMData, out_env: *mut *mut Env, version: JInt) -> JInt {
+    todo!("get_env")
+}

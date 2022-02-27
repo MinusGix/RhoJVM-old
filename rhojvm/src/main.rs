@@ -619,17 +619,6 @@ fn main() {
 
     // Initialize State
     let state = State::new(conf);
-    unsafe {
-        // libjava.so depends on libjvm and can't find it itself
-        state
-            .native
-            .load_library_blocking("./rhojvm/ex/lib/amd64/server/libjvm.so")
-            .expect("Failed to load libjvm");
-        state
-            .native
-            .load_library_blocking("./rhojvm/ex/lib/amd64/libjava.so")
-            .expect("Failed to load libjava");
-    };
 
     let main_thread_data = ThreadData::new(std::thread::current().id());
 
@@ -646,9 +635,33 @@ fn main() {
         state,
         tdata: main_thread_data,
     };
-    // We pin this, because each
+    // We pin this, because the env ptr is expected to stay the same
     let mut env = Box::pin(env);
     let mut env: &mut Env = &mut *env;
+
+    // libjava.so depends on libjvm and can't find it itself
+    let needed_libs = [
+        "./rhojvm/ex/lib/amd64/server/libjvm.so",
+        "./rhojvm/ex/lib/amd64/libjava.so",
+    ];
+    for lib_path in needed_libs {
+        unsafe {
+            env.state
+                .native
+                .load_library_blocking(lib_path)
+                .expect("Failed to load lib");
+        };
+
+        // TODO: Check for JNI_OnLoadL?
+        let onload = unsafe {
+            env.state
+                .native
+                .find_symbol_blocking_jni_on_load_in_library(lib_path)
+        };
+        // if let Ok(onload) = onload {
+        //     todo!("Call onload function");
+        // }
+    }
 
     // Load the entry point
     let entrypoint_id: ClassId = env

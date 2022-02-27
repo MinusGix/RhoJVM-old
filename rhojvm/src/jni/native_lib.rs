@@ -8,7 +8,7 @@ use libloading::Symbol;
 
 use crate::jni;
 
-use super::OpaqueClassMethod;
+use super::{JNIOnLoadFn, OpaqueClassMethod};
 
 #[derive(Debug)]
 pub enum LoadLibraryError {
@@ -21,6 +21,7 @@ pub enum FindSymbolError {
     /// The symbol was a null pointer
     NullSymbol,
     FindFailure,
+    BadLibraryPath,
 }
 impl From<libloading::Error> for FindSymbolError {
     fn from(err: libloading::Error) -> FindSymbolError {
@@ -166,6 +167,40 @@ impl NativeLibrariesStatic {
             std::mem::transmute::<*mut std::ffi::c_void, jni::MethodClassNoArguments>(symbol);
 
         Ok(OpaqueClassMethod::new(symbol))
+    }
+
+    /// Find a [`JNI_OnLoad`] function if one exists
+    /// # Safety
+    /// The function must be a valid function
+    /// The safety of calling it primarily depends on the code itself
+    pub(crate) unsafe fn find_symbol_blocking_jni_on_load_in_library(
+        &self,
+        lib_path: impl AsRef<OsStr>,
+    ) -> Result<JNIOnLoadFn, FindSymbolError> {
+        let symbol = {
+            let native_lib = self.lib.read().expect("Native Library lock was poisoned");
+            let library = native_lib
+                .libraries
+                .get(lib_path.as_ref())
+                .ok_or(FindSymbolError::BadLibraryPath)?;
+            let symbol: Symbol<JNIOnLoadFn> = library
+                .get(b"JNI_OnLoad")
+                .map_err(|_| FindSymbolError::FindFailure)?;
+            let symbol: StaticSymbol<JNIOnLoadFn> = symbol.into_raw();
+            symbol
+        };
+        let symbol = symbol.into_raw();
+        if symbol.is_null() {
+            return Err(FindSymbolError::NullSymbol);
+        }
+
+        // Transmute the raw pointer into a function pointer
+        // Safety: We've already checked if it was null, and if it was then we returned an error.
+        // We also provided the same guarantees/info to libloading, not that it pays attention to
+        // that.
+        let symbol = std::mem::transmute::<*mut std::ffi::c_void, JNIOnLoadFn>(symbol);
+
+        Ok(symbol)
     }
 }
 
