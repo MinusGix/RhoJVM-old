@@ -602,6 +602,8 @@ fn main() {
 
     let entry_point_cp = ["HelloWorld"];
     let class_dirs = [
+        // RhoJVM libraries take precedence since it is expected that some code
+        "./classpath/",
         "./rhojvm/ex/lib/rt/",
         "./rhojvm/ex/lib/jce/",
         "./rhojvm/ex/lib/charsets/",
