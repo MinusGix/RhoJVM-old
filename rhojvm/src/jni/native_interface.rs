@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::{ffi::CStr, os::raw::c_char};
 
 use rhojvm_base::code::method::MethodDescriptor;
 use usize_cast::IntoIsize;
@@ -10,7 +10,9 @@ use crate::{
     util::Env,
 };
 
-use super::{JBoolean, JByte, JChar, JClass, JInt, JObject, JSize, JThrowable, MethodNoArguments};
+use super::{
+    JBoolean, JByte, JChar, JClass, JFieldId, JInt, JObject, JSize, JThrowable, MethodNoArguments,
+};
 
 #[repr(C)]
 pub struct NativeInterface {
@@ -124,7 +126,7 @@ pub struct NativeInterface {
     pub call_nonvirtual_void_method_v: MethodNoArguments,
     pub call_nonvirtual_void_method_a: MethodNoArguments,
 
-    pub get_field_id: MethodNoArguments,
+    pub get_field_id: GetFieldIdFn,
 
     pub get_object_field: MethodNoArguments,
     pub get_boolean_field: MethodNoArguments,
@@ -388,7 +390,7 @@ impl NativeInterface {
             call_nonvirtual_void_method: unimpl_none,
             call_nonvirtual_void_method_v: unimpl_none,
             call_nonvirtual_void_method_a: unimpl_none,
-            get_field_id: unimpl_none,
+            get_field_id,
             get_object_field: unimpl_none,
             get_boolean_field: unimpl_none,
             get_byte_field: unimpl_none,
@@ -801,4 +803,19 @@ unsafe extern "C" fn register_natives(
     }
 
     REGISTER_NATIVE_SUCCESS
+}
+
+pub type GetFieldIdFn = unsafe extern "C" fn(
+    env: *mut Env,
+    class: JClass,
+    name: *const c_char,
+    signature: *const c_char,
+) -> JFieldId;
+unsafe extern "C" fn get_field_id(
+    env: *mut Env,
+    class: JClass,
+    name: *const c_char,
+    signature: *const c_char,
+) -> JFieldId {
+    todo!("get_field_id");
 }

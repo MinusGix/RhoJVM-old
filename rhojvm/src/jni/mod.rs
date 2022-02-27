@@ -35,6 +35,10 @@ pub type JDouble = f64;
 
 pub type JSize = JInt;
 
+// TODO: Give these actually useable types
+pub type JFieldId = *const ();
+pub type JMethodId = *const ();
+
 #[repr(C)]
 pub union JValue {
     pub z: JBoolean,
