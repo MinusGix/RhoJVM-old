@@ -5,6 +5,8 @@
 // For now, while many of these are unimplemented,
 #![allow(unused_variables)]
 
+use std::ffi::c_void;
+
 use rhojvm_base::code::{
     method::{DescriptorType, DescriptorTypeBasic},
     types::JavaChar,
@@ -12,6 +14,7 @@ use rhojvm_base::code::{
 
 use crate::{
     class_instance::Instance,
+    const_assert,
     gc::GcRef,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
@@ -51,6 +54,7 @@ pub union JValue {
     pub d: JDouble,
     pub l: JObject,
 }
+const_assert!(std::mem::size_of::<JValue>() == 8);
 impl JValue {
     /// Convert the value into the value it would be as decided by a [`DescriptorType`]
     /// Note that this does not check if it is a proper instance for a class
@@ -136,6 +140,10 @@ pub type JLongArray = JObject;
 pub type JFloatArray = JObject;
 pub type JDoubleArray = JObject;
 pub type JThrowable = JObject;
+
+// TODO: Should we check alignment requirements?
+// JNI code expects the JObject as a pointer type, so at the very least it should be the same size
+const_assert!(std::mem::size_of::<JObject>() == std::mem::size_of::<*const c_void>());
 
 /// A method for a class that is 'opaque' in that not all of its arguments are known
 /// This is primarily for storing, where get the method descriptor but we can't really

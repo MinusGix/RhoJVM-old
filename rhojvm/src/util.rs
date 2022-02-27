@@ -194,3 +194,11 @@ pub(crate) fn construct_string(
 
     Ok(ValueException::Value(string_ref))
 }
+
+/// Note: This is internal to rhojvm
+#[macro_export]
+macro_rules! const_assert {
+    ($x:expr $(,)?) => {
+        const _: () = assert!($x);
+    };
+}

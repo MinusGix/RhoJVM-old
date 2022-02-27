@@ -63,3 +63,17 @@ impl<'a> Iterator for EscapeNameIterator<'a> {
         res
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::jni::name::make_native_method_name;
+
+    #[test]
+    fn test_native_method_name() {
+        // TODO: More detailed tests
+        assert_eq!(
+            make_native_method_name(b"java/lang/System", b"registerNatives"),
+            b"Java_java_lang_System_registerNatives\0"
+        );
+    }
+}
