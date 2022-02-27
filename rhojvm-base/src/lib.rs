@@ -56,6 +56,7 @@ use indexmap::{Equivalent, IndexMap};
 use package::Packages;
 use smallvec::{smallvec, SmallVec};
 use tracing::{info, span, Level};
+use util::Cesu8String;
 
 use crate::code::{method::MethodOverride, CodeInfo};
 
@@ -117,7 +118,7 @@ pub enum LoadMethodError {
     /// There was no method with that name
     NonexistentMethodName {
         class_id: ClassId,
-        name: Cow<'static, [u8]>,
+        name: Cesu8String,
     },
     /// The index to the name of the method was invalid
     InvalidMethodNameIndex {
@@ -1829,7 +1830,7 @@ fn method_id_from_desc<'a>(
 
     Err(LoadMethodError::NonexistentMethodName {
         class_id: class_file.id(),
-        name: Cow::Owned(name.to_owned()),
+        name: Cesu8String(name.to_owned()),
     }
     .into())
 }

@@ -2,6 +2,26 @@ use std::path::PathBuf;
 
 use classfile_parser::constant_pool::{ConstantPoolIndex, ConstantPoolIndexRaw};
 
+#[derive(Clone, Eq, PartialEq)]
+pub struct Cesu8String(pub Vec<u8>);
+impl std::fmt::Debug for Cesu8String {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text =
+            cesu8::from_java_cesu8(&self.0).unwrap_or_else(|_| String::from_utf8_lossy(&self.0));
+        f.write_fmt(format_args!("\"{}\"", text))
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Cesu8Str<'a>(pub &'a [u8]);
+impl<'a> std::fmt::Debug for Cesu8Str<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text =
+            cesu8::from_java_cesu8(self.0).unwrap_or_else(|_| String::from_utf8_lossy(self.0));
+        f.write_fmt(format_args!("\"{}\"", text))
+    }
+}
+
 // We can't really have a generic version for packages and classes because we can't
 // distinguish between a class path and a package path
 /// Convert the access path for a class into a relative path
