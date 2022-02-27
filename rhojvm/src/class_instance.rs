@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 use classfile_parser::field_info::FieldAccessFlags;
 use either::Either;
+use indexmap::{Equivalent, IndexMap};
 use rhojvm_base::{id::ClassId, util::MemorySize};
 
 use crate::{
@@ -102,9 +103,12 @@ pub enum Instance {
 impl Instance {
     /// Note that this does not peek upwards (for class instances) into the static class
     /// for its fields.
-    pub(crate) fn fields(
-        &self,
-    ) -> Either<impl Iterator<Item = (&[u8], &Field)>, impl Iterator<Item = (&[u8], &Field)>> {
+    pub(crate) fn fields<'a>(
+        &'a self,
+    ) -> Either<
+        impl Iterator<Item = (BorrowedFieldKey<'a>, &'a Field)>,
+        impl Iterator<Item = (BorrowedFieldKey<'a>, &'a Field)>,
+    > {
         match self {
             Instance::StaticClass(x) => Either::Left(x.fields.iter()),
             Instance::Reference(x) => Either::Right(x.fields()),
@@ -131,7 +135,7 @@ pub enum ReferenceInstance {
 }
 impl ReferenceInstance {
     /// Note that this does not peek upwards into the static class for its fields
-    pub(crate) fn fields(&self) -> impl Iterator<Item = (&[u8], &Field)> {
+    pub(crate) fn fields<'a>(&'a self) -> impl Iterator<Item = (BorrowedFieldKey<'a>, &'a Field)> {
         match self {
             ReferenceInstance::Class(x) => x.fields.iter(),
             ReferenceInstance::StaticForm(x) => x.inner.fields.iter(),
@@ -382,31 +386,102 @@ impl MemorySize for ReferenceArrayInstance {
 }
 impl GcValueMarker for ReferenceArrayInstance {}
 
+#[derive(Debug, Clone)]
+pub struct OwnedFieldKey {
+    pub id: ClassId,
+    pub name: Vec<u8>,
+}
+impl OwnedFieldKey {
+    pub fn new(id: ClassId, name: impl Into<Vec<u8>>) -> OwnedFieldKey {
+        OwnedFieldKey {
+            id,
+            name: name.into(),
+        }
+    }
+
+    pub fn as_borrowed(&self) -> BorrowedFieldKey<'_> {
+        BorrowedFieldKey {
+            id: self.id,
+            name: self.name.as_slice(),
+        }
+    }
+}
+impl Eq for OwnedFieldKey {}
+impl PartialEq for OwnedFieldKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.name == other.name
+    }
+}
+impl Hash for OwnedFieldKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        // We deliberately hash as a slice so the borrowed version produces the same hash
+        self.name.as_slice().hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BorrowedFieldKey<'a> {
+    pub id: ClassId,
+    pub name: &'a [u8],
+}
+impl<'a> BorrowedFieldKey<'a> {
+    pub fn new(id: ClassId, name: &'a [u8]) -> BorrowedFieldKey<'a> {
+        BorrowedFieldKey { id, name }
+    }
+
+    pub fn into_owned(self) -> OwnedFieldKey {
+        OwnedFieldKey::new(self.id, self.name)
+    }
+}
+impl Eq for BorrowedFieldKey<'_> {}
+impl<'a> PartialEq for BorrowedFieldKey<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.name == other.name
+    }
+}
+impl<'a> Hash for BorrowedFieldKey<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.name.hash(state);
+    }
+}
+impl<'a> Equivalent<OwnedFieldKey> for BorrowedFieldKey<'a> {
+    fn equivalent(&self, key: &OwnedFieldKey) -> bool {
+        self.id == key.id && self.name == key.name
+    }
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct Fields {
-    fields: HashMap<Vec<u8>, Field>,
+    /// Stores the id of the class and its name in one
+    /// because a class can have a field name 'a' and extend a class with a field named 'a'
+    /// and they are different fields.
+    fields: IndexMap<OwnedFieldKey, Field>,
 }
 impl Fields {
     #[must_use]
-    pub fn get(&self, name: &[u8]) -> Option<&Field> {
-        self.fields.get(name)
+    pub fn get(&self, name: BorrowedFieldKey<'_>) -> Option<&Field> {
+        self.fields.get(&name)
     }
 
     #[must_use]
-    pub fn get_mut(&mut self, name: &[u8]) -> Option<&mut Field> {
-        self.fields.get_mut(name)
+    pub fn get_mut(&mut self, name: BorrowedFieldKey<'_>) -> Option<&mut Field> {
+        self.fields.get_mut(&name)
     }
 
-    pub fn insert(&mut self, name: impl Into<Vec<u8>>, field: Field) {
-        self.fields.insert(name.into(), field);
+    pub fn insert(&mut self, key: OwnedFieldKey, field: Field) {
+        self.fields.insert(key, field);
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&[u8], &Field)> {
-        self.fields.iter().map(|x| (x.0.as_ref(), x.1))
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (BorrowedFieldKey<'a>, &'a Field)> {
+        self.fields.iter().map(|x| (x.0.as_borrowed(), x.1))
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&[u8], &mut Field)> {
-        self.fields.iter_mut().map(|x| (x.0.as_ref(), x.1))
+    pub fn iter_mut<'a>(
+        &'a mut self,
+    ) -> impl Iterator<Item = (BorrowedFieldKey<'a>, &'a mut Field)> {
+        self.fields.iter_mut().map(|x| (x.0.as_borrowed(), x.1))
     }
 }
 

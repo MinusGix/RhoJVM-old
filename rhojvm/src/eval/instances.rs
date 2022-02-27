@@ -21,8 +21,8 @@ use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{
-        ClassInstance, Field, FieldAccess, Fields, PrimitiveArrayInstance, ReferenceArrayInstance,
-        ReferenceInstance,
+        ClassInstance, Field, FieldAccess, Fields, OwnedFieldKey, PrimitiveArrayInstance,
+        ReferenceArrayInstance, ReferenceInstance,
     },
     eval::EvalError,
     gc::GcRef,
@@ -34,19 +34,12 @@ use crate::{
 
 use super::{RunInst, RunInstArgs, RunInstValue, ValueException};
 
-/// Loads all the fields, filtered by some function
-/// initializing them with their value
-/// Returns either an exception or the fields
-/// Takes a filter function so that this can be used for static class initialization and normal
-/// class init
-///     Should return true if it should be kept
-pub(crate) fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
+pub(crate) fn add_fields_for_class<F: Fn(&FieldInfoOpt) -> bool>(
     env: &mut Env,
     class_id: ClassId,
     filter_fn: F,
-) -> Result<Either<Fields, GcRef<ClassInstance>>, GeneralError> {
-    let mut fields = Fields::default();
-
+    fields: &mut Fields,
+) -> Result<Option<GcRef<ClassInstance>>, GeneralError> {
     let class_file = env
         .class_files
         .get(&class_id)
@@ -132,7 +125,7 @@ pub(crate) fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
 
                         // TODO: include information that it was due to initializing a field
                         ValueException::Exception(exc) => {
-                            return Ok(Either::Right(exc));
+                            return Ok(Some(exc));
                         }
                     }
                 }
@@ -142,16 +135,48 @@ pub(crate) fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
 
             // TODO: Validate that the value is the right type
             fields.insert(
-                field_name,
+                OwnedFieldKey::new(class_id, field_name),
                 Field::new(value, field_type, is_final, field_access),
             );
         } else {
             // otherwise, we give it the default value for its type
             let default_value = field_type.default_value();
             fields.insert(
-                field_name,
+                OwnedFieldKey::new(class_id, field_name),
                 Field::new(default_value, field_type, is_final, field_access),
             );
+        }
+    }
+
+    Ok(None)
+}
+
+/// Loads all the fields, filtered by some function
+/// initializing them with their value
+/// Returns either an exception or the fields
+/// Takes a filter function so that this can be used for static class initialization and normal
+/// class init
+///     Should return true if it should be kept
+pub(crate) fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
+    env: &mut Env,
+    class_id: ClassId,
+    filter_fn: F,
+) -> Result<Either<Fields, GcRef<ClassInstance>>, GeneralError> {
+    let mut fields = Fields::default();
+
+    // Iterate over the super classes (which includes the current class)
+    // Adding all of their fields to the map
+    let mut tree_iter = rhojvm_base::load_super_classes_iter(class_id);
+    while let Some(target_id) = tree_iter.next_item(
+        &env.class_directories,
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+    ) {
+        let target_id = target_id?;
+        if let Some(exception) = add_fields_for_class(env, target_id, &filter_fn, &mut fields)? {
+            return Ok(Either::Right(exception));
         }
     }
 

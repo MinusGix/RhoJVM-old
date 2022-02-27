@@ -35,9 +35,10 @@ use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{
-        ClassInstance, FieldType, ReferenceInstance, StaticClassInstance, StaticFormInstance,
+        BorrowedFieldKey, ClassInstance, FieldType, ReferenceInstance, StaticClassInstance,
+        StaticFormInstance,
     },
-    eval::{eval_method, instances::make_fields},
+    eval::instances::make_fields,
     gc::GcRef,
     initialize_class, resolve_derive,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
@@ -48,7 +49,7 @@ use crate::{
 use super::{EvalError, Frame, RunInst, RunInstArgs, RunInstValue, ValueException};
 
 enum DestRes {
-    GcRef((GcRef<StaticClassInstance>, FieldRefConstant)),
+    GcRef((GcRef<StaticClassInstance>, ClassId, FieldRefConstant)),
     RunInst(RunInstValue),
 }
 fn get_field_dest(
@@ -67,7 +68,7 @@ fn get_field_dest(
         .ok_or(EvalError::InvalidConstantPoolIndex(index.into_generic()))?
         .clone();
 
-    let (_, dest_ref) = {
+    let (dest_class_id, dest_ref) = {
         let dest_class =
             class_file
                 .get_t(field.class_index)
@@ -94,7 +95,7 @@ fn get_field_dest(
         (dest_class_id, dest_ref)
     };
 
-    Ok(DestRes::GcRef((dest_ref, field)))
+    Ok(DestRes::GcRef((dest_ref, dest_class_id, field)))
 }
 
 /// Theoretically, this shouldn't error since it would've been checked by stack map verifier
@@ -244,7 +245,7 @@ impl RunInst for GetStatic {
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
 
-        let (dest_ref, field) = match get_field_dest(env, frame, self.index, class_id)? {
+        let (dest_ref, dest_id, field) = match get_field_dest(env, frame, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -271,7 +272,9 @@ impl RunInst for GetStatic {
             .gc
             .deref(dest_ref)
             .ok_or(EvalError::InvalidGcRef(dest_ref.into_generic()))?;
-        let field = dest_instance.fields.get(field_name);
+        let field = dest_instance
+            .fields
+            .get(BorrowedFieldKey::new(dest_id, field_name));
 
         if let Some(field) = field {
             // TODO: JVM says it throws incompatible class change error if the resolved field is not
@@ -304,7 +307,7 @@ impl RunInst for PutStaticField {
         // Put static field works for any category of type
         let value = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
-        let (dest_ref, field) = match get_field_dest(env, frame, self.index, class_id)? {
+        let (dest_ref, dest_id, field) = match get_field_dest(env, frame, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -326,13 +329,14 @@ impl RunInst for PutStaticField {
                 field.name_index.into_generic(),
             ))?
             .to_owned();
+        let field_name = BorrowedFieldKey::new(dest_id, &field_name);
 
         let dest_instance = env
             .state
             .gc
             .deref(dest_ref)
             .ok_or(EvalError::InvalidGcRef(dest_ref.into_generic()))?;
-        let field = dest_instance.fields.get(&field_name);
+        let field = dest_instance.fields.get(field_name);
 
         if let Some(field) = field {
             let field_type = field.typ();
@@ -351,7 +355,7 @@ impl RunInst for PutStaticField {
 
             // The gcref should still exist, and the field should still exist
             let dest_instance = env.state.gc.deref_mut(dest_ref).unwrap();
-            let field = dest_instance.fields.get_mut(&field_name).unwrap();
+            let field = dest_instance.fields.get_mut(field_name).unwrap();
 
             *field.value_mut() = field_value;
         } else {
@@ -382,7 +386,7 @@ impl RunInst for GetField {
             None => todo!("Return null pointer exception"),
         };
 
-        let (_, field) = match get_field_dest(env, frame, self.index, class_id)? {
+        let (_, dest_id, field) = match get_field_dest(env, frame, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -417,6 +421,7 @@ impl RunInst for GetField {
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     field.name_index.into_generic(),
                 ))?;
+        let field_name = BorrowedFieldKey::new(dest_id, field_name);
 
         let instance = env
             .state
@@ -461,7 +466,7 @@ impl RunInst for PutField {
             todo!("Null Pointer Exception")
         };
 
-        let (_, field) = match get_field_dest(env, frame, self.index, class_id)? {
+        let (_, dest_id, field) = match get_field_dest(env, frame, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -483,6 +488,7 @@ impl RunInst for PutField {
                 field.name_index.into_generic(),
             ))?
             .to_owned();
+        let field_name = BorrowedFieldKey::new(dest_id, &field_name);
 
         let dest_instance = env
             .state
@@ -496,7 +502,7 @@ impl RunInst for PutField {
             // Probably illegal access error?
             todo!("Some exception here");
         };
-        let field = dest_instance_fields.get(&field_name);
+        let field = dest_instance_fields.get(field_name);
 
         if let Some(field) = field {
             let field_type = field.typ();
@@ -516,7 +522,7 @@ impl RunInst for PutField {
             // The gcref should still exist, and the field should still exist
             let dest_instance = env.state.gc.deref_mut(instance_ref).unwrap();
             let dest_instance_fields = dest_instance.get_class_fields_mut().unwrap();
-            let field = dest_instance_fields.get_mut(&field_name).unwrap();
+            let field = dest_instance_fields.get_mut(field_name).unwrap();
 
             *field.value_mut() = field_value;
         } else {

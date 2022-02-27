@@ -170,6 +170,7 @@ version = "0.1.0"
 dependencies = [
  "classfile-parser",
  "either",
+ "indexmap",
  "libloading",
  "rhojvm-base",
  "smallvec",

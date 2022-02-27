@@ -26,6 +26,7 @@ usize_cast = "1.1.0"
 either = "1.6"
 # For loading native libraries at runtime
 libloading = "0.7.3"
+indexmap = "1.8.0"
 # Used for profiling allocations and memory usage.
 # Useful, but has many dependencies and runtime-expensive
 #dhat = "0.2.4"
