@@ -4,4 +4,5 @@
 cd classpath
 # CLASSPATH="../rhojvm/ex/lib/rt/" 
 javac ./java/lang/Class.java
+javac ./java/lang/System.java
 cd ..

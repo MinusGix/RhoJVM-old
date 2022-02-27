@@ -3,3 +3,4 @@ rho.log
 /flamegraph.svg
 /perf.data
 /perf.data.old
+/classpath/**/*.class
