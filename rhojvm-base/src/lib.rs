@@ -32,7 +32,7 @@ use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::atomic::{self, AtomicU64},
+    sync::atomic::{self, AtomicU32},
 };
 
 use class::{
@@ -1247,14 +1247,14 @@ impl ClassNameInfo {
 
 #[derive(Debug)]
 pub struct ClassNames {
-    next_id: AtomicU64,
+    next_id: AtomicU32,
     names: IndexMap<RawClassName, ClassNameInfo>,
 }
 impl ClassNames {
     #[must_use]
     pub fn new() -> Self {
         let mut class_names = ClassNames {
-            next_id: AtomicU64::new(0),
+            next_id: AtomicU32::new(0),
             // TODO: We could probably choose a better and more accurate default
             // For a basic program, it might fit under this limit
             names: IndexMap::with_capacity(32),

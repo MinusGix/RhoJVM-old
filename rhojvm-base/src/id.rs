@@ -1,13 +1,13 @@
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Copy, Clone)]
-pub struct ClassId(u64);
+pub struct ClassId(u32);
 impl ClassId {
-    pub(crate) fn new_unchecked(id: u64) -> ClassId {
+    pub(crate) fn new_unchecked(id: u32) -> ClassId {
         ClassId(id)
     }
 
-    pub(crate) fn get(self) -> u64 {
+    pub(crate) fn get(self) -> u32 {
         self.0
     }
 }
@@ -21,16 +21,16 @@ impl PartialEq for ClassId {
 impl Eq for ClassId {}
 impl Hash for ClassId {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u64(self.0)
+        state.write_u32(self.0)
     }
 }
 #[cfg(feature = "implementation-cheaper-map-hashing")]
 impl nohash_hasher::IsEnabled for ClassId {}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct PackageId(u64);
+pub struct PackageId(u32);
 impl PackageId {
-    pub(crate) fn new_unchecked(id: u64) -> PackageId {
+    pub(crate) fn new_unchecked(id: u32) -> PackageId {
         PackageId(id)
     }
 }
