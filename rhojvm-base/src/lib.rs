@@ -537,7 +537,7 @@ impl Classes {
             class_names,
             class_files,
             packages,
-            &component,
+            component,
         )?;
 
         let (package, access_flags) = if let Some(component_id) = component_id {
@@ -2360,7 +2360,7 @@ pub(crate) fn load_basic_descriptor_type(
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     packages: &mut Packages,
-    bdesc_type: &DescriptorTypeBasic,
+    bdesc_type: DescriptorTypeBasic,
 ) -> Result<Option<ClassId>, StepError> {
     match bdesc_type {
         DescriptorTypeBasic::Class(class_id) => {
@@ -2369,9 +2369,9 @@ pub(crate) fn load_basic_descriptor_type(
                 class_names,
                 class_files,
                 packages,
-                *class_id,
+                class_id,
             )?;
-            Ok(Some(*class_id))
+            Ok(Some(class_id))
         }
         _ => Ok(None),
     }
@@ -2393,7 +2393,7 @@ pub(crate) fn load_descriptor_type(
                 class_names,
                 class_files,
                 packages,
-                &x,
+                x,
             )?;
             Ok(())
         }

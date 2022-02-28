@@ -321,6 +321,7 @@ impl RunInst for ANewArray {
             todo!("Return NegativeArraySizeException")
         }
 
+        #[allow(clippy::cast_sign_loss)]
         let count = (count as u32).into_usize();
 
         // Register the class for arrays of this type
@@ -346,7 +347,7 @@ impl RunInst for ANewArray {
 }
 
 impl RunInst for MultiANewArray {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         todo!()
     }
 }
@@ -365,6 +366,7 @@ impl RunInst for NewArray {
             todo!("Return NegativeArraySizeException")
         }
 
+        #[allow(clippy::cast_sign_loss)]
         let count = (count as u32).into_usize();
 
         let elem_prim_type = self

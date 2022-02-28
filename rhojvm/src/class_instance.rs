@@ -103,11 +103,11 @@ pub enum Instance {
 impl Instance {
     /// Note that this does not peek upwards (for class instances) into the static class
     /// for its fields.
-    pub(crate) fn fields<'a>(
-        &'a self,
+    pub(crate) fn fields(
+        &self,
     ) -> Either<
-        impl Iterator<Item = (BorrowedFieldKey<'a>, &'a Field)>,
-        impl Iterator<Item = (BorrowedFieldKey<'a>, &'a Field)>,
+        impl Iterator<Item = (BorrowedFieldKey<'_>, &Field)>,
+        impl Iterator<Item = (BorrowedFieldKey<'_>, &Field)>,
     > {
         match self {
             Instance::StaticClass(x) => Either::Left(x.fields.iter()),
@@ -135,7 +135,7 @@ pub enum ReferenceInstance {
 }
 impl ReferenceInstance {
     /// Note that this does not peek upwards into the static class for its fields
-    pub(crate) fn fields<'a>(&'a self) -> impl Iterator<Item = (BorrowedFieldKey<'a>, &'a Field)> {
+    pub(crate) fn fields(&self) -> impl Iterator<Item = (BorrowedFieldKey<'_>, &Field)> {
         match self {
             ReferenceInstance::Class(x) => x.fields.iter(),
             ReferenceInstance::StaticForm(x) => x.inner.fields.iter(),
@@ -399,6 +399,7 @@ impl OwnedFieldKey {
         }
     }
 
+    #[must_use]
     pub fn as_borrowed(&self) -> BorrowedFieldKey<'_> {
         BorrowedFieldKey {
             id: self.id,
@@ -426,10 +427,12 @@ pub struct BorrowedFieldKey<'a> {
     pub name: &'a [u8],
 }
 impl<'a> BorrowedFieldKey<'a> {
+    #[must_use]
     pub fn new(id: ClassId, name: &'a [u8]) -> BorrowedFieldKey<'a> {
         BorrowedFieldKey { id, name }
     }
 
+    #[must_use]
     pub fn into_owned(self) -> OwnedFieldKey {
         OwnedFieldKey::new(self.id, self.name)
     }
@@ -474,13 +477,11 @@ impl Fields {
         self.fields.insert(key, field);
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (BorrowedFieldKey<'a>, &'a Field)> {
+    pub fn iter(&self) -> impl Iterator<Item = (BorrowedFieldKey<'_>, &Field)> {
         self.fields.iter().map(|x| (x.0.as_borrowed(), x.1))
     }
 
-    pub fn iter_mut<'a>(
-        &'a mut self,
-    ) -> impl Iterator<Item = (BorrowedFieldKey<'a>, &'a mut Field)> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (BorrowedFieldKey<'_>, &mut Field)> {
         self.fields.iter_mut().map(|x| (x.0.as_borrowed(), x.1))
     }
 }

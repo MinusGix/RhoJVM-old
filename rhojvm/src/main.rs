@@ -16,15 +16,13 @@
 // Annoying. Really shouldn't highlight the entire thing.
 #![allow(clippy::unnecessary_wraps)]
 
-use std::{
-    borrow::Cow, collections::HashMap, num::NonZeroUsize, path::Path, sync::Arc, thread::ThreadId,
-};
+use std::{collections::HashMap, num::NonZeroUsize, path::Path, sync::Arc, thread::ThreadId};
 
-use class_instance::{ClassInstance, Field, FieldAccess, Fields, Instance, StaticClassInstance};
+use class_instance::{ClassInstance, Instance, StaticClassInstance};
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo},
     constant_pool::ConstantPoolIndexRaw,
-    descriptor::{DescriptorType as DescriptorTypeCF, DescriptorTypeError},
+    descriptor::DescriptorTypeError,
     field_info::FieldAccessFlags,
     LoadError,
 };
@@ -39,14 +37,14 @@ use rhojvm_base::{
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         stack_map::StackMapError,
-        types::{JavaChar, PrimitiveType},
+        types::PrimitiveType,
     },
     id::{ClassId, MethodId},
     load_super_classes_iter,
     package::Packages,
     ClassDirectories, ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
 };
-use rv::{RuntimeType, RuntimeValue, RuntimeValuePrimitive};
+use rv::RuntimeValue;
 use smallvec::{smallvec, SmallVec};
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use tracing::info;
@@ -244,7 +242,6 @@ pub struct State {
 
     string_class_id: Option<ClassId>,
     string_char_array_constructor: Option<MethodId>,
-    string_default_constructor: Option<MethodId>,
 
     pub(crate) empty_string_ref: Option<GcRef<ClassInstance>>,
 }
@@ -270,7 +267,6 @@ impl State {
             char_array_id: None,
             string_class_id: None,
             string_char_array_constructor: None,
-            string_default_constructor: None,
 
             empty_string_ref: None,
         }
@@ -300,35 +296,6 @@ impl State {
             self.string_class_id = Some(string_class_id);
             string_class_id
         }
-    }
-
-    pub(crate) fn get_string_default_constructor(
-        &mut self,
-        class_directories: &ClassDirectories,
-        class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        methods: &mut Methods,
-    ) -> Result<MethodId, StepError> {
-        if let Some(constructor) = self.string_default_constructor {
-            return Ok(constructor);
-        }
-
-        let class_id = self.string_class_id(class_names);
-        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
-
-        let default_descriptor = MethodDescriptor::new_empty();
-        let id = methods.load_method_from_desc(
-            class_directories,
-            class_names,
-            class_files,
-            class_id,
-            b"<init>",
-            &default_descriptor,
-        )?;
-
-        self.string_default_constructor = Some(id);
-
-        Ok(id)
     }
 
     // TODO: Should we be using the direct constructor?
@@ -654,8 +621,9 @@ fn main() {
                 .expect("Failed to load lib");
         };
 
+        // TODO: Actually call this.
         // TODO: Check for JNI_OnLoadL?
-        let onload = unsafe {
+        let _onload = unsafe {
             env.state
                 .native
                 .find_symbol_blocking_jni_on_load_in_library(lib_path)

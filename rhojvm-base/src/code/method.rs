@@ -254,7 +254,7 @@ pub enum DescriptorTypeBasic {
 }
 impl DescriptorTypeBasic {
     /// Convert to a string used in a descriptor
-    pub fn to_desc_string(&self, class_names: &mut ClassNames) -> Result<Vec<u8>, BadIdError> {
+    pub fn to_desc_string(self, class_names: &mut ClassNames) -> Result<Vec<u8>, BadIdError> {
         match self {
             DescriptorTypeBasic::Byte => Ok(Vec::from(b"B" as &[u8])),
             DescriptorTypeBasic::Char => Ok(Vec::from(b"C" as &[u8])),
@@ -263,7 +263,7 @@ impl DescriptorTypeBasic {
             DescriptorTypeBasic::Int => Ok(Vec::from(b"I" as &[u8])),
             DescriptorTypeBasic::Long => Ok(Vec::from(b"J" as &[u8])),
             DescriptorTypeBasic::Class(class_id) => {
-                let (class_name, class_info) = class_names.name_from_gcid(*class_id)?;
+                let (class_name, class_info) = class_names.name_from_gcid(class_id)?;
                 if class_info.is_array() {
                     // If we have the id for an array then we just use the singular path it has
                     // because writing it as an object is incorrect.
@@ -279,11 +279,11 @@ impl DescriptorTypeBasic {
 
     /// Returns an iterator over the desc type
     /// Most of the returned strings are static, but class would have one that is owned by names
-    pub(crate) fn as_desc_iter<'cn>(
-        &self,
-        class_names: &'cn ClassNames,
+    pub(crate) fn as_desc_iter(
+        self,
+        class_names: &ClassNames,
     ) -> Result<
-        Either<impl Iterator<Item = &'cn [u8]> + Clone, impl Iterator<Item = &'cn [u8]> + Clone>,
+        Either<impl Iterator<Item = &'_ [u8]> + Clone, impl Iterator<Item = &'_ [u8]> + Clone>,
         BadIdError,
     > {
         Ok(Either::Left(match self {
@@ -296,7 +296,7 @@ impl DescriptorTypeBasic {
             DescriptorTypeBasic::Short => [b"S" as &[u8]].into_iter(),
             DescriptorTypeBasic::Boolean => [b"Z" as &[u8]].into_iter(),
             DescriptorTypeBasic::Class(class_id) => {
-                let (class_name, class_info) = class_names.name_from_gcid(*class_id)?;
+                let (class_name, class_info) = class_names.name_from_gcid(class_id)?;
                 if class_info.is_array() {
                     // Arrays already have leading [
                     [class_name.get()].into_iter()
@@ -324,7 +324,7 @@ impl DescriptorTypeBasic {
         }
     }
 
-    pub(crate) fn name(&self) -> Option<&str> {
+    pub(crate) fn name(self) -> Option<&'static str> {
         Some(match self {
             DescriptorTypeBasic::Byte => "byte",
             DescriptorTypeBasic::Char => "char",
@@ -338,14 +338,14 @@ impl DescriptorTypeBasic {
         })
     }
 
-    pub(crate) fn access_flags(&self) -> Option<ClassAccessFlags> {
+    pub(crate) fn access_flags(self) -> Option<ClassAccessFlags> {
         match self {
             DescriptorTypeBasic::Class(_) => None,
             _ => Some(ClassAccessFlags::PUBLIC),
         }
     }
 
-    pub(crate) fn as_array_component_type(&self) -> ArrayComponentType {
+    pub(crate) fn as_array_component_type(self) -> ArrayComponentType {
         match self {
             DescriptorTypeBasic::Byte => ArrayComponentType::Byte,
             DescriptorTypeBasic::Char => ArrayComponentType::Char,
@@ -353,27 +353,27 @@ impl DescriptorTypeBasic {
             DescriptorTypeBasic::Float => ArrayComponentType::Float,
             DescriptorTypeBasic::Int => ArrayComponentType::Int,
             DescriptorTypeBasic::Long => ArrayComponentType::Long,
-            DescriptorTypeBasic::Class(x) => ArrayComponentType::Class(*x),
+            DescriptorTypeBasic::Class(x) => ArrayComponentType::Class(x),
             DescriptorTypeBasic::Short => ArrayComponentType::Short,
             DescriptorTypeBasic::Boolean => ArrayComponentType::Boolean,
         }
     }
 
     #[must_use]
-    pub fn as_class_id(&self) -> Option<ClassId> {
+    pub fn as_class_id(self) -> Option<ClassId> {
         if let DescriptorTypeBasic::Class(class_id) = self {
-            Some(*class_id)
+            Some(class_id)
         } else {
             None
         }
     }
 
     #[must_use]
-    pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
+    pub fn as_pretty_string(self, class_names: &ClassNames) -> String {
         match self {
             DescriptorTypeBasic::Class(id) => {
-                if class_names.name_from_gcid(*id).is_ok() {
-                    let path = class_names.tpath(*id);
+                if class_names.name_from_gcid(id).is_ok() {
+                    let path = class_names.tpath(id);
                     path.to_owned()
                 } else {
                     format!("[BadClassId #{}]", id.get())

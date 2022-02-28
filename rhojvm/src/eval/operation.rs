@@ -210,6 +210,7 @@ impl RunInst for IntLogicalShiftRight {
                 .to_ne_bytes(),
         );
         let value = v2 >> v1;
+        #[allow(clippy::cast_possible_wrap)]
         let value = value as i32;
 
         frame.stack.push(RuntimeValuePrimitive::I32(value))?;
@@ -472,6 +473,7 @@ impl RunInst for LongLogicalShiftRight {
                 .to_ne_bytes(),
         );
         let value = v2 >> v1;
+        #[allow(clippy::cast_possible_wrap)]
         let value = value as i64;
 
         frame.stack.push(RuntimeValuePrimitive::I64(value))?;

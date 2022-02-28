@@ -15,7 +15,6 @@ use rhojvm_base::code::{
 use crate::{
     class_instance::Instance,
     const_assert,
-    gc::GcRef,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
 };
@@ -125,6 +124,7 @@ impl JValue {
 #[repr(transparent)]
 pub struct JObject(pub *const ());
 impl JObject {
+    #[must_use]
     pub fn null() -> JObject {
         JObject(std::ptr::null())
     }
@@ -215,6 +215,8 @@ impl JVMInterface {
     }
 }
 
+// TODO: Implement this JVM api.
+// We should also make a safe/safer version for Rust consumption
 #[repr(C)]
 pub struct JVMData {
     /// This must be the first field

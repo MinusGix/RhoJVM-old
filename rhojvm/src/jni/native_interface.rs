@@ -548,12 +548,6 @@ extern "C" fn unimpl_none(_: *mut Env) {
     unimpl("unimpl_none")
 }
 
-// We don't need to specify return type since it will abort
-pub type UnimplOnePtrFn = unsafe extern "C" fn(env: *mut Env, ptr: *mut std::ffi::c_void);
-fn unimpl_one_ptr<T: std::any::Any>(_: *mut Env, _: *mut std::ffi::c_void) {
-    unimpl(std::any::type_name::<T>())
-}
-
 fn unimpl(message: &str) -> ! {
     use std::io::Write;
     {

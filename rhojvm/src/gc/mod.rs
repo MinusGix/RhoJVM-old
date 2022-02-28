@@ -281,7 +281,11 @@ impl GcObject {
 /// This is mostly to make constraints on various type safe parts of the code easier
 pub trait GcValueMarker {}
 
-// TODO: We could do some odd optimizations, like holding a pointer?
+// TODO: We could shrink index, because a 64-bit platform doesn't really need to hold that many
+// unique objects.. nor can we even store that many in a Rust vector.
+// We could use that extra space as a generation id, to make so if the native code is unsound
+//  (or our code using the native code is unsound in terms of JVM guarantees)
+// which would then help avoid behaving badly.
 /// A reference to an object in the Gc
 /// Should not be used across Gc instances
 pub struct GcRef<T> {
@@ -296,7 +300,7 @@ impl<T> GcRef<T> {
         }
     }
 
-    pub(crate) fn get_index_unchecked(&self) -> usize {
+    pub(crate) fn get_index_unchecked(self) -> usize {
         self.index
     }
 

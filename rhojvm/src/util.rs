@@ -101,16 +101,15 @@ impl<'i> Env<'i> {
     pub(crate) unsafe fn get_local_jobject_for(&mut self, re: GcRef<Instance>) -> JObject {
         const_assert!(std::mem::size_of::<usize>() == std::mem::size_of::<*const ()>());
         // TODO: Mark it down as being stored? Well, I think they're shortlived by default?
-        let ptr = re.get_index_unchecked();
+        let ptr: usize = re.get_index_unchecked();
         debug_assert_ne!(ptr, std::usize::MAX);
         // We _have_ to add 1 so that nullptr has a different value!
-        let ptr = ptr + 1;
+        let ptr: usize = ptr + 1;
         // TODO: is this valid? We know it is non-null and it is a zst so presumably valid
         // everywhere?
         let ptr: *const () = ptr as *const ();
-        let ptr = JObject(ptr);
 
-        ptr
+        JObject(ptr)
     }
 
     #[allow(clippy::unused_self)]
@@ -136,10 +135,10 @@ impl<'i> Env<'i> {
         }
 
         // Shift down by 1 since `get_local_jobject_for` shifted it up by 1
-        let ptr = ptr - 1;
+        let ptr: usize = ptr - 1;
 
         // Sanity/Safety: We can only really assume that what we've been passed in is correct.
-        let gc_ref = GcRef::new_unchecked(ptr);
+        let gc_ref: GcRef<Instance> = GcRef::new_unchecked(ptr);
 
         Some(gc_ref)
     }

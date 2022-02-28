@@ -25,7 +25,6 @@ fn grab_runtime_value_from_stack_for_function(
     class_files: &mut ClassFiles,
     classes: &mut Classes,
     packages: &mut Packages,
-    methods: &mut Methods,
     state: &mut State,
     frame: &mut Frame,
     target: &DescriptorType,
@@ -202,7 +201,6 @@ impl RunInst for InvokeStatic {
                 &mut env.class_files,
                 &mut env.classes,
                 &mut env.packages,
-                &mut env.methods,
                 &mut env.state,
                 frame,
                 parameter,
@@ -227,7 +225,7 @@ impl RunInst for InvokeStatic {
 }
 
 impl RunInst for InvokeInterface {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         todo!()
     }
 }
@@ -240,7 +238,7 @@ impl RunInst for InvokeSpecial {
             env,
             method_id,
             frame,
-            inst_index,
+            ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let index = self.index;
@@ -329,7 +327,6 @@ impl RunInst for InvokeSpecial {
                 &mut env.class_files,
                 &mut env.classes,
                 &mut env.packages,
-                &mut env.methods,
                 &mut env.state,
                 frame,
                 parameter,
@@ -484,7 +481,7 @@ impl RunInst for InvokeVirtual {
             env,
             method_id,
             frame,
-            inst_index,
+            ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         // TODO: Validate that the instance ref can be considered to extend the class that the
@@ -595,7 +592,6 @@ impl RunInst for InvokeVirtual {
                 &mut env.class_files,
                 &mut env.classes,
                 &mut env.packages,
-                &mut env.methods,
                 &mut env.state,
                 frame,
                 parameter,
@@ -620,7 +616,7 @@ impl RunInst for InvokeVirtual {
 }
 
 impl RunInst for InvokeDynamic {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         todo!()
     }
 }

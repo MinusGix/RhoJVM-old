@@ -54,7 +54,6 @@ enum DestRes {
 }
 fn get_field_dest(
     env: &mut Env,
-    frame: &mut Frame,
     index: ConstantPoolIndexRaw<FieldRefConstant>,
     class_id: ClassId,
 ) -> Result<DestRes, GeneralError> {
@@ -245,7 +244,7 @@ impl RunInst for GetStatic {
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
 
-        let (dest_ref, dest_id, field) = match get_field_dest(env, frame, self.index, class_id)? {
+        let (dest_ref, dest_id, field) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -307,7 +306,7 @@ impl RunInst for PutStaticField {
         // Put static field works for any category of type
         let value = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
-        let (dest_ref, dest_id, field) = match get_field_dest(env, frame, self.index, class_id)? {
+        let (dest_ref, dest_id, field) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -372,7 +371,7 @@ impl RunInst for GetField {
             env,
             method_id,
             frame,
-            inst_index,
+            ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
@@ -386,7 +385,7 @@ impl RunInst for GetField {
             None => todo!("Return null pointer exception"),
         };
 
-        let (_, dest_id, field) = match get_field_dest(env, frame, self.index, class_id)? {
+        let (_, dest_id, field) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -447,7 +446,7 @@ impl RunInst for PutField {
             env,
             method_id,
             frame,
-            inst_index,
+            ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
@@ -466,7 +465,7 @@ impl RunInst for PutField {
             todo!("Null Pointer Exception")
         };
 
-        let (_, dest_id, field) = match get_field_dest(env, frame, self.index, class_id)? {
+        let (_, dest_id, field) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -538,7 +537,7 @@ fn load_constant(
         env,
         method_id,
         frame,
-        inst_index,
+        ..
     }: RunInstArgs,
     index: ConstantPoolIndexRaw<ConstantInfo>,
 ) -> Result<RunInstValue, GeneralError> {
@@ -855,27 +854,27 @@ impl RunInst for Dup {
     }
 }
 impl RunInst for Dup2 {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         todo!()
     }
 }
 impl RunInst for DupX1 {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         todo!()
     }
 }
 impl RunInst for DupX2 {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         todo!()
     }
 }
 impl RunInst for Dup2X1 {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         todo!()
     }
 }
 impl RunInst for Dup2X2 {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         todo!()
     }
 }
@@ -1679,6 +1678,7 @@ impl RunInst for ShortArrayStore {
             |v| v.can_be_int(),
             // int-repr values are accepted, then narrowed
             |_, v| {
+                #[allow(clippy::cast_possible_truncation)]
                 Ok(RuntimeValuePrimitive::I16(
                     v.into_int().ok_or(EvalError::ExpectedStackValueIntRepr)? as i16,
                 ))
@@ -1729,6 +1729,7 @@ impl RunInst for ByteArrayStore {
             |v| v.can_be_int(),
             // int-repr values are accepted, then narrowed
             |_, v| {
+                #[allow(clippy::cast_possible_truncation)]
                 Ok(RuntimeValuePrimitive::I8(
                     v.into_int().ok_or(EvalError::ExpectedStackValueIntRepr)? as i8,
                 ))

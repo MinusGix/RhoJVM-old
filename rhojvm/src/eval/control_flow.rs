@@ -16,7 +16,7 @@ use crate::{
     class_instance::ReferenceInstance,
     eval::EvalError,
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{self, Env},
+    util::{self},
     GeneralError,
 };
 
@@ -153,7 +153,7 @@ impl RunInst for AThrow {
                         &env.class_directories,
                         &mut env.class_names,
                         &mut env.class_files,
-                        &mut env.classes,
+                        &env.classes,
                         instance.instanceof,
                         throwable_id,
                     )? {

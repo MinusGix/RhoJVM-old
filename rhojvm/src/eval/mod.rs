@@ -389,21 +389,6 @@ pub fn eval_method(
         let return_type = method.descriptor().return_type().copied();
 
         if method.descriptor().is_nullary_void() {
-            // TODO: Are pointers to objects guaranteed to stay the same? I imagine not since that
-            // limits potential optimizations.
-            // FIXME: Pointers to objects should stay valid! This is currently UB because the pointer
-            // given to the native function can't be kept around even if they do perform it legally!
-            // We could maybe do some hacky stuff where we allocate it, then free it afterwards
-            // (or have a reusable one)
-            // but if they use the proper api to request to keep it, we just store it somewhere where
-            // it won't get modified, though that probably breaks some Rust guarantees if we don't make
-            // it immutable..
-            // Theoretically, since we're passing pointers in, we could do hackery where we store the gc
-            // data in the pointer, but that is bleeeeeeeeech.
-            // We could give the Gc a vector of pinned references, like
-            // `pinned_refs: Vec<Pin<Box<GcRef<Instance>>>>`
-            // or it could be one a specific GcRef so that they can know their own
-            // This isn't cheap but lets us keep them around and lets the Gc know about them properly
             let class_ref = match get_class_ref(&mut env.state, &mut frame, class_id, method)? {
                 ValueException::Value(class_ref) => class_ref,
                 ValueException::Exception(exc) => return Ok(EvalMethodValue::Exception(exc)),
@@ -421,7 +406,8 @@ pub fn eval_method(
             // The pointer.
             // TODO: Is it valid for there to maybe be live mutable pointers to a mutable
             // reference, if they aren't used? I'm not sure how we'd get around that if it
-            // isn't...
+            // isn't... the code we call can simply hold a `*mut Env`, even if it can't modify it
+            // until we call into it, which will always be giving it the `*mut Env`
             let env_ptr = env as *mut Env<'_>;
             let native_func = native_func.get();
             unsafe {
