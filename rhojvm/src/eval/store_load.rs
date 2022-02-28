@@ -29,13 +29,13 @@ use rhojvm_base::{
     },
     id::ClassId,
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
+    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
 };
 use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{
-        BorrowedFieldKey, ClassInstance, FieldType, ReferenceInstance, StaticClassInstance,
+        ClassInstance, FieldIndex, FieldType, ReferenceInstance, StaticClassInstance,
         StaticFormInstance,
     },
     eval::instances::make_fields,
@@ -49,7 +49,7 @@ use crate::{
 use super::{EvalError, Frame, RunInst, RunInstArgs, RunInstValue, ValueException};
 
 enum DestRes {
-    GcRef((GcRef<StaticClassInstance>, ClassId, FieldRefConstant)),
+    GcRef((GcRef<StaticClassInstance>, FieldIndex, FieldRefConstant)),
     RunInst(RunInstValue),
 }
 fn get_field_dest(
@@ -67,7 +67,7 @@ fn get_field_dest(
         .ok_or(EvalError::InvalidConstantPoolIndex(index.into_generic()))?
         .clone();
 
-    let (dest_class_id, dest_ref) = {
+    let (_, field_index, dest_ref) = {
         let dest_class =
             class_file
                 .get_t(field.class_index)
@@ -91,10 +91,51 @@ fn get_field_dest(
             }
         };
 
-        (dest_class_id, dest_ref)
+        // TODO: This feels like excessive calculation to get the field index, but I'm unsure of
+        // a better way.
+        // Doing it like `ClassNames` and having a table would be even more work due to field name
+        // allocs and hash map allocs and lookup
+        // But, hopefully once we refine instructions so we don't repeat work, this becomes trivial
+        // since it won't be done repeatedly.
+        let class_file = env
+            .class_files
+            .get(&class_id)
+            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+        let dest_class_file = env
+            .class_files
+            .get(&dest_class_id)
+            .ok_or(GeneralError::MissingLoadedClassFile(dest_class_id))?;
+        let field_nat = class_file.get_t(field.name_and_type_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
+        )?;
+        let field_name = class_file.get_text_b(field_nat.name_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(field_nat.name_index.into_generic()),
+        )?;
+        // TODO: Document assumption that fields stay in order
+        let mut field_index = None;
+        for (i, field_data) in dest_class_file.load_field_values_iter().enumerate() {
+            let i = FieldIndex::new_unchecked(i as u16);
+            let (field_info, _) = field_data.map_err(GeneralError::ClassFileLoad)?;
+            let target_field_name = dest_class_file.get_text_b(field_info.name_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(field_info.name_index.into_generic()),
+            )?;
+
+            // TODO: Should we check the signature too for extra validity?
+            if field_name == target_field_name {
+                field_index = Some(i);
+                break;
+            }
+        }
+
+        let field_index = if let Some(field_index) = field_index {
+            field_index
+        } else {
+            todo!("No such field exception");
+        };
+        (dest_class_id, field_index, dest_ref)
     };
 
-    Ok(DestRes::GcRef((dest_ref, dest_class_id, field)))
+    Ok(DestRes::GcRef((dest_ref, field_index, field)))
 }
 
 /// Theoretically, this shouldn't error since it would've been checked by stack map verifier
@@ -244,7 +285,7 @@ impl RunInst for GetStatic {
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
 
-        let (dest_ref, dest_id, field) = match get_field_dest(env, self.index, class_id)? {
+        let (dest_ref, dest_field_index, field) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -271,9 +312,7 @@ impl RunInst for GetStatic {
             .gc
             .deref(dest_ref)
             .ok_or(EvalError::InvalidGcRef(dest_ref.into_generic()))?;
-        let field = dest_instance
-            .fields
-            .get(BorrowedFieldKey::new(dest_id, field_name));
+        let field = dest_instance.fields.get(dest_field_index);
 
         if let Some(field) = field {
             // TODO: JVM says it throws incompatible class change error if the resolved field is not
@@ -306,7 +345,7 @@ impl RunInst for PutStaticField {
         // Put static field works for any category of type
         let value = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
-        let (dest_ref, dest_id, field) = match get_field_dest(env, self.index, class_id)? {
+        let (dest_ref, dest_field_index, field) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -328,14 +367,13 @@ impl RunInst for PutStaticField {
                 field.name_index.into_generic(),
             ))?
             .to_owned();
-        let field_name = BorrowedFieldKey::new(dest_id, &field_name);
 
         let dest_instance = env
             .state
             .gc
             .deref(dest_ref)
             .ok_or(EvalError::InvalidGcRef(dest_ref.into_generic()))?;
-        let field = dest_instance.fields.get(field_name);
+        let field = dest_instance.fields.get(dest_field_index);
 
         if let Some(field) = field {
             let field_type = field.typ();
@@ -354,7 +392,7 @@ impl RunInst for PutStaticField {
 
             // The gcref should still exist, and the field should still exist
             let dest_instance = env.state.gc.deref_mut(dest_ref).unwrap();
-            let field = dest_instance.fields.get_mut(field_name).unwrap();
+            let field = dest_instance.fields.get_mut(dest_field_index).unwrap();
 
             *field.value_mut() = field_value;
         } else {
@@ -385,7 +423,7 @@ impl RunInst for GetField {
             None => todo!("Return null pointer exception"),
         };
 
-        let (_, dest_id, field) = match get_field_dest(env, self.index, class_id)? {
+        let (_, dest_field_index, field) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -420,14 +458,16 @@ impl RunInst for GetField {
                 .ok_or(EvalError::InvalidConstantPoolIndex(
                     field.name_index.into_generic(),
                 ))?;
-        let field_name = BorrowedFieldKey::new(dest_id, field_name);
 
         let instance = env
             .state
             .gc
             .deref(instance_ref)
             .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
-        let field = instance.fields().find(|x| x.0 == field_name).map(|x| x.1);
+        let field = instance
+            .fields()
+            .find(|x| x.0 == dest_field_index)
+            .map(|x| x.1);
 
         if let Some(field) = field {
             let field_value = field.value();
@@ -465,7 +505,7 @@ impl RunInst for PutField {
             todo!("Null Pointer Exception")
         };
 
-        let (_, dest_id, field) = match get_field_dest(env, self.index, class_id)? {
+        let (_, dest_field_index, field) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -487,7 +527,6 @@ impl RunInst for PutField {
                 field.name_index.into_generic(),
             ))?
             .to_owned();
-        let field_name = BorrowedFieldKey::new(dest_id, &field_name);
 
         let dest_instance = env
             .state
@@ -501,7 +540,7 @@ impl RunInst for PutField {
             // Probably illegal access error?
             todo!("Some exception here");
         };
-        let field = dest_instance_fields.get(field_name);
+        let field = dest_instance_fields.get(dest_field_index);
 
         if let Some(field) = field {
             let field_type = field.typ();
@@ -521,7 +560,7 @@ impl RunInst for PutField {
             // The gcref should still exist, and the field should still exist
             let dest_instance = env.state.gc.deref_mut(instance_ref).unwrap();
             let dest_instance_fields = dest_instance.get_class_fields_mut().unwrap();
-            let field = dest_instance_fields.get_mut(field_name).unwrap();
+            let field = dest_instance_fields.get_mut(dest_field_index).unwrap();
 
             *field.value_mut() = field_value;
         } else {
