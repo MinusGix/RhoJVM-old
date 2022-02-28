@@ -408,7 +408,7 @@ pub fn eval_method(
                 ValueException::Value(class_ref) => class_ref,
                 ValueException::Exception(exc) => return Ok(EvalMethodValue::Exception(exc)),
             };
-            let class_ref_ptr = std::ptr::addr_of!(class_ref);
+            let class_ref_jobject: JObject = unsafe { env.get_local_jobject_for(class_ref) };
 
             // Safety: We rely on the declared parameter types of java being correct
             // In this case, we know that it is a nullary void function which means that it takes
@@ -425,7 +425,7 @@ pub fn eval_method(
             let env_ptr = env as *mut Env<'_>;
             let native_func = native_func.get();
             unsafe {
-                (native_func)(env_ptr, class_ref_ptr);
+                (native_func)(env_ptr, class_ref_jobject);
             };
             return Ok(EvalMethodValue::ReturnVoid);
         }
@@ -455,11 +455,11 @@ pub fn eval_method(
             if let Some(return_type) = return_type {
                 // fn(JNIEnv*, JObject, JObject) -> jvalue
 
-                let class_ref_ptr: *const GcRef<Instance> = std::ptr::addr_of!(class_ref);
-                let param_ptr: *const GcRef<Instance> = if let Some(param) = &param {
-                    param as *const GcRef<Instance>
+                let class_ref_jobject: JObject = unsafe { env.get_local_jobject_for(class_ref) };
+                let param_ptr: JObject = if let Some(param) = param {
+                    unsafe { env.get_local_jobject_for(param) }
                 } else {
-                    std::ptr::null()
+                    JObject::null()
                 };
 
                 let env_ptr = env as *mut Env<'_>;
@@ -476,11 +476,11 @@ pub fn eval_method(
 
                 // Safety: Relying on java's declared types and the safety of the code we are
                 // calling.
-                let value = unsafe { (native_func)(env_ptr, class_ref_ptr, param_ptr) };
+                let value = unsafe { (native_func)(env_ptr, class_ref_jobject, param_ptr) };
 
                 // For value, we can only assume the value is of the same type as the one were
                 // given as the return type
-                let value = unsafe { value.narrow_from_desc_type_into_value(return_type) };
+                let value = unsafe { value.narrow_from_desc_type_into_value(env, return_type) };
 
                 // TODO: Typecheck return value for classes since they could return a different
                 // gcref pointer

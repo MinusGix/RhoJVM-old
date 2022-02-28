@@ -289,11 +289,15 @@ pub struct GcRef<T> {
     _marker: PhantomData<T>,
 }
 impl<T> GcRef<T> {
-    fn new_unchecked(index: usize) -> GcRef<T> {
+    pub(crate) fn new_unchecked(index: usize) -> GcRef<T> {
         GcRef {
             index,
             _marker: PhantomData,
         }
+    }
+
+    pub(crate) fn get_index_unchecked(&self) -> usize {
+        self.index
     }
 
     // TODO: These constraints are probably not as exacting as they could be

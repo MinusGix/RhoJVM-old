@@ -704,18 +704,17 @@ unsafe extern "C" fn register_natives(
     }
 
     assert!(!methods.is_null(), "RegisterNative's methods was a nullptr");
-    assert!(!class.is_null(), "RegisterNative's class was nullptr");
-
-    // Safety: No other thread should be modifying this
-    // We also assume it is a valid ref and hasn't been internally modified
-    // in such a way as to make it invalid
-    // We asserted that it is not null
-    let class = *class;
 
     // Safety: No other thread should be using this
     // Though this relies on the native code being valid.
     // We already assert that it is not null
     let env = &mut *env;
+
+    // Safety: We assume that it is a valid ref and that it has not been
+    // forged.
+    let class = env
+        .get_jobject_as_gcref(class)
+        .expect("RegisterNative's class was null");
 
     // The class id of the class we were given
     let class_id = match env.state.gc.deref(class) {

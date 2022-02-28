@@ -5,17 +5,25 @@ use rhojvm_base::{
 };
 
 use crate::{
-    class_instance::{ClassInstance, PrimitiveArrayInstance, StaticClassInstance},
+    class_instance::{ClassInstance, Instance, PrimitiveArrayInstance, StaticClassInstance},
     eval::{
         eval_method, instances::make_fields, EvalError, EvalMethodValue, Frame, Locals,
         ValueException,
     },
     gc::GcRef,
     initialize_class,
-    jni::native_interface::NativeInterface,
+    jni::{native_interface::NativeInterface, JObject},
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     BegunStatus, GeneralError, State, ThreadData,
 };
+
+/// Note: This is internal to rhojvm
+#[macro_export]
+macro_rules! const_assert {
+    ($x:expr $(,)?) => {
+        const _: () = assert!($x);
+    };
+}
 
 /// A struct that holds references to several of the important structures in their typical usage
 /// This is repr-C because it needs to be able to be passed to native functions
@@ -83,6 +91,57 @@ impl<'i> Env<'i> {
         self.state.empty_string_ref = Some(string_ref);
 
         Ok(ValueException::Value(string_ref))
+    }
+
+    #[allow(clippy::unused_self)]
+    /// Get a [`JObject`] instance for a specific [`GcRef`].
+    /// Note that this is a local [`JObject`] so it can become invalid!
+    /// # Safety
+    /// The platform must support casting `usize` to a pointer and back losslessly
+    pub(crate) unsafe fn get_local_jobject_for(&mut self, re: GcRef<Instance>) -> JObject {
+        const_assert!(std::mem::size_of::<usize>() == std::mem::size_of::<*const ()>());
+        // TODO: Mark it down as being stored? Well, I think they're shortlived by default?
+        let ptr = re.get_index_unchecked();
+        debug_assert_ne!(ptr, std::usize::MAX);
+        // We _have_ to add 1 so that nullptr has a different value!
+        let ptr = ptr + 1;
+        // TODO: is this valid? We know it is non-null and it is a zst so presumably valid
+        // everywhere?
+        let ptr: *const () = ptr as *const ();
+        let ptr = JObject(ptr);
+
+        ptr
+    }
+
+    #[allow(clippy::unused_self)]
+    /// Get a [`GcRef`] from a [`JObject`].
+    /// Note that it may not be valid anymore, since they can keep them around however long they
+    /// want, or just straight up forge them.
+    /// Returns `None` if it was null
+    /// # Safety
+    /// The [`JObject`] should be valid and not refer to an object that has changed.
+    /// The platform must support casting `usize` to a pointer and back losslessly
+    pub(crate) unsafe fn get_jobject_as_gcref(&mut self, re: JObject) -> Option<GcRef<Instance>> {
+        let ptr: *const () = re.0;
+        if ptr.is_null() {
+            return None;
+        }
+
+        let ptr: usize = ptr as usize;
+        // It can't be null now, but we check that it is nonzero anyway
+        // TODO: Do we have a guarantee that being null means that converting it to a usize
+        // will produce 0?
+        if ptr == 0 {
+            return None;
+        }
+
+        // Shift down by 1 since `get_local_jobject_for` shifted it up by 1
+        let ptr = ptr - 1;
+
+        // Sanity/Safety: We can only really assume that what we've been passed in is correct.
+        let gc_ref = GcRef::new_unchecked(ptr);
+
+        Some(gc_ref)
     }
 }
 
@@ -193,12 +252,4 @@ pub(crate) fn construct_string(
     }
 
     Ok(ValueException::Value(string_ref))
-}
-
-/// Note: This is internal to rhojvm
-#[macro_export]
-macro_rules! const_assert {
-    ($x:expr $(,)?) => {
-        const _: () = assert!($x);
-    };
 }

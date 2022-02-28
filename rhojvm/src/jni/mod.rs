@@ -63,6 +63,7 @@ impl JValue {
     #[must_use]
     pub unsafe fn narrow_from_desc_type_into_value(
         self,
+        env: &mut Env<'_>,
         typ: DescriptorType,
     ) -> RuntimeValue<Instance> {
         match typ {
@@ -77,24 +78,18 @@ impl JValue {
                 // We treat the any invalid bool values as if they were true
                 DescriptorTypeBasic::Boolean => RuntimeValuePrimitive::Bool(self.z != 0).into(),
                 DescriptorTypeBasic::Class(_) => {
-                    if self.l.is_null() {
-                        RuntimeValue::NullReference
+                    if let Some(gc_ref) = env.get_jobject_as_gcref(self.l) {
+                        RuntimeValue::Reference(gc_ref)
                     } else {
-                        // TODO: If we keep the pointer around we can actually do a check for if it
-                        // is a pointer we gave out, since it can't forge instances!
-                        // Safety: All we can really do is assume the pointer is valid
-                        RuntimeValue::Reference(*self.l)
+                        RuntimeValue::NullReference
                     }
                 }
             },
             DescriptorType::Array { .. } => {
-                if self.l.is_null() {
-                    RuntimeValue::NullReference
+                if let Some(gc_ref) = env.get_jobject_as_gcref(self.l) {
+                    RuntimeValue::Reference(gc_ref)
                 } else {
-                    // TODO: If we keep the pointer around we can actually do a check for if it
-                    // is a pointer we gave out, since it can't forge instances!
-                    // Safety: All we can really do is assume the pointer is valid
-                    RuntimeValue::Reference(*self.l)
+                    RuntimeValue::NullReference
                 }
             }
         }
@@ -125,7 +120,15 @@ impl JValue {
     }
 }
 
-pub type JObject = *const GcRef<Instance>;
+// TODO: We could use phantomdata to make making GcRef's nicer?
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct JObject(pub *const ());
+impl JObject {
+    pub fn null() -> JObject {
+        JObject(std::ptr::null())
+    }
+}
 // Note: All of these must be able to be treated as the same type as JObject
 pub type JClass = JObject;
 pub type JString = JObject;
