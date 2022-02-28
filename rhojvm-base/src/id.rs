@@ -3,11 +3,13 @@ use std::hash::{Hash, Hasher};
 #[derive(Debug, Copy, Clone)]
 pub struct ClassId(u32);
 impl ClassId {
-    pub(crate) fn new_unchecked(id: u32) -> ClassId {
+    #[must_use]
+    pub fn new_unchecked(id: u32) -> ClassId {
         ClassId(id)
     }
 
-    pub(crate) fn get(self) -> u32 {
+    #[must_use]
+    pub fn get(self) -> u32 {
         self.0
     }
 }
