@@ -22,11 +22,8 @@ where
 
         let mut idx = 0;
         ctx.visit_spans(|span| {
-            // Add indentation. This makes it far more readable.
-            if idx != 0 {
-                write!(writer, "\t")?;
-            }
-            write!(writer, "{}", span.name())?;
+            // Ignore span names, because for the most part they clog up the log, unfortunately.
+            // It would be nice if we could just log the last span, but tracing's api is obtuse..
             let ext = span.extensions();
 
             let fields = &ext.get::<FormattedFields<N>>().expect("will never be None");
@@ -34,7 +31,7 @@ where
             if !fields.is_empty() {
                 write!(writer, "{{{}}}", fields)?;
             }
-            write!(writer, ": ")?;
+            write!(writer, ":: ")?;
             idx += 1;
 
             Ok(())

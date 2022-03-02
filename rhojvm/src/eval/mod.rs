@@ -328,6 +328,9 @@ pub fn eval_method(
         .ok_or(EvalError::MissingMethod(method_id))?;
     method.load_code(&mut env.class_files)?;
 
+    let span = tracing::span!(tracing::Level::INFO, "eval_method");
+    let _guard = span.enter();
+
     {
         if let Some(class_file) = env.class_files.get(&class_id) {
             let method_name = class_file.get_text_b(method.name_index()).unwrap();
