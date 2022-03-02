@@ -1076,7 +1076,7 @@ pub(crate) enum TrustedClassNameInsert {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RawClassName(pub Vec<u8>);
 impl RawClassName {
     #[must_use]
@@ -1108,6 +1108,11 @@ impl PartialEq for RawClassName {
 impl Hash for RawClassName {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.as_slice().hash(state)
+    }
+}
+impl std::fmt::Debug for RawClassName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("\"{}\"", convert_classfile_text(&self.0)))
     }
 }
 

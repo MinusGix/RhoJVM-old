@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct ClassId(u32);
 impl ClassId {
     #[must_use]
@@ -28,6 +28,12 @@ impl Hash for ClassId {
 }
 #[cfg(feature = "implementation-cheaper-map-hashing")]
 impl nohash_hasher::IsEnabled for ClassId {}
+
+impl std::fmt::Debug for ClassId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("ClassId({})", self.0))
+    }
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PackageId(u32);
