@@ -6,6 +6,7 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.util.Map;
 import java.util.Properties;
+import java.lang.SecurityManager;
 
 public final class System {
     // Prevent it from being created
@@ -15,6 +16,8 @@ public final class System {
     public static final PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true);
     public static final PrintStream err = new PrintStream(new FileOutputStream(FileDescriptor.err), true);
     public static final PrintStream in = new PrintStream(new FileOutputStream(FileDescriptor.in), true);
+
+    private static SecurityManager securityManager = null;
 
     public static void arraycopy(Object src, int srcOffset, Object dest, int destOffset, int length) {
         throw new UnsupportedOperationException("TODO: Implement this");
@@ -69,11 +72,11 @@ public final class System {
     }
 
     public static SecurityManager getSecurityManager() {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        return securityManager;
     }
 
     public static void setSecurityManager(SecurityManager securityManager) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        System.securityManager = securityManager;
     }
 
     public static String getenv(String name) throws NullPointerException {
