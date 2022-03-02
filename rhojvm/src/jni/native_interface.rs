@@ -1,13 +1,15 @@
 use std::{ffi::CStr, os::raw::c_char};
 
-use rhojvm_base::code::method::MethodDescriptor;
+use rhojvm_base::{code::method::MethodDescriptor, convert_classfile_text, id::ClassId};
 use usize_cast::IntoIsize;
 
 use crate::{
-    class_instance::Instance,
+    class_instance::{FieldIndex, Instance},
+    eval::{EvalError, ValueException},
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
     util::Env,
+    GeneralError,
 };
 
 use super::{
@@ -558,6 +560,14 @@ fn unimpl(message: &str) -> ! {
     std::process::abort();
 }
 
+fn assert_valid_env(env: *const Env) {
+    assert!(!env.is_null(), "Native method's env was a nullptr");
+}
+
+fn assert_non_aliasing<T, U>(l: *const T, r: *const U) {
+    assert!(l as usize != r as usize, "Two pointers that should not alias in a native method aliased. This might be indicative of a bug within the JVM where it should allow that rather than a bug with the calling code");
+}
+
 // We don't say these functions take a reference since we don't control the C code that will call it
 // and they may pass a null pointer
 // As well, the exact functions we use are, at least currently, private. So that we don't stabilize
@@ -686,7 +696,9 @@ unsafe extern "C" fn register_natives(
     methods: *const JNINativeMethod,
     num_methods: JInt,
 ) -> JInt {
-    assert!(!env.is_null(), "Native method's env was a nullptr");
+    assert_valid_env(env);
+    assert_non_aliasing(env, methods);
+
     // Technically num_methods can't be 0, but lenient
     if num_methods == 0 {
         tracing::warn!("Native method passed in zero num_methods to RegisterNative");
@@ -745,7 +757,7 @@ unsafe extern "C" fn register_natives(
         );
 
         // Safety of both of these:
-        // We've already checked that it is non-null
+        // We've already checked that it is non-null and non-directly-aliasing with env
         // We know that we are not calling back into C-code, so as long as there is no
         // weird asynchronous shenanigans, it won't be freed out from under us.
         // As well, we are not modifying it from behind it, the shadowing making that somewhat
@@ -810,5 +822,118 @@ unsafe extern "C" fn get_field_id(
     name: *const c_char,
     signature: *const c_char,
 ) -> JFieldId {
-    todo!("get_field_id");
+    assert_valid_env(env);
+    // Name and signature can alias, if in some absurd scenario that happens
+    assert_non_aliasing(env, name);
+    assert_non_aliasing(env, signature);
+
+    assert!(!name.is_null(), "GetFieldId received nullptr name");
+    assert!(
+        !signature.is_null(),
+        "GetFieldId received nullptr signature"
+    );
+
+    // Safety: We asserted that it is non-null
+    let env = &mut *env;
+
+    let class = env
+        .get_jobject_as_gcref(class)
+        .expect("GetFieldId's class was null");
+    // The class id of the class we were given
+    let class_id = match env.state.gc.deref(class) {
+        Some(class_id) => match class_id {
+            Instance::StaticClass(x) => x.id,
+            Instance::Reference(x) => {
+                // TODO: is is this actually fine? Maybe you're allowed to pass a reference to a
+                // Class<T> class?
+                tracing::warn!("Native method gave non static class reference to GetFieldId");
+                x.instanceof()
+            }
+        },
+        None => todo!(),
+    };
+
+    // Safety of both of these:
+    // We've already checked that it is non-null and non-directly-aliasing with env
+    // Since we aren't calling back into C code between here and the return, then they won't change
+    // out from under us.
+    // However, we have no guarantee that these actually end in a null-byte
+    // And, we have no guarantee that their length is < isize::MAX
+    // TODO: Checked cstr constructor
+    let name = CStr::from_ptr(name);
+    let signature = CStr::from_ptr(signature);
+
+    let name_bytes = name.to_bytes();
+    let signature_bytes = signature.to_bytes();
+
+    match get_field_id_safe(env, name_bytes, signature_bytes, class_id) {
+        Ok(value) => match value {
+            ValueException::Value(field_index) => JFieldId::new_unchecked(class_id, field_index),
+            ValueException::Exception(_exc) => {
+                todo!("Handle exception properly for GetFieldID");
+                JFieldId::null()
+            }
+        },
+        // TODO: Handle errors better
+        Err(err) => {
+            panic!("Handle error properly for GetFieldID: {:?}", err);
+            JFieldId::null()
+        }
+    }
+}
+
+fn get_field_id_safe(
+    env: &mut Env,
+    name: &[u8],
+    signature: &[u8],
+    class_id: ClassId,
+) -> Result<ValueException<FieldIndex>, GeneralError> {
+    tracing::info!(
+        "get_field_id_safe\n\t\tname: {}\n\t\tsign: {}",
+        convert_classfile_text(name),
+        convert_classfile_text(signature)
+    );
+
+    // TODO: Don't unwrap
+    let class_file = env
+        .class_files
+        .get(&class_id)
+        .ok_or(GeneralError::MissingLoadedClassFile(class_id))?;
+
+    // Note: GetFieldId can't be used to get the length field of an array
+    for (field_index, field_data) in class_file.load_field_values_iter().enumerate() {
+        let field_index = FieldIndex::new_unchecked(field_index as u16);
+        let (field_info, _) = field_data.map_err(GeneralError::ClassFileLoad)?;
+        let target_field_name = class_file.get_text_b(field_info.name_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(field_info.name_index.into_generic()),
+        )?;
+
+        tracing::info!(
+            "\tOther Name: {}",
+            convert_classfile_text(target_field_name)
+        );
+        // If their names are unequal then simply skip it
+        if name != target_field_name {
+            continue;
+        }
+
+        // desc/signature are essentially the same thing, just a bit of a mixed up terminology
+        let target_field_desc = class_file.get_text_b(field_info.descriptor_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(field_info.descriptor_index.into_generic()),
+        )?;
+
+        tracing::info!(
+            "\tOther Desc: {}",
+            convert_classfile_text(target_field_desc)
+        );
+        // Linear compare is probably faster than parsing and I don't think we need to do any
+        // typecasting?
+        // TODO: Though, we could provide some warnings anyway?
+        if signature == target_field_desc {
+            // We've found it, so we can simply return here.
+            return Ok(ValueException::Value(field_index));
+        }
+    }
+
+    todo!("Return NoSuchFieldException")
 }

@@ -385,11 +385,13 @@ impl MemorySize for ReferenceArrayInstance {
 }
 impl GcValueMarker for ReferenceArrayInstance {}
 
+/// Will not be [`u16::MAX`]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct FieldIndex(u16);
 impl FieldIndex {
     #[must_use]
     pub(crate) fn new_unchecked(v: u16) -> FieldIndex {
+        debug_assert_ne!(v, u16::MAX);
         FieldIndex(v)
     }
 

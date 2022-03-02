@@ -7,13 +7,17 @@
 
 use std::ffi::c_void;
 
-use rhojvm_base::code::{
-    method::{DescriptorType, DescriptorTypeBasic},
-    types::JavaChar,
+use rhojvm_base::{
+    code::{
+        method::{DescriptorType, DescriptorTypeBasic},
+        types::JavaChar,
+    },
+    id::ClassId,
 };
+use usize_cast::IntoUsize;
 
 use crate::{
-    class_instance::Instance,
+    class_instance::{FieldIndex, Instance},
     const_assert,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
@@ -37,9 +41,65 @@ pub type JDouble = f64;
 
 pub type JSize = JInt;
 
-// TODO: Give these actually useable types
-pub type JFieldId = *const ();
-pub type JMethodId = *const ();
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct JFieldId(*const ());
+impl JFieldId {
+    #[must_use]
+    pub fn null() -> JFieldId {
+        JFieldId(std::ptr::null())
+    }
+
+    /// # Safety
+    /// It must be safe to forge pointers and expect to get the original value back.
+    pub(crate) unsafe fn new_unchecked(class_id: ClassId, field_index: FieldIndex) -> JFieldId {
+        // FIXME: This means that we don't support 32-bit (or, in some world, 16bit) devices at all
+        // It would be good to have some fieldid that won't have these issues
+        const_assert!(std::mem::size_of::<*const ()>() == 8);
+        let class_id_v = class_id.get();
+        // These are incremented by 1 so that null is a value that can be represented as a field id
+        let class_id_v: u64 = (class_id_v + 1).into();
+        let field_index_v: u64 = (field_index.get() + 1).into();
+        tracing::info!("Class Id: {:X?}", class_id_v);
+        tracing::info!("Field Index {:X?}", field_index_v);
+
+        // [class_id + 1][field_index + 1][0000]
+        let field_id = (class_id_v << 32) | (field_index_v << 16);
+        let field_id = field_id.into_usize();
+        tracing::info!("Field ID: 0x{:X?}", field_id);
+
+        let field_id = field_id as *const ();
+
+        let field_id = JFieldId(field_id);
+
+        debug_assert_eq!(field_id.decompose(), (class_id, field_index));
+
+        field_id
+    }
+
+    /// # Safety
+    /// This should be a valid [`JFieldId`] handed out by `new_unchecked`
+    /// It must be safe to forge pointers and expect to get the original back
+    pub(crate) unsafe fn decompose(self) -> (ClassId, FieldIndex) {
+        let field_id = self.0;
+        let field_id = field_id as usize;
+        #[allow(clippy::cast_possible_truncation)]
+        let class_id = ((field_id & 0xFFFF_FFFF_0000_0000) >> 32) as u32;
+        let class_id = class_id - 1;
+        #[allow(clippy::cast_possible_truncation)]
+        let field_index = ((field_id & 0x0000_0000_FFFF_0000) >> 16) as u16;
+        let field_index = field_index - 1;
+
+        let class_id = ClassId::new_unchecked(class_id);
+        let field_index = FieldIndex::new_unchecked(field_index);
+
+        (class_id, field_index)
+    }
+}
+
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct JMethodId(*const ());
 
 #[repr(C)]
 pub union JValue {
