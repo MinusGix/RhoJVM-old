@@ -374,7 +374,18 @@ pub fn eval_method(
                 env.state
                     .native
                     .find_symbol_blocking_jni_opaque_method(&name)
-            }?;
+            };
+            let native_func = match native_func {
+                Ok(native_func) => native_func,
+                Err(err) => {
+                    tracing::error!(
+                        "Failed to find native function({:?}): {}",
+                        err,
+                        convert_classfile_text(&name)
+                    );
+                    return Err(err.into());
+                }
+            };
             let native_func = NativeMethod::OpaqueFound(native_func);
 
             env.state.method_info.modify_init_with(method_id, |data| {
