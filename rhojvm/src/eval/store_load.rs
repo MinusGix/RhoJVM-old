@@ -1433,6 +1433,16 @@ fn array_store(
     bad_array_value_err: GeneralError,
     bad_stack_value_err: GeneralError,
 ) -> Result<RunInstValue, GeneralError> {
+    let value = args
+        .frame
+        .stack
+        .pop()
+        .ok_or(EvalError::ExpectedStackValue)?;
+    let value = match value {
+        RuntimeValue::Primitive(v) => v,
+        _ => return Err(bad_stack_value_err),
+    };
+
     let index = args
         .frame
         .stack
@@ -1453,16 +1463,6 @@ fn array_store(
         RuntimeValue::Reference(x) => x,
         RuntimeValue::NullReference => todo!("Return NullPointerException"),
         RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
-    };
-
-    let value = args
-        .frame
-        .stack
-        .pop()
-        .ok_or(EvalError::ExpectedStackValue)?;
-    let value = match value {
-        RuntimeValue::Primitive(v) => v,
-        _ => return Err(bad_stack_value_err),
     };
 
     if !is_good_type(value.runtime_type()) {
@@ -1512,6 +1512,13 @@ impl RunInst for AAStore {
         self,
         RunInstArgs { env, frame, .. }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
+        let value = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let value_ref = match value {
+            RuntimeValue::NullReference => None,
+            RuntimeValue::Reference(v) => Some(v),
+            RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
+        };
+
         let index = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let index = index
             .into_int()
@@ -1523,13 +1530,6 @@ impl RunInst for AAStore {
         let array_ref = match array_ref {
             RuntimeValue::Reference(x) => x,
             RuntimeValue::NullReference => todo!("Return NullPointerException"),
-            RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
-        };
-
-        let value = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
-        let value_ref = match value {
-            RuntimeValue::NullReference => None,
-            RuntimeValue::Reference(v) => Some(v),
             RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
         };
 
