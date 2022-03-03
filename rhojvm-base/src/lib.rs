@@ -1156,6 +1156,11 @@ impl<'a> Hash for RawClassNameSlice<'a> {
         }
     }
 }
+impl<'a> std::fmt::Debug for RawClassNameSlice<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("\"{}\"", convert_classfile_text(self.0)))
+    }
+}
 
 /// Used when you have an iterator over slices of bytes which form a single [`RawClassName`]
 /// when considered together.
