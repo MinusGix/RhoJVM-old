@@ -29,7 +29,7 @@ use rhojvm_base::{
     },
     id::ClassId,
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
+    ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
 };
 use usize_cast::IntoUsize;
 
@@ -269,7 +269,10 @@ fn convert_field_type_store(
                 todo!("Type was not castable")
             }
         }
-        _ => todo!("Error"),
+        _ => panic!(
+            "TODO: Type failed to be casted: dest: {:?}, src: {:?}",
+            dest, src
+        ),
     })
 }
 
@@ -285,27 +288,11 @@ impl RunInst for GetStatic {
     ) -> Result<RunInstValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
 
-        let (dest_ref, dest_field_index, field) = match get_field_dest(env, self.index, class_id)? {
+        let (dest_ref, dest_field_index, _) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
         };
-
-        // TODO: Should we load the class file since initalize class might have done a lot?
-        let class_file = env
-            .class_files
-            .get(&class_id)
-            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-        let field = class_file.get_t(field.name_and_type_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
-        )?;
-
-        let field_name =
-            class_file
-                .get_text_b(field.name_index)
-                .ok_or(EvalError::InvalidConstantPoolIndex(
-                    field.name_index.into_generic(),
-                ))?;
 
         let dest_instance = env
             .state
@@ -345,28 +332,11 @@ impl RunInst for PutStaticField {
         // Put static field works for any category of type
         let value = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
-        let (dest_ref, dest_field_index, field) = match get_field_dest(env, self.index, class_id)? {
+        let (dest_ref, dest_field_index, _) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
         };
-
-        // TODO: Should we load the class file since initalize class might have done a lot?
-        let class_file = env
-            .class_files
-            .get(&class_id)
-            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-        let field = class_file.get_t(field.name_and_type_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
-        )?;
-
-        // TODO: Avoid allocation
-        let field_name = class_file
-            .get_text_b(field.name_index)
-            .ok_or(EvalError::InvalidConstantPoolIndex(
-                field.name_index.into_generic(),
-            ))?
-            .to_owned();
 
         let dest_instance = env
             .state
@@ -423,7 +393,7 @@ impl RunInst for GetField {
             None => todo!("Return null pointer exception"),
         };
 
-        let (_, dest_field_index, field) = match get_field_dest(env, self.index, class_id)? {
+        let (_, dest_field_index, _) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -444,20 +414,6 @@ impl RunInst for GetField {
             ReferenceInstance::PrimitiveArray(_) => todo!(),
             ReferenceInstance::ReferenceArray(_) => todo!(),
         }
-
-        let class_file = env
-            .class_files
-            .get(&class_id)
-            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-        let field = class_file.get_t(field.name_and_type_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
-        )?;
-        let field_name =
-            class_file
-                .get_text_b(field.name_index)
-                .ok_or(EvalError::InvalidConstantPoolIndex(
-                    field.name_index.into_generic(),
-                ))?;
 
         let instance = env
             .state
@@ -505,28 +461,11 @@ impl RunInst for PutField {
             todo!("Null Pointer Exception")
         };
 
-        let (_, dest_field_index, field) = match get_field_dest(env, self.index, class_id)? {
+        let (_, dest_field_index, _) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
             DestRes::RunInst(v) => return Ok(v),
         };
-
-        // TODO: Should we load the class file since initalize class might have done a lot?
-        let class_file = env
-            .class_files
-            .get(&class_id)
-            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-        let field = class_file.get_t(field.name_and_type_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
-        )?;
-
-        // TODO: Avoid allocation
-        let field_name = class_file
-            .get_text_b(field.name_index)
-            .ok_or(EvalError::InvalidConstantPoolIndex(
-                field.name_index.into_generic(),
-            ))?
-            .to_owned();
 
         let dest_instance = env
             .state

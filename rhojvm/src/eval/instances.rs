@@ -65,13 +65,6 @@ pub(crate) fn add_fields_for_class<F: Fn(&FieldInfoOpt) -> bool>(
             continue;
         }
 
-        // TODO: We could avoid allocations
-        let field_name = class_file
-            .get_text_b(field_info.name_index)
-            .ok_or(GeneralError::BadClassFileIndex(
-                field_info.name_index.into_generic(),
-            ))?
-            .to_owned();
         let field_descriptor = class_file.get_text_b(field_info.descriptor_index).ok_or(
             GeneralError::BadClassFileIndex(field_info.descriptor_index.into_generic()),
         )?;
