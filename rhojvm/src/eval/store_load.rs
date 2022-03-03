@@ -1560,8 +1560,32 @@ impl RunInst for AAStore {
         };
 
         if let Some(id) = id {
-            if array_inst.element_type != id {
-                // TODO: Better error
+            let is_castable = id == array_inst.element_type
+                || env.classes.is_super_class(
+                    &env.class_directories,
+                    &mut env.class_names,
+                    &mut env.class_files,
+                    &mut env.packages,
+                    id,
+                    array_inst.element_type,
+                )?
+                || env.classes.implements_interface(
+                    &env.class_directories,
+                    &mut env.class_names,
+                    &mut env.class_files,
+                    id,
+                    array_inst.element_type,
+                )?
+                || env.classes.is_castable_array(
+                    &env.class_directories,
+                    &mut env.class_names,
+                    &mut env.class_files,
+                    &mut env.packages,
+                    id,
+                    array_inst.element_type,
+                )?;
+
+            if !is_castable {
                 return Err(EvalError::ExpectedArrayInstanceOfClass {
                     element: array_inst.element_type,
                     got: id,

@@ -29,80 +29,131 @@ fn grab_runtime_value_from_stack_for_function(
     frame: &mut Frame,
     target: &DescriptorType,
 ) -> Result<RuntimeValue, GeneralError> {
+    let v = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
     Ok(match target {
-        DescriptorType::Basic(b) => {
-            let v = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
-            match b {
-                DescriptorTypeBasic::Byte | DescriptorTypeBasic::Boolean => {
-                    RuntimeValuePrimitive::I8(
-                        v.into_byte().ok_or(EvalError::ExpectedStackValueIntRepr)?,
-                    )
+        DescriptorType::Basic(b) => match b {
+            DescriptorTypeBasic::Byte | DescriptorTypeBasic::Boolean => RuntimeValuePrimitive::I8(
+                v.into_byte().ok_or(EvalError::ExpectedStackValueIntRepr)?,
+            )
+            .into(),
+            DescriptorTypeBasic::Char => RuntimeValuePrimitive::Char(
+                v.into_char().ok_or(EvalError::ExpectedStackValueIntRepr)?,
+            )
+            .into(),
+            DescriptorTypeBasic::Short => RuntimeValuePrimitive::I16(
+                v.into_short().ok_or(EvalError::ExpectedStackValueIntRepr)?,
+            )
+            .into(),
+            DescriptorTypeBasic::Int => RuntimeValuePrimitive::I32(
+                v.into_int().ok_or(EvalError::ExpectedStackValueIntRepr)?,
+            )
+            .into(),
+            DescriptorTypeBasic::Long => {
+                RuntimeValuePrimitive::I64(v.into_i64().ok_or(EvalError::ExpectedStackValueLong)?)
                     .into()
+            }
+            DescriptorTypeBasic::Float => RuntimeValuePrimitive::F32(
+                v.into_f32().ok_or(EvalError::ExpectedStackValueIntRepr)?,
+            )
+            .into(),
+            DescriptorTypeBasic::Double => RuntimeValuePrimitive::F64(
+                v.into_f64().ok_or(EvalError::ExpectedStackValueIntRepr)?,
+            )
+            .into(),
+            DescriptorTypeBasic::Class(target_id) => match v {
+                RuntimeValue::Reference(p_ref) => {
+                    let p = state
+                        .gc
+                        .deref(p_ref)
+                        .ok_or(EvalError::InvalidGcRef(p_ref.into_generic()))?;
+                    let instance_id = p.instanceof();
+
+                    let is_castable = instance_id == *target_id
+                        || classes.is_super_class(
+                            class_directories,
+                            class_names,
+                            class_files,
+                            packages,
+                            instance_id,
+                            *target_id,
+                        )?
+                        || classes.implements_interface(
+                            class_directories,
+                            class_names,
+                            class_files,
+                            instance_id,
+                            *target_id,
+                        )?
+                        || classes.is_castable_array(
+                            class_directories,
+                            class_names,
+                            class_files,
+                            packages,
+                            instance_id,
+                            *target_id,
+                        )?;
+                    if is_castable {
+                        RuntimeValue::Reference(p_ref)
+                    } else {
+                        todo!("Type was not castable");
+                    }
                 }
-                DescriptorTypeBasic::Char => RuntimeValuePrimitive::Char(
-                    v.into_char().ok_or(EvalError::ExpectedStackValueIntRepr)?,
-                )
-                .into(),
-                DescriptorTypeBasic::Short => RuntimeValuePrimitive::I16(
-                    v.into_short().ok_or(EvalError::ExpectedStackValueIntRepr)?,
-                )
-                .into(),
-                DescriptorTypeBasic::Int => RuntimeValuePrimitive::I32(
-                    v.into_int().ok_or(EvalError::ExpectedStackValueIntRepr)?,
-                )
-                .into(),
-                DescriptorTypeBasic::Long => RuntimeValuePrimitive::I64(
-                    v.into_i64().ok_or(EvalError::ExpectedStackValueLong)?,
-                )
-                .into(),
-                DescriptorTypeBasic::Float => RuntimeValuePrimitive::F32(
-                    v.into_f32().ok_or(EvalError::ExpectedStackValueIntRepr)?,
-                )
-                .into(),
-                DescriptorTypeBasic::Double => RuntimeValuePrimitive::F64(
-                    v.into_f64().ok_or(EvalError::ExpectedStackValueIntRepr)?,
-                )
-                .into(),
-                DescriptorTypeBasic::Class(id) => match v {
-                    RuntimeValue::Reference(p_ref) => {
-                        let p = state
-                            .gc
-                            .deref(p_ref)
-                            .ok_or(EvalError::InvalidGcRef(p_ref.into_generic()))?;
-                        let instance_id = p.instanceof();
 
-                        let is_castable = instance_id == *id
-                            || classes.is_super_class(
-                                class_directories,
-                                class_names,
-                                class_files,
-                                packages,
-                                instance_id,
-                                *id,
-                            )?
-                            || classes.implements_interface(
-                                class_directories,
-                                class_names,
-                                class_files,
-                                instance_id,
-                                *id,
-                            )?;
+                RuntimeValue::NullReference => RuntimeValue::NullReference,
+                RuntimeValue::Primitive(_) => {
+                    return Err(EvalError::ExpectedStackValueReference.into())
+                }
+            },
+        },
+        DescriptorType::Array { level, component } => {
+            let target_id = class_names
+                .gcid_from_level_array_of_desc_type_basic(*level, *component)
+                .map_err(StepError::BadId)?;
+            match v {
+                RuntimeValue::Reference(p_ref) => {
+                    let p = state
+                        .gc
+                        .deref(p_ref)
+                        .ok_or(EvalError::InvalidGcRef(p_ref.into_generic()))?;
+                    let instance_id = p.instanceof();
 
-                        if is_castable {
-                            RuntimeValue::Reference(p_ref)
-                        } else {
-                            todo!("Type was not castable")
-                        }
+                    let is_castable = instance_id == target_id
+                        || classes.is_super_class(
+                            class_directories,
+                            class_names,
+                            class_files,
+                            packages,
+                            instance_id,
+                            target_id,
+                        )?
+                        || classes.implements_interface(
+                            class_directories,
+                            class_names,
+                            class_files,
+                            instance_id,
+                            target_id,
+                        )?
+                        || classes.is_castable_array(
+                            class_directories,
+                            class_names,
+                            class_files,
+                            packages,
+                            instance_id,
+                            target_id,
+                        )?;
+
+                    if is_castable {
+                        RuntimeValue::Reference(p_ref)
+                    } else {
+                        todo!("Type was not castable");
                     }
-
-                    RuntimeValue::NullReference => RuntimeValue::NullReference,
-                    RuntimeValue::Primitive(_) => {
-                        return Err(EvalError::ExpectedStackValueReference.into())
-                    }
-                },
+                }
+                RuntimeValue::NullReference => RuntimeValue::NullReference,
+                RuntimeValue::Primitive(_) => {
+                    return Err(EvalError::ExpectedStackValueReference.into())
+                }
             }
         }
-        DescriptorType::Array { level, component } => todo!(),
     })
 }
 
