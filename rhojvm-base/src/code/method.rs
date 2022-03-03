@@ -563,6 +563,8 @@ impl MethodDescriptor {
         result
     }
 
+    /// Checks if the descriptor is strictly equal to an unparsed descriptor
+    /// This performs no casting checks or anything of the sort.
     pub fn is_equal_to_descriptor(
         &self,
         class_names: &mut ClassNames,
@@ -589,6 +591,14 @@ impl MethodDescriptor {
             i += 1;
         }
 
+        // We've iterated over all of the text-descriptor's types, but we still need to check if
+        // we have any more types remaining that haven't been checked.
+        // So we check if the next index would have been valid
+        if i < self.parameters.len() {
+            return Ok(false);
+        }
+
+        // If their return types are unequal then they can't be equal
         let return_type = iter.finish_return_type()?;
         if return_type != self.return_type {
             return Ok(false);
