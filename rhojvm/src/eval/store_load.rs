@@ -35,7 +35,7 @@ use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{
-        ClassInstance, FieldIndex, FieldType, ReferenceInstance, StaticClassInstance,
+        ClassInstance, FieldId, FieldIndex, FieldType, ReferenceInstance, StaticClassInstance,
         StaticFormInstance,
     },
     eval::instances::make_fields,
@@ -49,7 +49,7 @@ use crate::{
 use super::{EvalError, Frame, RunInst, RunInstArgs, RunInstValue, ValueException};
 
 enum DestRes {
-    GcRef((GcRef<StaticClassInstance>, FieldIndex, FieldRefConstant)),
+    GcRef((GcRef<StaticClassInstance>, FieldId, FieldRefConstant)),
     RunInst(RunInstValue),
 }
 fn get_field_dest(
@@ -132,7 +132,8 @@ fn get_field_dest(
         } else {
             todo!("No such field exception");
         };
-        (dest_class_id, field_index, dest_ref)
+        let field_id = FieldId::unchecked_compose(dest_class_id, field_index);
+        (dest_class_id, field_id, dest_ref)
     };
 
     Ok(DestRes::GcRef((dest_ref, field_index, field)))
@@ -393,7 +394,7 @@ impl RunInst for GetField {
             None => todo!("Return null pointer exception"),
         };
 
-        let (_, dest_field_index, _) = match get_field_dest(env, self.index, class_id)? {
+        let (_, dest_field_id, _) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably an exception
             DestRes::RunInst(v) => return Ok(v),
@@ -422,7 +423,7 @@ impl RunInst for GetField {
             .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
         let field = instance
             .fields()
-            .find(|x| x.0 == dest_field_index)
+            .find(|x| x.0 == dest_field_id)
             .map(|x| x.1);
 
         if let Some(field) = field {

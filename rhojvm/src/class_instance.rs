@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, hash::Hash};
+use std::{collections::HashMap, hash::Hash};
 
 use classfile_parser::field_info::FieldAccessFlags;
 use either::Either;
@@ -104,10 +104,8 @@ impl Instance {
     /// for its fields.
     pub(crate) fn fields(
         &self,
-    ) -> Either<
-        impl Iterator<Item = (FieldIndex, &Field)>,
-        impl Iterator<Item = (FieldIndex, &Field)>,
-    > {
+    ) -> Either<impl Iterator<Item = (FieldId, &Field)>, impl Iterator<Item = (FieldId, &Field)>>
+    {
         match self {
             Instance::StaticClass(x) => Either::Left(x.fields.iter()),
             Instance::Reference(x) => Either::Right(x.fields()),
@@ -134,7 +132,7 @@ pub enum ReferenceInstance {
 }
 impl ReferenceInstance {
     /// Note that this does not peek upwards into the static class for its fields
-    pub(crate) fn fields(&self) -> impl Iterator<Item = (FieldIndex, &Field)> {
+    pub(crate) fn fields(&self) -> impl Iterator<Item = (FieldId, &Field)> {
         match self {
             ReferenceInstance::Class(x) => x.fields.iter(),
             ReferenceInstance::StaticForm(x) => x.inner.fields.iter(),
@@ -401,33 +399,52 @@ impl FieldIndex {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FieldId {
+    class_id: ClassId,
+    field_index: FieldIndex,
+}
+impl FieldId {
+    #[must_use]
+    pub fn unchecked_compose(class_id: ClassId, field_index: FieldIndex) -> Self {
+        Self {
+            class_id,
+            field_index,
+        }
+    }
+
+    #[must_use]
+    pub fn decompose(self) -> (ClassId, FieldIndex) {
+        (self.class_id, self.field_index)
+    }
+}
 #[derive(Default, Debug, Clone)]
 pub struct Fields {
-    /// Stores the id of the class and its name in one
+    /// Stores the id of the class and its index
     /// because a class can have a field name 'a' and extend a class with a field named 'a'
     /// and they are different fields.
-    fields: BTreeMap<FieldIndex, Field>,
+    fields: HashMap<FieldId, Field>,
 }
 impl Fields {
     #[must_use]
-    pub fn get(&self, id: FieldIndex) -> Option<&Field> {
+    pub fn get(&self, id: FieldId) -> Option<&Field> {
         self.fields.get(&id)
     }
 
     #[must_use]
-    pub fn get_mut(&mut self, id: FieldIndex) -> Option<&mut Field> {
+    pub fn get_mut(&mut self, id: FieldId) -> Option<&mut Field> {
         self.fields.get_mut(&id)
     }
 
-    pub fn insert(&mut self, id: FieldIndex, field: Field) {
+    pub fn insert(&mut self, id: FieldId, field: Field) {
         self.fields.insert(id, field);
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (FieldIndex, &Field)> {
+    pub fn iter(&self) -> impl Iterator<Item = (FieldId, &Field)> {
         self.fields.iter().map(|x| (*x.0, x.1))
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (FieldIndex, &mut Field)> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (FieldId, &mut Field)> {
         self.fields.iter_mut().map(|x| (*x.0, x.1))
     }
 }

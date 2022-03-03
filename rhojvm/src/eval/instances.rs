@@ -21,7 +21,7 @@ use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{
-        ClassInstance, Field, FieldAccess, FieldIndex, Fields, PrimitiveArrayInstance,
+        ClassInstance, Field, FieldAccess, FieldId, FieldIndex, Fields, PrimitiveArrayInstance,
         ReferenceArrayInstance, ReferenceInstance,
     },
     eval::EvalError,
@@ -52,6 +52,7 @@ pub(crate) fn add_fields_for_class<F: Fn(&FieldInfoOpt) -> bool>(
         .collect::<SmallVec<[_; 8]>>();
     for (field_index, field_info) in field_iter.into_iter().enumerate() {
         let field_index = FieldIndex::new_unchecked(field_index as u16);
+        let field_id = FieldId::unchecked_compose(class_id, field_index);
 
         // Reget the class file
         let class_file = env
@@ -130,14 +131,14 @@ pub(crate) fn add_fields_for_class<F: Fn(&FieldInfoOpt) -> bool>(
 
             // TODO: Validate that the value is the right type
             fields.insert(
-                field_index,
+                field_id,
                 Field::new(value, field_type, is_final, field_access),
             );
         } else {
             // otherwise, we give it the default value for its type
             let default_value = field_type.default_value();
             fields.insert(
-                field_index,
+                field_id,
                 Field::new(default_value, field_type, is_final, field_access),
             );
         }
