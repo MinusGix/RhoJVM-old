@@ -489,18 +489,6 @@ impl RunInst for InvokeVirtual {
         //
         let index = self.index;
 
-        let instance_class = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
-        let instance_ref = instance_class
-            .into_reference()
-            .ok_or(EvalError::ExpectedStackValueReference)?
-            .expect("TODO: NullReferenceException");
-        let instance = env
-            .state
-            .gc
-            .deref(instance_ref)
-            .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
-        let instance_id = instance.instanceof();
-
         let (class_id, _) = method_id.decompose();
         let class_file = env
             .class_files
@@ -567,23 +555,9 @@ impl RunInst for InvokeVirtual {
         // TODO: Some of these errors should be exceptions
         initialize_class(env, target_class_id)?;
 
-        let target_method_id = find_virtual_method(
-            &env.class_directories,
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.methods,
-            target_class_id,
-            instance_id,
-            &method_name,
-            &method_descriptor,
-        )?;
-
-        // TODO: Check if the method is accessible?
+        // We have to make the locals before getting the target method id since we need the instance
 
         let mut locals = Locals::default();
-        // Add the this parameter
-        locals.push_transform(RuntimeValue::Reference(instance_ref));
 
         for parameter in method_descriptor.parameters().iter().rev() {
             let value = grab_runtime_value_from_stack_for_function(
@@ -599,6 +573,35 @@ impl RunInst for InvokeVirtual {
 
             locals.prepush_transform(value);
         }
+
+        // Get the this parameter
+        let instance_class = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let instance_ref = instance_class
+            .into_reference()
+            .ok_or(EvalError::ExpectedStackValueReference)?
+            .expect("TODO: NullReferenceException");
+        let instance = env
+            .state
+            .gc
+            .deref(instance_ref)
+            .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
+        let instance_id = instance.instanceof();
+        locals.prepush_transform(RuntimeValue::Reference(instance_ref));
+
+        // Find the actual target method to execute
+        let target_method_id = find_virtual_method(
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.methods,
+            target_class_id,
+            instance_id,
+            &method_name,
+            &method_descriptor,
+        )?;
+
+        // TODO: Check if the method is accessible?
 
         let call_frame = Frame::new_locals(locals);
         let res = eval_method(env, target_method_id, call_frame)?;
