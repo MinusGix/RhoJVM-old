@@ -29,6 +29,17 @@ impl From<libloading::Error> for FindSymbolError {
     }
 }
 
+// TODO: Should we use something like PHF? Every native lookup is going to check this array
+// for if it exists, which does make them all more expensive for this case. PHF would probably be
+// faster than whatever llvm optimizes this to.
+const INTERNAL_RHO_NATIVE_METHODS: &[(&[u8], OpaqueClassMethod)] = &[];
+fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClassMethod> {
+    INTERNAL_RHO_NATIVE_METHODS
+        .iter()
+        .find(|x| x.0 == name)
+        .map(|x| x.1.clone())
+}
+
 pub struct NativeLibraries {
     libraries: HashMap<OsString, libloading::Library>,
 }
@@ -147,26 +158,30 @@ impl NativeLibrariesStatic {
         &self,
         name: &[u8],
     ) -> Result<OpaqueClassMethod, FindSymbolError> {
-        let symbol = {
-            let lib = self.lib.read().expect("Native Library lock was poisoned");
-            let symbol: Symbol<jni::MethodClassNoArguments> =
-                lib.find_symbol_jni_static_nullary_void(name)?;
-            let symbol: StaticSymbol<jni::MethodClassNoArguments> = symbol.into_raw();
-            symbol
-        };
-        let symbol = symbol.into_raw();
-        if symbol.is_null() {
-            return Err(FindSymbolError::NullSymbol);
+        if let Some(internal_method) = find_internal_rho_native_method(name) {
+            Ok(internal_method)
+        } else {
+            let symbol = {
+                let lib = self.lib.read().expect("Native Library lock was poisoned");
+                let symbol: Symbol<jni::MethodClassNoArguments> =
+                    lib.find_symbol_jni_static_nullary_void(name)?;
+                let symbol: StaticSymbol<jni::MethodClassNoArguments> = symbol.into_raw();
+                symbol
+            };
+            let symbol = symbol.into_raw();
+            if symbol.is_null() {
+                return Err(FindSymbolError::NullSymbol);
+            }
+
+            // Transmute the raw pointer into a function pointer
+            // Safety: We've already checked if it was null, and if it was then we returned an error.
+            // We also provided the same guarantees/info to libloading, not that it pays attention to
+            // that.
+            let symbol =
+                std::mem::transmute::<*mut std::ffi::c_void, jni::MethodClassNoArguments>(symbol);
+
+            Ok(OpaqueClassMethod::new(symbol))
         }
-
-        // Transmute the raw pointer into a function pointer
-        // Safety: We've already checked if it was null, and if it was then we returned an error.
-        // We also provided the same guarantees/info to libloading, not that it pays attention to
-        // that.
-        let symbol =
-            std::mem::transmute::<*mut std::ffi::c_void, jni::MethodClassNoArguments>(symbol);
-
-        Ok(OpaqueClassMethod::new(symbol))
     }
 
     /// Find a [`JNI_OnLoad`] function if one exists
