@@ -15,6 +15,12 @@ import java.net.URL;
 import java.security.ProtectionDomain;
 
 public final class Class<T> implements AnnotatedElement, GenericDeclaration, Type {
+    // TODO: We could make this final
+    // internal class id
+    private int classId;
+
+    // So that it can't be constructed manually
+    // Note that this is not actually called, the fields are filled in directly.
     private Class() {}
 
     public static Class forName(String name) throws ClassNotFoundException {
@@ -106,9 +112,8 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public Field getDeclaredField(String name) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    // Defined by rhojvm
+    public native Field getDeclaredField(String name);
 
     public Field[] getDeclaredFields() {
         throw new UnsupportedOperationException("TODO: Implement this");

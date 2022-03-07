@@ -1,11 +1,14 @@
-use classfile_parser::field_info::FieldAccessFlags;
+use classfile_parser::field_info::{FieldAccessFlags, FieldInfoOpt};
 use either::Either;
 use rhojvm_base::{
-    package::Packages, util::MemorySize, ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
+    id::ClassId, package::Packages, util::MemorySize, ClassDirectories, ClassFiles, ClassNames,
+    Classes, Methods,
 };
 
 use crate::{
-    class_instance::{ClassInstance, Instance, PrimitiveArrayInstance, StaticClassInstance},
+    class_instance::{
+        ClassInstance, FieldId, FieldIndex, Instance, PrimitiveArrayInstance, StaticClassInstance,
+    },
     eval::{
         eval_method, instances::make_fields, EvalError, EvalMethodValue, Frame, Locals,
         ValueException,
@@ -165,6 +168,28 @@ pub(crate) const fn signed_offset_16(lhs: u16, rhs: i16) -> Option<u16> {
         #[allow(clippy::cast_sign_loss)]
         lhs.checked_add(rhs as u16)
     }
+}
+
+pub(crate) fn find_field_with_name(
+    class_files: &ClassFiles,
+    class_id: ClassId,
+    target_name: &[u8],
+) -> Result<Option<(FieldId, FieldInfoOpt)>, GeneralError> {
+    let class_file = class_files
+        .get(&class_id)
+        .ok_or(GeneralError::MissingLoadedClassFile(class_id))?;
+    for (i, field_data) in class_file.load_field_values_iter().enumerate() {
+        let i = FieldIndex::new_unchecked(i as u16);
+        let (field_info, _) = field_data.map_err(GeneralError::ClassFileLoad)?;
+        let field_name = class_file.get_text_b(field_info.name_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(field_info.name_index.into_generic()),
+        )?;
+        if field_name == target_name {
+            return Ok(Some((FieldId::unchecked_compose(class_id, i), field_info)));
+        }
+    }
+
+    Ok(None)
 }
 
 /// Gets a reference to the string class, initializing it if it doesn't exist

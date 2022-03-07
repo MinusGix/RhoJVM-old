@@ -18,7 +18,7 @@
 
 use std::{collections::HashMap, num::NonZeroUsize, path::Path, sync::Arc, thread::ThreadId};
 
-use class_instance::{ClassInstance, Instance, StaticClassInstance};
+use class_instance::{ClassInstance, FieldId, Instance, StaticClassInstance};
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo},
     constant_pool::ConstantPoolIndexRaw,
@@ -49,7 +49,7 @@ use smallvec::{smallvec, SmallVec};
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
-use util::Env;
+use util::{find_field_with_name, Env};
 
 use crate::{
     class_instance::ReferenceArrayInstance,
@@ -244,6 +244,18 @@ pub struct State {
     string_char_array_constructor: Option<MethodId>,
 
     pub(crate) empty_string_ref: Option<GcRef<ClassInstance>>,
+
+    /// The field in java/lang/Class that stores the ClassId
+    class_class_id_field: Option<FieldId>,
+
+    /// The field in java/lang/String that holds the `char[]` that is its content.
+    string_data_field: Option<FieldId>,
+
+    /// (classId, fieldIndex, flags) in rho/InternalField
+    internal_field_field_ids: Option<(FieldId, FieldId, FieldId)>,
+
+    /// internalField in java/lang/reflect/Field
+    field_internal_field_id: Option<FieldId>,
 }
 impl State {
     fn new(conf: StateConfig) -> Self {
@@ -269,6 +281,14 @@ impl State {
             string_char_array_constructor: None,
 
             empty_string_ref: None,
+
+            class_class_id_field: None,
+
+            string_data_field: None,
+
+            internal_field_field_ids: None,
+
+            field_internal_field_id: None,
         }
     }
 
@@ -355,6 +375,86 @@ impl State {
         }
 
         None
+    }
+
+    /// The Class<T> class should already be loaded, and the id given should be for it.
+    /// # Panics
+    /// If it can't find the field
+    pub(crate) fn get_class_class_id_field(
+        &mut self,
+        class_files: &ClassFiles,
+        class_id: ClassId,
+    ) -> Result<FieldId, GeneralError> {
+        if let Some(field) = self.class_class_id_field {
+            return Ok(field);
+        }
+
+        let (field_id, _) = find_field_with_name(class_files, class_id, b"classId")?
+            .expect("Failed to get field id for internal java/lang/Class#classId field");
+        self.class_class_id_field = Some(field_id);
+
+        Ok(field_id)
+    }
+
+    /// The String class should already be loaded, and the id given should be for it.
+    /// # Panics
+    /// If it can't find the field
+    pub(crate) fn get_string_data_field(
+        &mut self,
+        class_files: &ClassFiles,
+        class_id: ClassId,
+    ) -> Result<FieldId, GeneralError> {
+        if let Some(field) = self.string_data_field {
+            return Ok(field);
+        }
+
+        let (field_id, _) = find_field_with_name(class_files, class_id, b"data")?
+            .expect("Failed to get field id for internal java/lang/String#data field");
+        self.string_data_field = Some(field_id);
+
+        Ok(field_id)
+    }
+
+    /// The Internal Field class should already be loaded, and the id given should be for it
+    /// # Panics
+    /// If it can't find the field
+    pub(crate) fn get_internal_field_ids(
+        &mut self,
+        class_files: &ClassFiles,
+        class_id: ClassId,
+    ) -> Result<(FieldId, FieldId, FieldId), GeneralError> {
+        if let Some(fields) = self.internal_field_field_ids {
+            return Ok(fields);
+        }
+
+        let (class_id_field, _) = find_field_with_name(class_files, class_id, b"classId")?
+            .expect("Failed to get field id for internal rho/InternalField#classId field");
+        let (field_index_field, _) = find_field_with_name(class_files, class_id, b"fieldIndex")?
+            .expect("Failed to get field id for internal rho/InternalField#fieldIndex field");
+        let (flags_field, _) = find_field_with_name(class_files, class_id, b"flags")?
+            .expect("Failed to get field id for internal rho/InternalField#flags field");
+        self.internal_field_field_ids = Some((class_id_field, field_index_field, flags_field));
+
+        Ok((class_id_field, field_index_field, flags_field))
+    }
+
+    /// The Field class should already be loaded, and the id given should be for it
+    /// # Panics
+    /// If it can't find the field
+    pub(crate) fn get_field_internal_field_id(
+        &mut self,
+        class_files: &ClassFiles,
+        class_id: ClassId,
+    ) -> Result<FieldId, GeneralError> {
+        if let Some(field) = self.field_internal_field_id {
+            return Ok(field);
+        }
+
+        let (field_id, _) = find_field_with_name(class_files, class_id, b"internalField")?
+            .expect("Failed to get field id for internal java/lang/Field#internalField field");
+        self.field_internal_field_id = Some(field_id);
+
+        Ok(field_id)
     }
 }
 

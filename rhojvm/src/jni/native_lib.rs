@@ -6,7 +6,7 @@ use std::{
 
 use libloading::Symbol;
 
-use crate::jni;
+use crate::{eval::internal_repl::find_internal_rho_native_method, jni};
 
 use super::{JNIOnLoadFn, OpaqueClassMethod};
 
@@ -27,17 +27,6 @@ impl From<libloading::Error> for FindSymbolError {
     fn from(err: libloading::Error) -> FindSymbolError {
         FindSymbolError::LibLoading(err)
     }
-}
-
-// TODO: Should we use something like PHF? Every native lookup is going to check this array
-// for if it exists, which does make them all more expensive for this case. PHF would probably be
-// faster than whatever llvm optimizes this to.
-const INTERNAL_RHO_NATIVE_METHODS: &[(&[u8], OpaqueClassMethod)] = &[];
-fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClassMethod> {
-    INTERNAL_RHO_NATIVE_METHODS
-        .iter()
-        .find(|x| x.0 == name)
-        .map(|x| x.1.clone())
 }
 
 pub struct NativeLibraries {

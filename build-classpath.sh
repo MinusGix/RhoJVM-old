@@ -3,11 +3,21 @@
 # Cd into classpath so that it gives them the proper path, like java/lang/Class
 cd classpath
 # CLASSPATH="../rhojvm/ex/lib/rt/" 
+J_FILES=""
 # java/lang
-javac ./java/lang/Class.java
-javac ./java/lang/System.java
+JFILES="$JFILES ./java/lang/Class.java ./java/lang/System.java ./java/lang/String.java"
+
+# java/lang/reflect
+JFILES="$JFILES ./java/lang/reflect/Field.java"
 
 # sun/misc/
-javac ./sun/misc/Unsafe.java
+JFILES="$JFILES ./sun/misc/Unsafe.java"
+
+# rho/
+JFILES="$JFIELS ./rho/StringConversion.java ./rho/InternalField.java"
+
+
+# Compile them all
+javac $JFILES
 
 cd ..

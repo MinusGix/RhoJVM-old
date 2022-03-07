@@ -20,7 +20,7 @@ use rhojvm_base::{
 };
 
 use crate::{
-    class_instance::{ClassInstance, Instance, ReferenceInstance},
+    class_instance::{ClassInstance, FieldId, Instance, ReferenceInstance},
     gc::GcRef,
     jni::{self, JObject, JValue},
     method::NativeMethod,
@@ -32,6 +32,7 @@ use crate::{
 mod control_flow;
 mod func;
 pub mod instances;
+pub mod internal_repl;
 mod operation;
 mod store_load;
 
@@ -59,6 +60,8 @@ pub enum EvalError {
     MissingInstruction(InstructionIndex),
     /// Expected there to be a static class reference for the given class
     MissingStaticClassRef(ClassId),
+    /// We expected the field to exist but it did not.
+    MissingField(FieldId),
 
     /// The index into the constant pool was invalid, either out of bounds or incorrect type
     /// Should have been caught in stack map verification

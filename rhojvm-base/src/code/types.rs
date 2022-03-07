@@ -23,9 +23,7 @@ pub struct JavaChar(pub u16);
 impl JavaChar {
     #[must_use]
     pub fn from_int(v: i32) -> JavaChar {
-        // TODO: Is this correct?
-        let b = v.to_be_bytes();
-        JavaChar(u16::from_be_bytes([b[0], b[1]]))
+        JavaChar(v as u16)
     }
 
     #[must_use]

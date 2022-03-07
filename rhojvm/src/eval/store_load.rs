@@ -35,14 +35,14 @@ use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{
-        ClassInstance, FieldId, FieldIndex, FieldType, ReferenceInstance, StaticClassInstance,
-        StaticFormInstance,
+        ClassInstance, Field, FieldAccess, FieldId, FieldIndex, FieldType, ReferenceInstance,
+        StaticClassInstance, StaticFormInstance,
     },
     eval::instances::make_fields,
     gc::GcRef,
     initialize_class, resolve_derive,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{self, Env},
+    util::{self, find_field_with_name, Env},
     GeneralError, State,
 };
 
@@ -91,20 +91,10 @@ fn get_field_dest(
             }
         };
 
-        // TODO: This feels like excessive calculation to get the field index, but I'm unsure of
-        // a better way.
-        // Doing it like `ClassNames` and having a table would be even more work due to field name
-        // allocs and hash map allocs and lookup
-        // But, hopefully once we refine instructions so we don't repeat work, this becomes trivial
-        // since it won't be done repeatedly.
         let class_file = env
             .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-        let dest_class_file = env
-            .class_files
-            .get(&dest_class_id)
-            .ok_or(GeneralError::MissingLoadedClassFile(dest_class_id))?;
         let field_nat = class_file.get_t(field.name_and_type_index).ok_or(
             EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
         )?;
@@ -112,27 +102,13 @@ fn get_field_dest(
             EvalError::InvalidConstantPoolIndex(field_nat.name_index.into_generic()),
         )?;
         // TODO: Document assumption that fields stay in order
-        let mut field_index = None;
-        for (i, field_data) in dest_class_file.load_field_values_iter().enumerate() {
-            let i = FieldIndex::new_unchecked(i as u16);
-            let (field_info, _) = field_data.map_err(GeneralError::ClassFileLoad)?;
-            let target_field_name = dest_class_file.get_text_b(field_info.name_index).ok_or(
-                EvalError::InvalidConstantPoolIndex(field_info.name_index.into_generic()),
-            )?;
+        let field_id = find_field_with_name(&env.class_files, dest_class_id, field_name)?;
 
-            // TODO: Should we check the signature too for extra validity?
-            if field_name == target_field_name {
-                field_index = Some(i);
-                break;
-            }
-        }
-
-        let field_index = if let Some(field_index) = field_index {
-            field_index
+        let field_id = if let Some((field_id, _)) = field_id {
+            field_id
         } else {
             todo!("No such field exception");
         };
-        let field_id = FieldId::unchecked_compose(dest_class_id, field_index);
         (dest_class_id, field_id, dest_ref)
     };
 
@@ -584,7 +560,7 @@ fn load_constant(
                 ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
             };
 
-            let fields = match make_fields(env, class_form_id, |field_info| {
+            let mut fields = match make_fields(env, class_form_id, |field_info| {
                 !field_info.access_flags.contains(FieldAccessFlags::STATIC)
             })? {
                 Either::Left(fields) => fields,
@@ -592,6 +568,17 @@ fn load_constant(
                     return Ok(RunInstValue::Exception(exc));
                 }
             };
+
+            // This is the classId field, which is the only field in Rho's java/lang/Class
+            let class_id_field_id = env
+                .state
+                .get_class_class_id_field(&env.class_files, class_form_id)?;
+
+            let class_id_field = fields
+                .get_mut(class_id_field_id)
+                .ok_or(EvalError::MissingField(class_id_field_id))?;
+            *class_id_field.value_mut() =
+                RuntimeValuePrimitive::I32(target_class_id.get() as i32).into();
 
             // new does not run a constructor, it only initializes it
             let inner_class = ClassInstance {
