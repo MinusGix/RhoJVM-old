@@ -10,14 +10,17 @@ JFILES="$JFILES ./java/lang/Class.java ./java/lang/System.java ./java/lang/Strin
 # java/lang/reflect
 JFILES="$JFILES ./java/lang/reflect/Field.java"
 
+# java/security
+JFILES="$JFILES ./java/security/AccessController.java"
+
 # sun/misc/
 JFILES="$JFILES ./sun/misc/Unsafe.java"
 
 # rho/
-JFILES="$JFIELS ./rho/StringConversion.java ./rho/InternalField.java"
+JFILES="$JFILES ./rho/StringConversion.java ./rho/InternalField.java"
 
-
+echo $JFILES
 # Compile them all
-javac $JFILES
+javac -cp . $JFILES
 
 cd ..
