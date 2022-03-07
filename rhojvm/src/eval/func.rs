@@ -1,3 +1,5 @@
+use std::borrow::BorrowMut;
+
 use classfile_parser::{constant_info::ConstantInfo, method_info::MethodAccessFlags};
 use rhojvm_base::{
     code::{
@@ -276,8 +278,133 @@ impl RunInst for InvokeStatic {
 }
 
 impl RunInst for InvokeInterface {
-    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
-        todo!()
+    fn run(
+        self,
+        RunInstArgs {
+            env,
+            method_id,
+            frame,
+            ..
+        }: RunInstArgs,
+    ) -> Result<RunInstValue, GeneralError> {
+        let (class_id, _) = method_id.decompose();
+        let class_file = env
+            .class_files
+            .get(&class_id)
+            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+
+        let info = class_file
+            .get_t(self.index)
+            .ok_or(EvalError::InvalidConstantPoolIndex(
+                self.index.into_generic(),
+            ))?;
+        let target_interface_index = info.class_index;
+        let method_nat_index = info.name_and_type_index;
+
+        let target_interface =
+            class_file
+                .get_t(target_interface_index)
+                .ok_or(EvalError::InvalidConstantPoolIndex(
+                    target_interface_index.into_generic(),
+                ))?;
+        let target_interface_name = class_file.get_text_b(target_interface.name_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(target_interface.name_index.into_generic()),
+        )?;
+        let target_interface_id = env.class_names.gcid_from_bytes(target_interface_name);
+
+        let method_nat =
+            class_file
+                .get_t(method_nat_index)
+                .ok_or(EvalError::InvalidConstantPoolIndex(
+                    method_nat_index.into_generic(),
+                ))?;
+        // TODO: Sadly we have to allocate
+        let method_name = class_file
+            .get_text_b(method_nat.name_index)
+            .ok_or(EvalError::InvalidConstantPoolIndex(
+                method_nat.name_index.into_generic(),
+            ))?
+            .to_owned();
+        let method_descriptor = class_file.get_text_b(method_nat.descriptor_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(method_nat.descriptor_index.into_generic()),
+        )?;
+        let method_descriptor =
+            MethodDescriptor::from_text(method_descriptor, &mut env.class_names)
+                .map_err(EvalError::InvalidMethodDescriptor)?;
+
+        // TODO: Some errors should be excpetions
+        resolve_derive(
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
+            target_interface_id,
+            class_id,
+        )?;
+
+        initialize_class(env, target_interface_id)?;
+
+        let mut locals = Locals::default();
+        for parameter in method_descriptor.parameters().iter().rev() {
+            let value = grab_runtime_value_from_stack_for_function(
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.classes,
+                &mut env.packages,
+                &mut env.state,
+                frame,
+                parameter,
+            )?;
+
+            locals.prepush_transform(value);
+        }
+
+        // TODO: Check that this is valid
+        // Get the this parameter
+        let instance_class = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let instance_ref = instance_class
+            .into_reference()
+            .ok_or(EvalError::ExpectedStackValueReference)?
+            .expect("TODO: NullReferenceException");
+        let instance = env
+            .state
+            .gc
+            .deref(instance_ref)
+            .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
+        let instance_id = instance.instanceof();
+        locals.prepush_transform(RuntimeValue::Reference(instance_ref));
+
+        // Find the actual method to execute
+        let target_method_id = find_virtual_method(
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.methods,
+            target_interface_id,
+            instance_id,
+            &method_name,
+            &method_descriptor,
+        )?;
+
+        // TODO: Check if the method is accessible?
+
+        let call_frame = Frame::new_locals(locals);
+        let res = eval_method(env, target_method_id, call_frame)?;
+
+        match res {
+            // TODO: Check that these are valid return types!
+            // We can use the casting code we wrote above for the check, probably?
+            EvalMethodValue::ReturnVoid => (),
+            EvalMethodValue::Return(v) => frame.stack.push(v)?,
+            EvalMethodValue::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+        }
+
+        Ok(RunInstValue::Continue)
     }
 }
 
@@ -625,6 +752,7 @@ impl RunInst for InvokeVirtual {
             locals.prepush_transform(value);
         }
 
+        // TODO: Check that this is valid
         // Get the this parameter
         let instance_class = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let instance_ref = instance_class
