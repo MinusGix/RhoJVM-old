@@ -1,6 +1,6 @@
-use tracing::Subscriber;
+use tracing::{Level, Subscriber};
 use tracing_subscriber::{
-    fmt::{FormatEvent, FormatFields, FormattedFields},
+    fmt::{FormatEvent, FormatFields},
     registry::LookupSpan,
 };
 
@@ -18,19 +18,21 @@ where
     ) -> std::fmt::Result {
         let level = *event.metadata().level();
         // let target = event.metadata().target();
-        write!(writer, "{}: ", level)?;
 
         let mut idx = 0;
         ctx.visit_spans(|_| {
             // Ignore span names, because for the most part they clog up the log, unfortunately.
             // It would be nice if we could just log the last span, but tracing's api is obtuse..
-            write!(writer, ":: ")?;
+            write!(writer, "  ")?;
             idx += 1;
 
             Ok(())
         })?;
 
         ctx.field_format().format_fields(writer, event)?;
+        if !matches!(level, Level::INFO) {
+            write!(writer, "  ({})", level)?;
+        }
 
         writeln!(writer)
     }
