@@ -399,7 +399,7 @@ fn classcast_exception(
     to: ClassId,
     message: &str,
 ) -> GcRef<ClassInstance> {
-    todo!("Construct CheckCast exception")
+    panic!("Construct CheckCast exception, msg: {}", message);
 }
 
 /// Tries to cast the class id to the other class id
@@ -424,6 +424,10 @@ pub(crate) fn try_casting(
         desired_class_id,
         class_id,
     )?;
+
+    if class_id == desired_class_id {
+        return Ok(CastResult::Success);
+    }
 
     let class = env.classes.get(&class_id).unwrap();
     let target_class = env.classes.get(&desired_class_id).unwrap();
