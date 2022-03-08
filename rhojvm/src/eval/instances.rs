@@ -13,8 +13,7 @@ use rhojvm_base::{
         types::JavaChar,
     },
     id::ClassId,
-    package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods, StepError,
+    StepError,
 };
 use smallvec::SmallVec;
 use usize_cast::IntoUsize;
@@ -29,7 +28,7 @@ use crate::{
     initialize_class, resolve_derive,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{self, Env},
-    GeneralError, State,
+    GeneralError,
 };
 
 use super::{RunInst, RunInstArgs, RunInstValue, ValueException};
@@ -395,13 +394,7 @@ pub(crate) enum CastResult {
 }
 
 fn classcast_exception(
-    class_directories: &ClassDirectories,
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
+    env: &mut Env,
     from: ClassId,
     to: ClassId,
     message: &str,
@@ -413,44 +406,27 @@ fn classcast_exception(
 /// Note that even if your `make_failure` method does not create exceptions, there may be other
 /// exceptions created (such as during failure to resolve class)
 pub(crate) fn try_casting(
-    class_directories: &ClassDirectories,
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
+    env: &mut Env,
     class_id: ClassId,
     desired_class_id: ClassId,
-    make_failure: impl FnOnce(
-        &ClassDirectories,
-        &mut ClassNames,
-        &mut ClassFiles,
-        &mut Classes,
-        &mut Packages,
-        &mut Methods,
-        &mut State,
-        ClassId,
-        ClassId,
-        &str,
-    ) -> Result<CastResult, GeneralError>,
+    make_failure: impl FnOnce(&mut Env, ClassId, ClassId, &str) -> Result<CastResult, GeneralError>,
 ) -> Result<CastResult, GeneralError> {
     // TODO: Some of the errors from this should be exceptions
     // Resolve the class from our class
     resolve_derive(
-        class_directories,
-        class_names,
-        class_files,
-        classes,
-        packages,
-        methods,
-        state,
+        &env.class_directories,
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+        &mut env.methods,
+        &mut env.state,
         desired_class_id,
         class_id,
     )?;
 
-    let class = classes.get(&class_id).unwrap();
-    let target_class = classes.get(&desired_class_id).unwrap();
+    let class = env.classes.get(&class_id).unwrap();
+    let target_class = env.classes.get(&desired_class_id).unwrap();
     if class.is_array() {
         // Array
         if target_class.is_array() {
@@ -473,27 +449,10 @@ pub(crate) fn try_casting(
             let target_comp = target_comp.into_class_id();
 
             if let Some((class_comp, target_comp)) = class_comp.zip(target_comp) {
-                try_casting(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    classes,
-                    packages,
-                    methods,
-                    state,
-                    class_comp,
-                    target_comp,
-                    make_failure,
-                )
+                try_casting(env, class_comp, target_comp, make_failure)
             } else {
                 Ok(make_failure(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    classes,
-                    packages,
-                    methods,
-                    state,
+                    env,
                     class_id,
                     desired_class_id,
                     "Arrays had differing component types",
@@ -502,7 +461,7 @@ pub(crate) fn try_casting(
         } else if target_class.is_interface() {
             let interfaces = ArrayClass::get_interface_names()
                 .iter()
-                .map(|x| class_names.gcid_from_bytes(x));
+                .map(|x| env.class_names.gcid_from_bytes(x));
             for interface in interfaces {
                 if interface == desired_class_id {
                     return Ok(CastResult::Success);
@@ -511,28 +470,16 @@ pub(crate) fn try_casting(
 
             // Otherwise, it was not an interface implemented by the array
             Ok(make_failure(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
+                env,
                 class_id,
                 desired_class_id,
                 "Array could not be casted to interface which was not a super-interface",
             )?)
-        } else if desired_class_id == class_names.object_id() {
+        } else if desired_class_id == env.class_names.object_id() {
             Ok(CastResult::Success)
         } else {
             Ok(make_failure(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
+                env,
                 class_id,
                 desired_class_id,
                 "Array can not be casted to a class other than Object",
@@ -541,39 +488,27 @@ pub(crate) fn try_casting(
     } else if class.is_interface() {
         // Interface
         if target_class.is_interface() {
-            if classes.implements_interface(
-                class_directories,
-                class_names,
-                class_files,
+            if env.classes.implements_interface(
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
                 class_id,
                 desired_class_id,
             )? {
                 Ok(CastResult::Success)
             } else {
                 Ok(make_failure(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    classes,
-                    packages,
-                    methods,
-                    state,
+                    env,
                     class_id,
                     desired_class_id,
                     "Interface could not be casted to other interface which was not a super-interface",
                 )?)
             }
-        } else if desired_class_id == class_names.object_id() {
+        } else if desired_class_id == env.class_names.object_id() {
             Ok(CastResult::Success)
         } else {
             Ok(make_failure(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
+                env,
                 class_id,
                 desired_class_id,
                 "Interface can not be casted to a class other than Object",
@@ -582,46 +517,34 @@ pub(crate) fn try_casting(
     } else {
         // Normal class
         if target_class.is_interface() {
-            if classes.implements_interface(
-                class_directories,
-                class_names,
-                class_files,
+            if env.classes.implements_interface(
+                &env.class_directories,
+                &mut env.class_names,
+                &mut env.class_files,
                 class_id,
                 desired_class_id,
             )? {
                 Ok(CastResult::Success)
             } else {
                 Ok(make_failure(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    classes,
-                    packages,
-                    methods,
-                    state,
+                    env,
                     class_id,
                     desired_class_id,
                     "Class does not implement interface",
                 )?)
             }
-        } else if classes.is_super_class(
-            class_directories,
-            class_names,
-            class_files,
-            packages,
+        } else if env.classes.is_super_class(
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.packages,
             class_id,
             desired_class_id,
         )? {
             Ok(CastResult::Success)
         } else {
             Ok(make_failure(
-                class_directories,
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
+                env,
                 class_id,
                 desired_class_id,
                 "Class does not extend casted class",
@@ -677,33 +600,12 @@ impl RunInst for CheckCast {
         // We currently represent the reference as completely unmodified, but we do have to
         // perform these checks so that we can determine if the cast is correct
         match try_casting(
-            &env.class_directories,
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
+            env,
             id,
             cast_target_id,
-            |class_directories,
-             class_names,
-             class_files,
-             classes,
-             packages,
-             methods,
-             state,
-             class_id,
-             desired_class_id,
-             message| {
+            |env, class_id, desired_class_id, message| {
                 Ok(CastResult::Exception(classcast_exception(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    classes,
-                    packages,
-                    methods,
-                    state,
+                    env,
                     class_id,
                     desired_class_id,
                     message,
@@ -766,18 +668,9 @@ impl RunInst for InstanceOf {
 
         // We currently represent the reference as completely unmodified, but we do have to
         // perform these checks so that we can determine if the cast is correct
-        match try_casting(
-            &env.class_directories,
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
-            id,
-            cast_target_id,
-            |_, _, _, _, _, _, _, _, _, _| Ok(CastResult::Failure),
-        )? {
+        match try_casting(env, id, cast_target_id, |_env, _, _, _| {
+            Ok(CastResult::Failure)
+        })? {
             CastResult::Success => {
                 frame.stack.push(RuntimeValuePrimitive::I32(1))?;
                 Ok(RunInstValue::Continue)
