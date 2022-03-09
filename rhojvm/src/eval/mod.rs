@@ -20,9 +20,9 @@ use rhojvm_base::{
 };
 
 use crate::{
-    class_instance::{ClassInstance, FieldId, Instance, ReferenceInstance},
+    class_instance::{ClassInstance, FieldId, Instance},
     gc::GcRef,
-    jni::{self, JInt, JLong, JObject},
+    jni::{self, JByte, JChar, JDouble, JFloat, JInt, JLong, JObject, JShort},
     method::NativeMethod,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
@@ -309,13 +309,34 @@ macro_rules! convert_rv {
             JObject::null()
         }
     }};
+    ($env:ident ; $v:ident ; $p_index:ident ; JDouble) => {{
+        $v.into_f64()
+            .ok_or(EvalError::ExpectedLocalVariableDouble($p_index))?
+    }};
+    ($env:ident ; $v:ident ; $p_index:ident ; JFloat) => {{
+        $v.into_f32()
+            .ok_or(EvalError::ExpectedLocalVariableFloat($p_index))?
+    }};
     ($env:ident ; $v:ident ; $p_index:ident ; JLong) => {{
         $v.into_i64()
-            .ok_or(EvalError::ExpectedLocalVariableReference($p_index))?
+            .ok_or(EvalError::ExpectedLocalVariableLong($p_index))?
     }};
     ($env:ident ; $v:ident ; $p_index:ident ; JInt) => {{
-        $v.into_i32()
-            .ok_or(EvalError::ExpectedLocalVariableReference($p_index))?
+        $v.into_int()
+            .ok_or(EvalError::ExpectedLocalVariableIntRepr($p_index))?
+    }};
+    ($env:ident ; $v:ident ; $p_index:ident ; JShort) => {{
+        $v.into_short()
+            .ok_or(EvalError::ExpectedLocalVariableIntRepr($p_index))?
+    }};
+    ($env:ident ; $v:ident ; $p_index:ident ; JChar) => {{
+        $v.into_char()
+            .ok_or(EvalError::ExpectedLocalVariableIntRepr($p_index))?
+            .as_i16() as u16
+    }};
+    ($env:ident ; $v:ident ; $p_index:ident ; JByte) => {{
+        $v.into_byte()
+            .ok_or(EvalError::ExpectedLocalVariableIntRepr($p_index))?
     }};
 }
 macro_rules! impl_call_native_method {
@@ -550,9 +571,35 @@ pub fn eval_method(
         }
 
         let param_count = method.descriptor().parameters().len();
-        if param_count == 1 && method.descriptor().parameters()[0].is_reference() {
-            // fn(JNIEnv*, JObject, JObject) -> ?
-            impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject));
+        if param_count == 1 {
+            let first = method.descriptor().parameters()[0];
+            match first {
+                DescriptorType::Array { .. }
+                | DescriptorType::Basic(DescriptorTypeBasic::Class(_)) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject));
+                }
+                DescriptorType::Basic(DescriptorTypeBasic::Byte | DescriptorTypeBasic::Boolean) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JByte));
+                }
+                DescriptorType::Basic(DescriptorTypeBasic::Char) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JChar));
+                }
+                DescriptorType::Basic(DescriptorTypeBasic::Double) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JDouble));
+                }
+                DescriptorType::Basic(DescriptorTypeBasic::Float) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JFloat));
+                }
+                DescriptorType::Basic(DescriptorTypeBasic::Int) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JInt));
+                }
+                DescriptorType::Basic(DescriptorTypeBasic::Long) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JLong));
+                }
+                DescriptorType::Basic(DescriptorTypeBasic::Short) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JShort));
+                }
+            }
         } else if param_count == 3
             && matches!(
                 method.descriptor().parameters()[0],
