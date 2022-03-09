@@ -8,7 +8,7 @@ use classfile_parser::{
 };
 use rhojvm_base::{
     code::{
-        method::Method,
+        method::{DescriptorType, DescriptorTypeBasic, Method},
         op::{Inst, Wide, WideInst},
         types::{Instruction, LocalVariableIndex},
     },
@@ -22,9 +22,9 @@ use rhojvm_base::{
 use crate::{
     class_instance::{ClassInstance, FieldId, Instance, ReferenceInstance},
     gc::GcRef,
-    jni::{self, JObject, JValue},
+    jni::{self, JInt, JLong, JObject},
     method::NativeMethod,
-    rv::{RuntimeType, RuntimeValue, RuntimeValuePrimitive},
+    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
     GeneralError, State,
 };
@@ -297,6 +297,125 @@ fn get_class_ref(
     )
 }
 
+macro_rules! convert_rv {
+    ($env:ident ; $v:ident ; $p_index:ident ; JObject) => {{
+        let v = $v
+            .into_reference()
+            .ok_or(EvalError::ExpectedLocalVariableReference($p_index))?
+            .map(GcRef::into_generic);
+        if let Some(v) = v {
+            unsafe { $env.get_local_jobject_for(v) }
+        } else {
+            JObject::null()
+        }
+    }};
+    ($env:ident ; $v:ident ; $p_index:ident ; JLong) => {{
+        $v.into_i64()
+            .ok_or(EvalError::ExpectedLocalVariableReference($p_index))?
+    }};
+    ($env:ident ; $v:ident ; $p_index:ident ; JInt) => {{
+        $v.into_i32()
+            .ok_or(EvalError::ExpectedLocalVariableReference($p_index))?
+    }};
+}
+macro_rules! impl_call_native_method {
+    ($env:ident, $frame:ident, $class_id:ident, $method:ident, $native_func:ident; ($($pname:ident: $typ:ident),*)) => {
+        let return_type: Option<DescriptorType> = $method.descriptor().return_type().cloned();
+        let class_ref = match get_class_ref(&mut $env.state, &mut $frame, $class_id, $method)? {
+            ValueException::Value(class_ref) => class_ref,
+            ValueException::Exception(exc) => return Ok(EvalMethodValue::Exception(exc)),
+        };
+
+        let param_base_index = if $method.access_flags().contains(MethodAccessFlags::STATIC) {
+            0
+        } else {
+            1
+        };
+        let mut param_index = param_base_index;
+        $(
+            let $pname = $frame
+                .locals
+                .get(param_index)
+                .ok_or(EvalError::ExpectedLocalVariable(param_index))?
+                .as_value()
+                .ok_or(EvalError::ExpectedLocalVariableWithValue(param_index))?;
+            if $pname.is_category_2() {
+                param_index += 2;
+            } else {
+                param_index += 1;
+            }
+            let $pname = convert_rv!($env ; $pname ; param_index ; $typ);
+        )*
+
+        if let Some(return_type) = return_type {
+            // fn(JNIENv*, JObject, ...) -> SomeType
+
+            let rv = RuntimeType::from_descriptor_type(&mut $env.class_names, return_type.clone())
+                .map_err(StepError::BadId)?;
+
+            let class_ref_jobject: JObject = unsafe { $env.get_local_jobject_for(class_ref) };
+
+            let env_ptr: *mut Env<'_> = $env as *mut Env<'_>;
+            // The native function is only partially defined, we have to convert it into a more
+            // specific form
+            let native_func = $native_func.get();
+
+            // Safety: Relying on java's declared parameter types
+            match rv {
+                RuntimeType::Primitive(prim) => match prim {
+                    RuntimeTypePrimitive::I64 => {
+                        let native_func = unsafe {
+                            std::mem::transmute::<
+                                unsafe extern "C" fn(*mut Env, JObject),
+                                unsafe extern "C" fn(*mut Env, JObject, $($typ),*) -> JLong,
+                            >(native_func)
+                        };
+                        let value: JLong = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::I64(value).into()));
+                    },
+                    RuntimeTypePrimitive::I32 => {
+                        let native_func = unsafe {
+                            std::mem::transmute::<
+                                unsafe extern "C" fn(*mut Env, JObject),
+                                unsafe extern "C" fn(*mut Env, JObject, $($typ),*) -> JInt,
+                            >(native_func)
+                        };
+                        let value: JInt = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::I32(value).into()));
+                    },
+                    RuntimeTypePrimitive::I16 => todo!("i16"),
+                    RuntimeTypePrimitive::I8 => todo!("i8"),
+                    RuntimeTypePrimitive::F32 => todo!("f32"),
+                    RuntimeTypePrimitive::F64 => todo!("f64"),
+                    RuntimeTypePrimitive::Char => todo!("char"),
+                },
+                RuntimeType::Reference(_) => {
+                    let native_func = unsafe {
+                        std::mem::transmute::<
+                            unsafe extern "C" fn(*mut Env, JObject),
+                            unsafe extern "C" fn(*mut Env, JObject, $($typ),*) -> JObject,
+                        >(native_func)
+                    };
+                    let value: JObject = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+                    // TODO: Check validity
+                    let value: Option<GcRef<_>> = unsafe { $env.get_jobject_as_gcref(value) };
+                    if let Some(value) = value {
+                        let inst = $env.state.gc.deref(value).ok_or(EvalError::InvalidGcRef(value))?;
+                        if matches!(inst, Instance::Reference(_)) {
+                            return Ok(EvalMethodValue::Return(RuntimeValue::Reference(value.unchecked_as())));
+                        }
+                        todo!("native function returned gcref to static class");
+                    } else {
+                        return Ok(EvalMethodValue::Return(RuntimeValue::NullReference));
+                    }
+                },
+            }
+        } else {
+            todo!("Return void functions")
+        }
+    };
+}
+
 /// Either a value or an exception
 #[derive(Debug, Clone, Copy)]
 pub enum ValueException<V> {
@@ -402,9 +521,6 @@ pub fn eval_method(
         };
         let native_func = native_func.get().clone();
 
-        let is_static = method.access_flags().contains(MethodAccessFlags::STATIC);
-        let return_type = method.descriptor().return_type().copied();
-
         if method.descriptor().is_nullary_void() {
             let class_ref = match get_class_ref(&mut env.state, &mut frame, class_id, method)? {
                 ValueException::Value(class_ref) => class_ref,
@@ -433,80 +549,27 @@ pub fn eval_method(
             return Ok(EvalMethodValue::ReturnVoid);
         }
 
-        if method.descriptor().parameters().len() == 1
-            && method.descriptor().parameters()[0].is_reference()
-        {
+        let param_count = method.descriptor().parameters().len();
+        if param_count == 1 && method.descriptor().parameters()[0].is_reference() {
             // fn(JNIEnv*, JObject, JObject) -> ?
-
-            let class_ref = match get_class_ref(&mut env.state, &mut frame, class_id, method)? {
-                ValueException::Value(class_ref) => class_ref,
-                ValueException::Exception(exc) => return Ok(EvalMethodValue::Exception(exc)),
-            };
-
-            let param_index = if is_static { 0 } else { 1 };
-            let param: Option<GcRef<Instance>> = frame
-                .locals
-                .get(param_index)
-                .ok_or(EvalError::ExpectedLocalVariable(param_index))?
-                .as_value()
-                .ok_or(EvalError::ExpectedLocalVariableWithValue(param_index))?
-                .into_reference()
-                .ok_or(EvalError::ExpectedLocalVariableReference(param_index))?
-                .map(GcRef::into_generic);
-
-            // TODO: We could just use a match
-            if let Some(return_type) = return_type {
-                // fn(JNIEnv*, JObject, JObject) -> jvalue
-
-                let class_ref_jobject: JObject = unsafe { env.get_local_jobject_for(class_ref) };
-                let param_ptr: JObject = if let Some(param) = param {
-                    unsafe { env.get_local_jobject_for(param) }
-                } else {
-                    JObject::null()
-                };
-
-                let env_ptr = env as *mut Env<'_>;
-                // The native function is only partially defined, we have to convert it into a more
-                // specific form
-                let native_func = native_func.get();
-                // Safety: Relying on java's declared parameter types
-                let native_func = unsafe {
-                    std::mem::transmute::<
-                        unsafe extern "C" fn(*mut Env, JObject),
-                        unsafe extern "C" fn(*mut Env, JObject, JObject) -> JValue,
-                    >(native_func)
-                };
-
-                // Safety: Relying on java's declared types and the safety of the code we are
-                // calling.
-                let value = unsafe { (native_func)(env_ptr, class_ref_jobject, param_ptr) };
-
-                // For value, we can only assume the value is of the same type as the one were
-                // given as the return type
-                let value = unsafe { value.narrow_from_desc_type_into_value(env, return_type) };
-
-                // TODO: Typecheck return value for classes since they could return a different
-                // gcref pointer
-
-                let value: RuntimeValue<ReferenceInstance> = match value {
-                    RuntimeValue::Primitive(prim) => prim.into(),
-                    RuntimeValue::NullReference => RuntimeValue::NullReference,
-                    RuntimeValue::Reference(re) => {
-                        let inst = env.state.gc.deref(re).ok_or(EvalError::InvalidGcRef(re))?;
-                        if matches!(inst, Instance::Reference(_)) {
-                            RuntimeValue::Reference(re.unchecked_as())
-                        } else {
-                            todo!("Native function return gcref to static class");
-                        }
-                    }
-                };
-
-                return Ok(EvalMethodValue::Return(value));
-            }
-
-            // fn(JNIEnv*, JObject, JObject) -> void
-            todo!("impl native (one) -> void");
+            impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject));
+        } else if param_count == 3
+            && matches!(
+                method.descriptor().parameters()[0],
+                DescriptorType::Array { .. } | DescriptorType::Basic(DescriptorTypeBasic::Class(_))
+            )
+            && matches!(
+                method.descriptor().parameters()[1],
+                DescriptorType::Basic(DescriptorTypeBasic::Long)
+            )
+            && matches!(
+                method.descriptor().parameters()[2],
+                DescriptorType::Basic(DescriptorTypeBasic::Int)
+            )
+        {
+            impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JLong, param3: JInt));
         }
+        tracing::info!("Method: {:?}", method.descriptor());
         todo!("Fully implement native methods");
     }
 
