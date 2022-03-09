@@ -10,7 +10,8 @@ use crate::{
     gc::GcRef,
     initialize_class,
     jni::{
-        JChar, JFieldId, JInt, JLong, JObject, JString, MethodClassNoArguments, OpaqueClassMethod,
+        JChar, JFieldId, JFloat, JInt, JLong, JObject, JString, MethodClassNoArguments,
+        OpaqueClassMethod,
     },
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{self, find_field_with_name, Env},
@@ -65,6 +66,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
         Some(match name {
             b"Java_java_lang_Class_getPrimitive" => into_opaque3ret(class_get_primitive),
             b"Java_java_lang_Class_getDeclaredField" => into_opaque3ret(class_get_declared_field),
+            b"Java_java_lang_Float_floatToRawIntBits" => into_opaque3ret(float_to_raw_int_bits),
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_object_field_offset)
             }
@@ -295,6 +297,10 @@ extern "C" fn class_get_declared_field(env: *mut Env<'_>, this: JObject, name: J
     };
 
     unsafe { env.get_local_jobject_for(field_ref.into_generic()) }
+}
+
+extern "C" fn float_to_raw_int_bits(_env: *mut Env<'_>, _this: JObject, value: JFloat) -> JInt {
+    i32::from_be_bytes(value.to_be_bytes())
 }
 
 /// sun/misc/Unsafe
