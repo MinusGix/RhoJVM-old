@@ -5,7 +5,7 @@ cd classpath
 # CLASSPATH="../rhojvm/ex/lib/rt/" 
 J_FILES=""
 # java/lang
-JFILES="$JFILES ./java/lang/Class.java ./java/lang/System.java ./java/lang/String.java ./java/lang/Throwable.java"
+JFILES="$JFILES ./java/lang/Class.java ./java/lang/System.java ./java/lang/String.java ./java/lang/Throwable.java ./java/lang/Float.java"
 
 # java/lang/reflect
 JFILES="$JFILES ./java/lang/reflect/Field.java"
