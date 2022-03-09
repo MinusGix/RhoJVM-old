@@ -11,6 +11,7 @@ public final class Float extends Number {
     public static final float MIN_NORMAL = 0x1.0p-126f;
 
     public static final int MAX_EXPONENT = 127;
+    public static final int MIN_EXPONENT = -126;
 
     public static final int SIZE = 32;
     public static final int BYTES = 4;
