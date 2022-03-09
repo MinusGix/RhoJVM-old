@@ -601,7 +601,7 @@ impl RunInst for LoadConstant2Wide {
             _ => return Err(EvalError::InvalidConstantPoolIndex(self.index.into_generic()).into()),
         }
 
-        todo!()
+        Ok(RunInstValue::Continue)
     }
 }
 
