@@ -1000,7 +1000,7 @@ fn floatload_index(
         .as_value()
         .ok_or(EvalError::ExpectedLocalVariableWithValue(index))?;
     let local = *local;
-    if local.is_long() {
+    if local.is_float() {
         frame.stack.push(local)?;
         Ok(RunInstValue::Continue)
     } else {
