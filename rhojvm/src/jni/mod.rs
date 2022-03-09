@@ -17,7 +17,7 @@ use rhojvm_base::{
 use usize_cast::{FromUsize, IntoUsize};
 
 use crate::{
-    class_instance::{FieldIndex, Instance},
+    class_instance::{FieldId, FieldIndex, Instance},
     const_assert,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
@@ -50,6 +50,13 @@ impl JFieldId {
         JFieldId(std::ptr::null())
     }
 
+    pub(crate) fn unchecked_from_i64(id: i64) -> JFieldId {
+        let id = id as u64;
+        let id = id.into_usize();
+        let id = id as *const ();
+        JFieldId(id)
+    }
+
     /// This is primarily intended for java apis where we have to return some unique id for a field
     /// as a long.
     pub(crate) fn as_i64(self) -> i64 {
@@ -80,16 +87,31 @@ impl JFieldId {
 
         let field_id = JFieldId(field_id);
 
-        debug_assert_eq!(field_id.decompose(), (class_id, field_index));
+        debug_assert_eq!(field_id.decompose(), Some((class_id, field_index)));
 
         field_id
     }
 
     /// # Safety
     /// This should be a valid [`JFieldId`] handed out by `new_unchecked`
-    /// It must be safe to forge pointers and expect to get the original back
-    pub(crate) unsafe fn decompose(self) -> (ClassId, FieldIndex) {
+    /// It must be safe to forge pointers and expect to get the original integer back
+    pub(crate) unsafe fn into_field_id(self) -> Option<FieldId> {
+        if let Some((class_id, field_index)) = self.decompose() {
+            Some(FieldId::unchecked_compose(class_id, field_index))
+        } else {
+            None
+        }
+    }
+
+    /// # Safety
+    /// This should be a valid [`JFieldId`] handed out by `new_unchecked`
+    /// It must be safe to forge pointers and expect to get the original integer back
+    pub(crate) unsafe fn decompose(self) -> Option<(ClassId, FieldIndex)> {
         let field_id = self.0;
+        if field_id.is_null() {
+            return None;
+        }
+
         let field_id = field_id as usize;
         #[allow(clippy::cast_possible_truncation)]
         let class_id = ((field_id & 0xFFFF_FFFF_0000_0000) >> 32) as u32;
@@ -101,7 +123,7 @@ impl JFieldId {
         let class_id = ClassId::new_unchecked(class_id);
         let field_index = FieldIndex::new_unchecked(field_index);
 
-        (class_id, field_index)
+        Some((class_id, field_index))
     }
 }
 
