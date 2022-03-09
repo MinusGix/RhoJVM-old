@@ -7,8 +7,17 @@ import java.io.FileOutputStream;
 import java.util.Map;
 import java.util.Properties;
 import java.lang.SecurityManager;
+import java.util.Properties;
 
 public final class System {
+    private static Properties props = new Properties();
+    static {
+        // TODO: Platform-specific
+        System.props.setProperty("file.separator", "/");
+        // TODO: Platform-specific
+        System.props.setProperty("line.separator", "\n");
+    }
+
     // Prevent it from being created
     private System() {}
 
@@ -24,19 +33,59 @@ public final class System {
     }
 
     public static String getProperty(String name) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // TODO: Security checks
+        if (name == null) {
+            throw new NullPointerException("name");
+        }
+
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Empty property name");
+        }
+        return System.props.getProperty(name);
     }
 
     public static String getProperty(String name, String defaultValue) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // TODO: Security checks
+        if (name == null) {
+            throw new NullPointerException("name");
+        } else if (defaultValue == null) {
+            throw new NullPointerException(defaultValue);
+        }
+
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Empty property name");
+        }
+        return System.props.getProperty(name, defaultValue);
     }
 
     public static String setProperty(String name, String value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // TODO: Security checks
+        if (name == null) {
+            throw new NullPointerException("name");
+        } else if (value == null) {
+            throw new NullPointerException(value);
+        }
+
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Empty property name");
+        }
+        return (String) System.props.setProperty(name, value);
+    }
+
+    public static String clearProperty(String name) {
+        if (name == null) {
+            throw new NullPointerException("name");
+        }
+
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Empty property name");
+        }
+
+        return (String) System.props.remove(name);
     }
 
     public static Properties getProperties() {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        return System.props;
     }
 
     public static long currentTimeMillis() {
