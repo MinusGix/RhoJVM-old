@@ -314,8 +314,8 @@ impl RunInst for LongAdd {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         let value = v2.wrapping_add(v1);
 
         frame.stack.push(RuntimeValuePrimitive::I64(value))?;
@@ -327,8 +327,8 @@ impl RunInst for LongSubtract {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         let value = v2.wrapping_sub(v1);
 
         frame.stack.push(RuntimeValuePrimitive::I64(value))?;
@@ -340,8 +340,8 @@ impl RunInst for LongMultiply {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         let value = v2.wrapping_mul(v1);
 
         frame.stack.push(RuntimeValuePrimitive::I64(value))?;
@@ -353,8 +353,8 @@ impl RunInst for LongDivide {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         if v1 == 0 {
             todo!("Return ArithmeticException")
         }
@@ -370,8 +370,8 @@ impl RunInst for LongRemainder {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         if v1 == 0 {
             todo!("Return ArithmeticException")
         }
@@ -387,7 +387,7 @@ impl RunInst for LongNegate {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let v1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         frame.stack.push(RuntimeValuePrimitive::I64(-v1))?;
 
         Ok(RunInstValue::Continue)
@@ -397,8 +397,8 @@ impl RunInst for LongAnd {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         let value = v2 & v1;
 
         frame.stack.push(RuntimeValuePrimitive::I64(value))?;
@@ -410,8 +410,8 @@ impl RunInst for LongOr {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         let value = v2 | v1;
 
         frame.stack.push(RuntimeValuePrimitive::I64(value))?;
@@ -423,8 +423,8 @@ impl RunInst for LongXor {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         let value = v2 ^ v1;
 
         frame.stack.push(RuntimeValuePrimitive::I64(value))?;
@@ -436,8 +436,8 @@ impl RunInst for LongShiftLeft {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_int().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         let value = v2 << (v1 & 0x3F);
 
         frame.stack.push(RuntimeValuePrimitive::I64(value))?;
@@ -449,8 +449,8 @@ impl RunInst for LongArithmeticShiftRight {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
-        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_int().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v2 = v2.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         let value = v2 >> v1;
 
         frame.stack.push(RuntimeValuePrimitive::I64(value))?;
@@ -462,14 +462,14 @@ impl RunInst for LongLogicalShiftRight {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = u64::from_ne_bytes(
-            v1.into_i64()
+        let v1 = u32::from_ne_bytes(
+            v1.into_int()
                 .ok_or(EvalError::ExpectedStackValueIntRepr)?
                 .to_ne_bytes(),
         );
         let v2 = u64::from_ne_bytes(
             v2.into_i64()
-                .ok_or(EvalError::ExpectedStackValueIntRepr)?
+                .ok_or(EvalError::ExpectedStackValueLong)?
                 .to_ne_bytes(),
         );
         let value = v2 >> v1;
@@ -506,7 +506,7 @@ impl RunInst for LongToDouble {
 impl RunInst for LongToInt {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let v1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
-        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        let v1 = v1.into_i64().ok_or(EvalError::ExpectedStackValueLong)?;
         #[allow(clippy::cast_possible_truncation)]
         let v1 = v1 as i32;
         frame.stack.push(RuntimeValuePrimitive::I32(v1))?;
