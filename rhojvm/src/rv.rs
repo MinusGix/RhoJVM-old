@@ -99,6 +99,14 @@ impl RuntimeValuePrimitive {
     }
 
     #[must_use]
+    pub fn into_i16(self) -> Option<i16> {
+        Some(match self {
+            RuntimeValuePrimitive::I16(x) => x,
+            _ => return None,
+        })
+    }
+
+    #[must_use]
     pub fn into_i32(self) -> Option<i32> {
         Some(match self {
             RuntimeValuePrimitive::I32(x) => x,
@@ -250,6 +258,14 @@ impl<REF> RuntimeValue<REF> {
     pub fn into_f64(self) -> Option<f64> {
         match self {
             Self::Primitive(x) => x.into_f64(),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn into_i16(self) -> Option<i16> {
+        match self {
+            Self::Primitive(x) => x.into_i16(),
             _ => None,
         }
     }
