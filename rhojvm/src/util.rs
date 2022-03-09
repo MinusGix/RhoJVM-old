@@ -8,6 +8,7 @@ use rhojvm_base::{
 use crate::{
     class_instance::{
         ClassInstance, FieldId, FieldIndex, Instance, PrimitiveArrayInstance, StaticClassInstance,
+        StaticFormInstance,
     },
     eval::{
         eval_method, instances::make_fields, EvalError, EvalMethodValue, Frame, Locals,
@@ -16,6 +17,7 @@ use crate::{
     gc::GcRef,
     initialize_class,
     jni::{native_interface::NativeInterface, JObject},
+    resolve_derive,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     BegunStatus, GeneralError, State, ThreadData,
 };
@@ -276,4 +278,83 @@ pub(crate) fn construct_string(
     }
 
     Ok(ValueException::Value(string_ref))
+}
+
+pub(crate) fn make_class_form_of(
+    env: &mut Env,
+    from_class_id: ClassId,
+    of_class_id: ClassId,
+) -> Result<ValueException<GcRef<StaticFormInstance>>, GeneralError> {
+    resolve_derive(
+        &env.class_directories,
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+        &mut env.methods,
+        &mut env.state,
+        of_class_id,
+        from_class_id,
+    )?;
+
+    // TODO: Some of these errors should be exceptions
+    let static_ref = initialize_class(env, of_class_id)?.into_value();
+    let static_ref = match static_ref {
+        ValueException::Value(v) => v,
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    };
+
+    let class_form_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+
+    // TODO: Some of these errors should be exceptions
+    resolve_derive(
+        &env.class_directories,
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+        &mut env.methods,
+        &mut env.state,
+        class_form_id,
+        from_class_id,
+    )?;
+
+    // TODO: Some of these errors should be exceptions
+    let class_form_ref = initialize_class(env, class_form_id)?.into_value();
+    let class_form_ref = match class_form_ref {
+        ValueException::Value(v) => v,
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    };
+
+    let mut fields = match make_fields(env, class_form_id, |field_info| {
+        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+    })? {
+        Either::Left(fields) => fields,
+        Either::Right(exc) => {
+            return Ok(ValueException::Exception(exc));
+        }
+    };
+
+    // This is the classId field, which is the only field in Rho's java/lang/Class
+    let class_id_field_id = env
+        .state
+        .get_class_class_id_field(&env.class_files, class_form_id)?;
+
+    let class_id_field = fields
+        .get_mut(class_id_field_id)
+        .ok_or(EvalError::MissingField(class_id_field_id))?;
+    *class_id_field.value_mut() = RuntimeValuePrimitive::I32(of_class_id.get() as i32).into();
+
+    // new does not run a constructor, it only initializes it
+    let inner_class = ClassInstance {
+        instanceof: class_form_id,
+        static_ref: class_form_ref,
+        fields,
+    };
+
+    // TODO: Run constructor?
+    // eval_method(env, method_id, frame)?;
+
+    let static_form = StaticFormInstance::new(inner_class, static_ref);
+    Ok(ValueException::Value(env.state.gc.alloc(static_form)))
 }

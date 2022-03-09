@@ -515,87 +515,15 @@ fn load_constant(
             )?;
             let target_class_id = env.class_names.gcid_from_bytes(target_class_name);
 
-            // I believe this is basically loading the java.lang.Class<ClassRef> for it
-
-            // TODO: Technically the docs only say resolve, not initialize..
-            // TODO: Some of these errors should be exceptions
-            resolve_derive(
-                &env.class_directories,
-                &mut env.class_names,
-                &mut env.class_files,
-                &mut env.classes,
-                &mut env.packages,
-                &mut env.methods,
-                &mut env.state,
-                target_class_id,
-                class_id,
-            )?;
-
-            // TODO: Some of these errors should be exceptions
-            let static_ref = initialize_class(env, target_class_id)?.into_value();
-            let static_ref = match static_ref {
-                ValueException::Value(v) => v,
+            let class_form = util::make_class_form_of(env, class_id, target_class_id)?;
+            let class_form = match class_form {
+                ValueException::Value(class_form) => class_form,
                 ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
             };
-
-            // TODO: Maybe this should always be loaded, and always by bootstrap?
-            let class_form_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
-            // TODO: Some of these errors should be exceptions
-            resolve_derive(
-                &env.class_directories,
-                &mut env.class_names,
-                &mut env.class_files,
-                &mut env.classes,
-                &mut env.packages,
-                &mut env.methods,
-                &mut env.state,
-                class_form_id,
-                class_id,
-            )?;
-
-            // TODO: Some of these errors should be exceptions
-            let class_form_ref = initialize_class(env, class_form_id)?.into_value();
-            let class_form_ref = match class_form_ref {
-                ValueException::Value(v) => v,
-                ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
-            };
-
-            let mut fields = match make_fields(env, class_form_id, |field_info| {
-                !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-            })? {
-                Either::Left(fields) => fields,
-                Either::Right(exc) => {
-                    return Ok(RunInstValue::Exception(exc));
-                }
-            };
-
-            // This is the classId field, which is the only field in Rho's java/lang/Class
-            let class_id_field_id = env
-                .state
-                .get_class_class_id_field(&env.class_files, class_form_id)?;
-
-            let class_id_field = fields
-                .get_mut(class_id_field_id)
-                .ok_or(EvalError::MissingField(class_id_field_id))?;
-            *class_id_field.value_mut() =
-                RuntimeValuePrimitive::I32(target_class_id.get() as i32).into();
-
-            // new does not run a constructor, it only initializes it
-            let inner_class = ClassInstance {
-                instanceof: class_form_id,
-                static_ref: class_form_ref,
-                fields,
-            };
-
-            // TODO: Run constructor?
-            // eval_method(env, method_id, frame)?;
-
-            let static_form = StaticFormInstance::new(inner_class, static_ref);
-            let static_form_ref = env.state.gc.alloc(static_form);
 
             frame
                 .stack
-                .push(RuntimeValue::Reference(static_form_ref.into_generic()))?;
+                .push(RuntimeValue::Reference(class_form.into_generic()))?;
         }
         ConstantInfo::String(string) => {
             // TODO: This conversion could go directly from cesu8 to utf16
