@@ -10,7 +10,7 @@ use crate::{
     gc::GcRef,
     initialize_class,
     jni::{
-        JChar, JFieldId, JFloat, JInt, JLong, JObject, JString, MethodClassNoArguments,
+        JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JString, MethodClassNoArguments,
         OpaqueClassMethod,
     },
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
@@ -67,6 +67,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_Class_getPrimitive" => into_opaque3ret(class_get_primitive),
             b"Java_java_lang_Class_getDeclaredField" => into_opaque3ret(class_get_declared_field),
             b"Java_java_lang_Float_floatToRawIntBits" => into_opaque3ret(float_to_raw_int_bits),
+            b"Java_java_lang_Double_doubleToRawLongBits" => {
+                into_opaque3ret(double_to_raw_long_bits)
+            }
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_object_field_offset)
             }
@@ -301,6 +304,10 @@ extern "C" fn class_get_declared_field(env: *mut Env<'_>, this: JObject, name: J
 
 extern "C" fn float_to_raw_int_bits(_env: *mut Env<'_>, _this: JObject, value: JFloat) -> JInt {
     i32::from_be_bytes(value.to_be_bytes())
+}
+
+extern "C" fn double_to_raw_long_bits(_env: *mut Env<'_>, _this: JObject, value: JDouble) -> JLong {
+    i64::from_be_bytes(value.to_be_bytes())
 }
 
 /// sun/misc/Unsafe
