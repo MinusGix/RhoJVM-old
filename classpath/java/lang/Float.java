@@ -1,8 +1,8 @@
 package java.lang;
 
 public final class Float extends Number {
-    public static final float MAX_VALUE = 3.402823e+38f;
-    public static final float MIN_VALUE = -3.40282347e+38f;
+    public static final float MAX_VALUE = 3.40282346638528859812e+38f;
+    public static final float MIN_VALUE = 1.17549435082228750797e-38f;
 
     public static final float NEGATIVE_INFINITY = -1.0f / 0.0f;
     public static final float POSITIVE_INFINITY = 1.0f / 0.0f;
