@@ -9,7 +9,7 @@ use crate::{
     eval::{instances::make_fields, EvalError, ValueException},
     gc::GcRef,
     initialize_class,
-    jni::{JFieldId, JObject, JString, JValue, MethodClassNoArguments, OpaqueClassMethod},
+    jni::{JFieldId, JInt, JLong, JObject, JString, MethodClassNoArguments, OpaqueClassMethod},
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{find_field_with_name, Env},
 };
@@ -20,22 +20,33 @@ use crate::{
 
 /// Converts function ptr into opaque method ptr for use by native calling code
 /// # Safety
-unsafe fn into_opaque3ret<R>(
-    f: unsafe extern "C" fn(*mut Env<'_>, JObject, JObject) -> R,
+unsafe fn into_opaque3ret<R, A>(
+    f: unsafe extern "C" fn(*mut Env<'_>, JObject, A) -> R,
 ) -> OpaqueClassMethod {
     OpaqueClassMethod::new(std::mem::transmute::<
-        unsafe extern "C" fn(*mut Env<'_>, JObject, JObject) -> R,
+        unsafe extern "C" fn(*mut Env<'_>, JObject, A) -> R,
         MethodClassNoArguments,
     >(f))
 }
 
 /// Converts function ptr into opaque method ptr for use by native calling code
 /// # Safety
-unsafe fn into_opaque32ret<R>(
-    f: unsafe extern "C" fn(*mut Env<'_>, JObject, JObject, JValue, JValue) -> R,
+unsafe fn into_opaque4ret<R, A, B>(
+    f: unsafe extern "C" fn(*mut Env<'_>, JObject, A, B) -> R,
 ) -> OpaqueClassMethod {
     OpaqueClassMethod::new(std::mem::transmute::<
-        unsafe extern "C" fn(*mut Env<'_>, JObject, JObject, JValue, JValue) -> R,
+        unsafe extern "C" fn(*mut Env<'_>, JObject, A, B) -> R,
+        MethodClassNoArguments,
+    >(f))
+}
+
+/// Converts function ptr into opaque method ptr for use by native calling code
+/// # Safety
+unsafe fn into_opaque5ret<R, A, B, C>(
+    f: unsafe extern "C" fn(*mut Env<'_>, JObject, A, B, C) -> R,
+) -> OpaqueClassMethod {
+    OpaqueClassMethod::new(std::mem::transmute::<
+        unsafe extern "C" fn(*mut Env<'_>, JObject, A, B, C) -> R,
         MethodClassNoArguments,
     >(f))
 }
@@ -54,7 +65,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_object_field_offset)
             }
-            b"Java_sun_misc_Unsafe_getAndAddInt" => into_opaque32ret(unsafe_get_and_add_int),
+            b"Java_sun_misc_Unsafe_getAndAddInt" => into_opaque5ret(unsafe_get_and_add_int),
             _ => return None,
         })
     }
@@ -64,7 +75,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
 // ptr?
 /// java/lang/Class
 /// `public Field getDeclaredField(String name);`
-extern "C" fn class_get_declared_field(env: *mut Env<'_>, this: JObject, name: JString) -> JValue {
+extern "C" fn class_get_declared_field(env: *mut Env<'_>, this: JObject, name: JString) -> JObject {
     assert!(!env.is_null(), "Env was null when passed to java/lang/Class getDeclaredField, which is indicative of an internal bug.");
 
     // SAFETY: We already checked that it is not null, and we rely on native method calling's
@@ -238,10 +249,7 @@ extern "C" fn class_get_declared_field(env: *mut Env<'_>, this: JObject, name: J
         env.state.gc.alloc(field)
     };
 
-    let field_ref_jobject = unsafe { env.get_local_jobject_for(field_ref.into_generic()) };
-    JValue {
-        l: field_ref_jobject,
-    }
+    unsafe { env.get_local_jobject_for(field_ref.into_generic()) }
 }
 
 /// sun/misc/Unsafe
@@ -251,7 +259,7 @@ extern "C" fn unsafe_object_field_offset(
     env: *mut Env<'_>,
     _this: JObject,
     field_ref: JObject,
-) -> JValue {
+) -> JLong {
     assert!(!env.is_null(), "Env was null when passed to sun/misc/Unsafe objectFieldOffset, which is indicative of an internal bug.");
 
     // SAFETY: We already checked that it is not null, and we rely on native method calling's
@@ -315,10 +323,7 @@ extern "C" fn unsafe_object_field_offset(
 
     // Safety: Only the JVM should fill out the Field class and so the values should be valid
     let field_id = unsafe { JFieldId::new_unchecked(class_id_val, field_index_val) };
-    // This depends on us being able to cast platform pointers to usize
-    let field_id = field_id.as_i64();
-
-    JValue { j: field_id }
+    field_id.as_i64()
 }
 
 /// sun/misc/Unsafe
@@ -327,9 +332,9 @@ extern "C" fn unsafe_get_and_add_int(
     env: *mut Env<'_>,
     _this: JObject,
     target: JObject,
-    offset: JValue,
-    add_val: JValue,
-) -> JValue {
+    offset: JLong,
+    add_val: JInt,
+) -> JInt {
     assert!(!env.is_null(), "Env was null when passed to sun/misc/Unsafe objectFieldOffset, which is indicative of an internal bug.");
 
     // SAFETY: We already checked that it is not null, and we rely on native method calling's
@@ -340,14 +345,9 @@ extern "C" fn unsafe_get_and_add_int(
     // We don't have to validate, since method calling should have done that
     let target: GcRef<ClassInstance> = target.expect("Null pointer exception").unchecked_as();
 
-    // SAFETY: This would have been checked by the jvm calling this function
-    let field_id = unsafe { offset.j };
-    let field_id = JFieldId::unchecked_from_i64(field_id);
+    let field_id = JFieldId::unchecked_from_i64(offset);
     let field_id = unsafe { field_id.into_field_id() };
     let field_id = field_id.expect("Field id was null");
-
-    // SAFETY: This would have been checked by the jvm calling this function
-    let add_val = unsafe { add_val.i };
 
     // FIXME: This is meant to be atomic!
 
@@ -362,5 +362,5 @@ extern "C" fn unsafe_get_and_add_int(
 
     *target_val = RuntimeValuePrimitive::I32(current_val.overflowing_add(add_val).0).into();
 
-    JValue { i: current_val }
+    current_val
 }
