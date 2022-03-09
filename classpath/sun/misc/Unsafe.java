@@ -203,9 +203,8 @@ public final class Unsafe {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public long objectFieldOffset(Field field) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    // Implemented in jvm
+    public native long objectFieldOffset(Field field);
 
     public void park(boolean absolute, long time) {
         throw new UnsupportedOperationException("TODO: Implement this");
@@ -218,6 +217,8 @@ public final class Unsafe {
     public void copyMemory(Object srcBase, long srcOffset, Object destBase, long destOffset, long count) {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
+
+    public final native int getAndAddInt(Object src, long offset, int delta);
 
     public boolean compareAndSwapInt(Object o, long offset, int old, int newVal) {
         throw new UnsupportedOperationException("TODO: Implement this");
@@ -238,4 +239,6 @@ public final class Unsafe {
     public void throwException(Throwable t) {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
+
+
 }

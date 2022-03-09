@@ -14,7 +14,7 @@ use rhojvm_base::{
     },
     id::ClassId,
 };
-use usize_cast::IntoUsize;
+use usize_cast::{FromUsize, IntoUsize};
 
 use crate::{
     class_instance::{FieldIndex, Instance},
@@ -48,6 +48,14 @@ impl JFieldId {
     #[must_use]
     pub fn null() -> JFieldId {
         JFieldId(std::ptr::null())
+    }
+
+    /// This is primarily intended for java apis where we have to return some unique id for a field
+    /// as a long.
+    pub(crate) fn as_i64(self) -> i64 {
+        // This relies on system ptrs being castable to usize and then those being castable to u64
+        // -> i64
+        u64::from_usize(self.0 as usize) as i64
     }
 
     /// # Safety

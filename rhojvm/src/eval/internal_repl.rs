@@ -2,13 +2,14 @@
 
 use classfile_parser::field_info::FieldAccessFlags;
 use either::Either;
+use rhojvm_base::id::ClassId;
 
 use crate::{
-    class_instance::{ClassInstance, Instance, ReferenceInstance},
+    class_instance::{ClassInstance, FieldIndex, Instance, ReferenceInstance},
     eval::{instances::make_fields, EvalError, ValueException},
     initialize_class,
-    jni::{JObject, JString, JValue, MethodClassNoArguments, OpaqueClassMethod},
-    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    jni::{JFieldId, JObject, JString, JValue, MethodClassNoArguments, OpaqueClassMethod},
+    rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{find_field_with_name, Env},
 };
 
@@ -33,9 +34,14 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
     } else {
         name
     };
+    // Safety: The function pointers should only be called by unsafe code that has to uphold their
+    // representations in java code, which we presume to be accurate.
     unsafe {
         Some(match name {
             b"Java_java_lang_Class_getDeclaredField" => into_opaque3ret(class_get_declared_field),
+            b"Java_sun_misc_Unsafe_objectFieldOffset" => {
+                into_opaque3ret(unsafe_object_field_offset)
+            }
             _ => return None,
         })
     }
@@ -223,4 +229,81 @@ extern "C" fn class_get_declared_field(env: *mut Env<'_>, this: JObject, name: J
     JValue {
         l: field_ref_jobject,
     }
+}
+
+/// sun/misc/Unsafe
+/// `public long objectFieldOffset(Field field);`
+/// This just returns a unique id
+extern "C" fn unsafe_object_field_offset(
+    env: *mut Env<'_>,
+    _this: JObject,
+    field_ref: JObject,
+) -> JValue {
+    assert!(!env.is_null(), "Env was null when passed to sun/misc/Unsafe objectFieldOffset, which is indicative of an internal bug.");
+
+    // SAFETY: We already checked that it is not null, and we rely on native method calling's
+    // safety for this to be fine to turn into a reference
+    let env = unsafe { &mut *env };
+
+    let field_ref = unsafe { env.get_jobject_as_gcref(field_ref) };
+    // TODO: null pointer exception
+    let field_ref = field_ref.expect("objectFieldOffset's field ref was null");
+
+    let field_class_id = env.class_names.gcid_from_bytes(b"java/lang/reflect/Field");
+    let field_internal_class_id = env.class_names.gcid_from_bytes(b"rho/InternalField");
+    let internal_field_id = env
+        .state
+        .get_field_internal_field_id(&env.class_files, field_class_id)
+        .unwrap();
+    let (class_id_field, field_index_field, _) = env
+        .state
+        .get_internal_field_ids(&env.class_files, field_internal_class_id)
+        .unwrap();
+
+    let field = env.state.gc.deref(field_ref).unwrap();
+    let field = if let Instance::Reference(ReferenceInstance::Class(field)) = field {
+        field
+    } else {
+        panic!("Bad field reference");
+    };
+    let internal_field_ref = field
+        .fields
+        .get(internal_field_id)
+        .unwrap()
+        .value()
+        .into_reference()
+        .expect("internal field should be a reference")
+        .expect("Got null ptr for internal field");
+
+    let internal_field = env.state.gc.deref(internal_field_ref).unwrap();
+    let internal_field = if let ReferenceInstance::Class(field) = internal_field {
+        field
+    } else {
+        panic!("Bad internal field reference");
+    };
+
+    let class_id_val = internal_field
+        .fields
+        .get(class_id_field)
+        .expect("class id field should exist")
+        .value()
+        .into_i32()
+        .expect("classid field should be i32");
+    let class_id_val = ClassId::new_unchecked(class_id_val as u32);
+
+    let field_index_val = internal_field
+        .fields
+        .get(field_index_field)
+        .expect("field index field should exist")
+        .value()
+        .into_i16()
+        .expect("field index field should be i16");
+    let field_index_val = FieldIndex::new_unchecked(field_index_val as u16);
+
+    // Safety: Only the JVM should fill out the Field class and so the values should be valid
+    let field_id = unsafe { JFieldId::new_unchecked(class_id_val, field_index_val) };
+    // This depends on us being able to cast platform pointers to usize
+    let field_id = field_id.as_i64();
+
+    JValue { j: field_id }
 }
