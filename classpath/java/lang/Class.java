@@ -23,6 +23,9 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
     // Note that this is not actually called, the fields are filled in directly.
     private Class() {}
 
+    // Get the class for a primitive class-type, such as Float
+    static native Class getPrimitive(char name);
+
     public static Class forName(String name) throws ClassNotFoundException {
         // return forName(name, true, )
         throw new UnsupportedOperationException("TODO: Implement this");

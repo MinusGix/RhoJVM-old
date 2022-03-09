@@ -9,9 +9,11 @@ use crate::{
     eval::{instances::make_fields, EvalError, ValueException},
     gc::GcRef,
     initialize_class,
-    jni::{JFieldId, JInt, JLong, JObject, JString, MethodClassNoArguments, OpaqueClassMethod},
+    jni::{
+        JChar, JFieldId, JInt, JLong, JObject, JString, MethodClassNoArguments, OpaqueClassMethod,
+    },
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{find_field_with_name, Env},
+    util::{self, find_field_with_name, Env},
 };
 
 // TODO: Should we use something like PHF? Every native lookup is going to check this array
@@ -61,6 +63,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
     // representations in java code, which we presume to be accurate.
     unsafe {
         Some(match name {
+            b"Java_java_lang_Class_getPrimitive" => into_opaque3ret(class_get_primitive),
             b"Java_java_lang_Class_getDeclaredField" => into_opaque3ret(class_get_declared_field),
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_object_field_offset)
@@ -69,6 +72,48 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             _ => return None,
         })
     }
+}
+
+extern "C" fn class_get_primitive(env: *mut Env<'_>, _this: JObject, name: JChar) -> JObject {
+    assert!(!env.is_null(), "Env was null when passed into java/lang/Class getPrimitive, which is indicative of an internal bug.");
+
+    let env = unsafe { &mut *env };
+
+    // Note: This assumes that the jchar encoding can be directly compared to the ascii bytes for
+    // these basic characters
+    let class_name: &[u8] = if name == u16::from(b'B') {
+        b"java/lang/Byte"
+    } else if name == u16::from(b'C') {
+        b"java/lang/Character"
+    } else if name == u16::from(b'D') {
+        b"java/lang/Double"
+    } else if name == u16::from(b'F') {
+        b"java/lang/Float"
+    } else if name == u16::from(b'I') {
+        b"java/lang/Int"
+    } else if name == u16::from(b'J') {
+        b"java/lang/Long"
+    } else if name == u16::from(b'S') {
+        b"java/lang/Short"
+    } else if name == u16::from(b'Z') {
+        b"java/lang/Bool"
+    } else if name == u16::from(b'V') {
+        b"java/lang/Void"
+    } else {
+        panic!("Unknown name ({}) passed into Class#getPrimitive", name);
+    };
+
+    let class_id = env.class_names.gcid_from_bytes(class_name);
+    let object_id = env.class_names.object_id();
+
+    // We use object_id just to be explicit about them being bootstrap-ish classes
+    let class_form = util::make_class_form_of(env, object_id, class_id).expect("Handle errors");
+    let class_form = match class_form {
+        ValueException::Value(class_form) => class_form,
+        ValueException::Exception(exc) => todo!("Handle exceptions"),
+    };
+
+    unsafe { env.get_local_jobject_for(class_form.into_generic()) }
 }
 
 // TODO: Could we use &mut Env instead, since we know it will call native methods with a non-null
