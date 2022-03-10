@@ -9,20 +9,31 @@ use crate::{
     class_instance::{
         ClassInstance, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance,
     },
-    eval::{instances::make_fields, EvalError, ValueException},
+    eval::{instances::make_fields, ValueException},
     gc::GcRef,
     initialize_class,
     jni::{
         JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JString, MethodClassNoArguments,
         OpaqueClassMethod,
     },
-    rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    rv::{RuntimeValue, RuntimeValuePrimitive},
     util::{self, find_field_with_name, Env},
 };
 
 // TODO: Should we use something like PHF? Every native lookup is going to check this array
 // for if it exists, which does make them all more expensive for this case. PHF would probably be
 // faster than whatever llvm optimizes this to.
+
+/// Converts function ptr into opaque method ptr for use by native calling code
+/// # Safety
+unsafe fn into_opaque2ret<R>(
+    f: unsafe extern "C" fn(*mut Env<'_>, JObject) -> R,
+) -> OpaqueClassMethod {
+    OpaqueClassMethod::new(std::mem::transmute::<
+        unsafe extern "C" fn(*mut Env<'_>, JObject) -> R,
+        MethodClassNoArguments,
+    >(f))
+}
 
 /// Converts function ptr into opaque method ptr for use by native calling code
 /// # Safety
@@ -79,6 +90,8 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
     // representations in java code, which we presume to be accurate.
     unsafe {
         Some(match name {
+            b"Java_java_lang_Object_getClass" => into_opaque2ret(object_get_class),
+            b"Java_java_lang_Object_hashCode" => into_opaque2ret(object_hashcode),
             b"Java_java_lang_Class_getPrimitive" => into_opaque3ret(class_get_primitive),
             b"Java_java_lang_Class_getDeclaredField" => into_opaque3ret(class_get_declared_field),
             b"Java_java_lang_System_arraycopy" => into_opaque7ret(system_arraycopy),
@@ -94,6 +107,50 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_sun_misc_Unsafe_getAndAddInt" => into_opaque5ret(unsafe_get_and_add_int),
             _ => return None,
         })
+    }
+}
+
+extern "C" fn object_get_class(env: *mut Env<'_>, this: JObject) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.unwrap();
+
+    let this = env.state.gc.deref(this).unwrap();
+    let id = match this {
+        Instance::StaticClass(_) => panic!("Should not be static class"),
+        Instance::Reference(re) => re.instanceof(),
+    };
+
+    let class_form = util::make_class_form_of(env, id, id).unwrap();
+    let class_form = match class_form {
+        ValueException::Value(class_form) => class_form,
+        ValueException::Exception(_) => todo!("There was an exception in Object#getClass"),
+    };
+
+    unsafe { env.get_local_jobject_for(class_form.into_generic()) }
+}
+
+extern "C" fn object_hashcode(env: *mut Env<'_>, this: JObject) -> JInt {
+    // Hashcode impls require that if they're equal then they have the same hashcode
+    // So that means the users must override the hashocde if they modify equals
+    // And so, since this is for Object, and object's equal is a strict reference equality, we
+    // just use the gc index as the value.
+
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    if let Some(this) = this {
+        let index = this.get_index_unchecked();
+        // TODO: Is this fine? It is iffy on 64 bit platforms...
+        (index as u32) as i32
+    } else {
+        // Can this even occur?
+        todo!("Null pointer exception")
     }
 }
 
