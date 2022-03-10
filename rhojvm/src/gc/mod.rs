@@ -23,7 +23,7 @@ use rhojvm_base::{
 use crate::{
     class_instance::{Instance, ReferenceInstance},
     rv::RuntimeValue,
-    State,
+    util, State,
 };
 
 // TODO: make GcRef hold a reference count, so then we can keep track of Rust losing the values?
@@ -123,6 +123,25 @@ impl Gc {
             .and_then(Option::as_mut)
             .map(|obj| &mut obj.value)
             .and_then(|obj| <&mut T>::try_from(obj).ok())
+    }
+
+    #[must_use]
+    pub fn deref_disjoint2_mut<'a, T, U>(
+        &'a mut self,
+        ref1: GcRef<T>,
+        ref2: GcRef<U>,
+    ) -> Option<(&'a mut T, &'a mut U)>
+    where
+        &'a mut T: TryFrom<&'a mut Instance>,
+        &'a mut U: TryFrom<&'a mut Instance>,
+    {
+        let (val1, val2) = util::get_disjoint2_mut(&mut self.objects, ref1.index, ref2.index)?;
+        let val1 = &mut val1.as_mut()?.value;
+        let val1 = <&mut T>::try_from(val1).ok()?;
+        let val2 = &mut val2.as_mut()?.value;
+        let val2 = <&mut U>::try_from(val2).ok()?;
+
+        Some((val1, val2))
     }
 
     pub fn mark_object(&mut self, obj: GcRef<Instance>) {
