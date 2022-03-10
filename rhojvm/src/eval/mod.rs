@@ -10,7 +10,7 @@ use rhojvm_base::{
     code::{
         method::{DescriptorType, DescriptorTypeBasic, Method},
         op::{Inst, Wide, WideInst},
-        types::{Instruction, LocalVariableIndex},
+        types::{Instruction, JavaChar, LocalVariableIndex},
     },
     convert_classfile_text,
     id::{ClassId, MethodId},
@@ -404,11 +404,58 @@ macro_rules! impl_call_native_method {
                         let value: JInt = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
                         return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::I32(value).into()));
                     },
-                    RuntimeTypePrimitive::I16 => todo!("i16"),
-                    RuntimeTypePrimitive::I8 => todo!("i8"),
-                    RuntimeTypePrimitive::F32 => todo!("f32"),
-                    RuntimeTypePrimitive::F64 => todo!("f64"),
-                    RuntimeTypePrimitive::Char => todo!("char"),
+                    RuntimeTypePrimitive::I16 => {
+                        let native_func = unsafe {
+                            std::mem::transmute::<
+                                unsafe extern "C" fn(*mut Env, JObject),
+                                unsafe extern "C" fn(*mut Env, JObject, $($typ),*) -> JShort,
+                            >(native_func)
+                        };
+                        let value: JShort = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::I16(value).into()));
+                    },
+                    RuntimeTypePrimitive::I8 => {
+                        // TODO: This might need more handling for bools
+                        let native_func = unsafe {
+                            std::mem::transmute::<
+                                unsafe extern "C" fn(*mut Env, JObject),
+                                unsafe extern "C" fn(*mut Env, JObject, $($typ),*) -> JByte,
+                            >(native_func)
+                        };
+                        let value: JByte = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::I8(value).into()));
+                    },
+                    RuntimeTypePrimitive::F32 => {
+                        let native_func = unsafe {
+                            std::mem::transmute::<
+                                unsafe extern "C" fn(*mut Env, JObject),
+                                unsafe extern "C" fn(*mut Env, JObject, $($typ),*) -> JFloat,
+                            >(native_func)
+                        };
+                        let value: JFloat = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::F32(value).into()));
+                    },
+                    RuntimeTypePrimitive::F64 => {
+                        let native_func = unsafe {
+                            std::mem::transmute::<
+                                unsafe extern "C" fn(*mut Env, JObject),
+                                unsafe extern "C" fn(*mut Env, JObject, $($typ),*) -> JDouble,
+                            >(native_func)
+                        };
+                        let value: JDouble = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::F64(value).into()));
+                    },
+                    RuntimeTypePrimitive::Char => {
+                        let native_func = unsafe {
+                            std::mem::transmute::<
+                                unsafe extern "C" fn(*mut Env, JObject),
+                                unsafe extern "C" fn(*mut Env, JObject, $($typ),*) -> JChar,
+                            >(native_func)
+                        };
+                        let value: JChar = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+                        let value = JavaChar(value);
+                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::Char(value).into()));
+                    },
                 },
                 RuntimeType::Reference(_) => {
                     let native_func = unsafe {
