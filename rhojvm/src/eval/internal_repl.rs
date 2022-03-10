@@ -1,23 +1,31 @@
 //! Internal replacements for native functions  
 
-use classfile_parser::field_info::FieldAccessFlags;
+use classfile_parser::{field_info::FieldAccessFlags, ClassAccessFlags};
 use either::Either;
-use rhojvm_base::{code::types::JavaChar, id::ClassId};
+use rhojvm_base::{
+    code::{
+        method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
+        types::JavaChar,
+    },
+    id::ClassId,
+};
+use smallvec::smallvec;
 use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{
         ClassInstance, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance,
     },
-    eval::{instances::make_fields, ValueException},
+    eval::{eval_method, instances::make_fields, EvalMethodValue, Frame, Locals, ValueException},
     gc::GcRef,
     initialize_class,
     jni::{
-        JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JString, MethodClassNoArguments,
-        OpaqueClassMethod,
+        JBoolean, JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JString,
+        MethodClassNoArguments, OpaqueClassMethod,
     },
     rv::{RuntimeValue, RuntimeValuePrimitive},
     util::{self, find_field_with_name, Env},
+    GeneralError,
 };
 
 // TODO: Should we use something like PHF? Every native lookup is going to check this array
@@ -90,17 +98,31 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
     // representations in java code, which we presume to be accurate.
     unsafe {
         Some(match name {
+            // SystemClassLoader
+            b"Java_rho_SystemClassLoader_initializeSystemClassLoader" => {
+                into_opaque2ret(system_class_loader_init)
+            }
+            // Object
             b"Java_java_lang_Object_getClass" => into_opaque2ret(object_get_class),
             b"Java_java_lang_Object_hashCode" => into_opaque2ret(object_hashcode),
+            // Class
             b"Java_java_lang_Class_getPrimitive" => into_opaque3ret(class_get_primitive),
+            b"Java_java_lang_Class_getClassForNameWithClassLoader" => {
+                into_opaque5ret(class_get_class_for_name_with_class_loader)
+            }
+            b"Java_java_lang_Class_getClassForName" => into_opaque3ret(class_get_class_for_name),
             b"Java_java_lang_Class_getDeclaredField" => into_opaque3ret(class_get_declared_field),
+            b"Java_java_lang_Class_newInstance" => into_opaque2ret(class_new_instance),
+            // System
             b"Java_java_lang_System_arraycopy" => into_opaque7ret(system_arraycopy),
+            // Primitive wrappers
             b"Java_java_lang_Float_floatToRawIntBits" => into_opaque3ret(float_to_raw_int_bits),
             b"Java_java_lang_Double_doubleToRawLongBits" => {
                 into_opaque3ret(double_to_raw_long_bits)
             }
             b"Java_java_lang_Integer_toString" => into_opaque4ret(integer_to_string),
             b"Java_java_lang_Integer_parseInt" => into_opaque4ret(integer_parse_int),
+            // Unsafe
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_object_field_offset)
             }
@@ -108,6 +130,44 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             _ => return None,
         })
     }
+}
+
+extern "C" fn system_class_loader_init(env: *mut Env<'_>, _this: JObject) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    let scl_id = env.class_names.gcid_from_bytes(b"rho/SystemClassLoader");
+
+    // We're probably in this already.
+    let scl_ref = initialize_class(env, scl_id).unwrap().into_value();
+    let scl_ref = match scl_ref {
+        ValueException::Value(re) => re,
+        ValueException::Exception(_) => {
+            todo!("There was an exception when initializing the System ClassLoader class")
+        }
+    };
+
+    let fields = match make_fields(env, scl_id, |field_info| {
+        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+    })
+    .unwrap()
+    {
+        Either::Left(fields) => fields,
+        Either::Right(_) => {
+            todo!("There was an exception when initializing the System ClassLoader's fields")
+        }
+    };
+
+    let inst = ClassInstance {
+        instanceof: scl_id,
+        static_ref: scl_ref,
+        fields,
+    };
+
+    let inst_ref = env.state.gc.alloc(inst);
+
+    unsafe { env.get_local_jobject_for(inst_ref.into_generic()) }
 }
 
 extern "C" fn object_get_class(env: *mut Env<'_>, this: JObject) -> JObject {
@@ -194,6 +254,74 @@ extern "C" fn class_get_primitive(env: *mut Env<'_>, _this: JObject, name: JChar
     };
 
     unsafe { env.get_local_jobject_for(class_form.into_generic()) }
+}
+
+/// Gets the class name id for a slice of java characters in the format of Class's name
+/// This is basically the same as typical, except instead of / it uses .
+fn get_class_name_id_for(env: &mut Env, name: GcRef<Instance>) -> Result<ClassId, GeneralError> {
+    // TODO: We could do cheaper insertion, especially if it already exists in class names
+    let contents =
+        util::get_string_contents(&env.class_files, &mut env.class_names, &mut env.state, name)?;
+    // Converting back to cesu8 is expensive, but this kind of operation isn't common enough to do
+    // anything like storing cesu8 versions alongside them, probably.
+    let contents = contents
+        .iter()
+        .map(|x| x.into_char().unwrap().0)
+        .map(|x| {
+            if x == u16::from(b'.') {
+                u16::from(b'/')
+            } else {
+                x
+            }
+        })
+        .collect::<Vec<u16>>();
+    let contents = String::from_utf16(&contents).map_err(GeneralError::StringConversionFailure)?;
+    tracing::info!("Get Class Name Id for: {}", contents);
+    // TODO: We should actually convert it to cesu8!
+    let contents = contents.as_bytes();
+    let id = env.class_names.gcid_from_bytes(contents);
+    tracing::info!("\tId: {:?}", id);
+    Ok(id)
+}
+
+extern "C" fn class_get_class_for_name_with_class_loader(
+    env: *mut Env<'_>,
+    _this: JObject,
+    name: JString,
+    _initialize: JBoolean,
+    _loader: JObject,
+) -> JObject {
+    // FIXME: We're currently ignoring the loader
+
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    let name = unsafe { env.get_jobject_as_gcref(name) };
+    let name = name.expect("null ref exception");
+
+    let class_id = get_class_name_id_for(env, name).unwrap();
+
+    // FIXME: I believe this is wrong, however our current implementation requires the class to be
+    // initialized before a Class<?> can be made for it, since it requires a StaticClassInstance.
+    // We likely have to loosen that to only having the class file be loaded.
+    // The make class form of will always initialize it
+    // FIXME: I think we should use the caller here? Or modify it so it can take the loader?
+    let class_form = util::make_class_form_of(env, class_id, class_id).expect("Handle errors");
+    let class_form = match class_form {
+        ValueException::Value(form) => form,
+        ValueException::Exception(_) => todo!("Exception in the creating class form"),
+    };
+
+    unsafe { env.get_local_jobject_for(class_form.into_generic()) }
+}
+
+extern "C" fn class_get_class_for_name(
+    env: *mut Env<'_>,
+    _this: JObject,
+    name: JString,
+) -> JObject {
+    todo!()
 }
 
 // TODO: Could we use &mut Env instead, since we know it will call native methods with a non-null
@@ -329,6 +457,91 @@ extern "C" fn class_get_declared_field(env: *mut Env<'_>, this: JObject, name: J
     };
 
     unsafe { env.get_local_jobject_for(field_ref.into_generic()) }
+}
+
+extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("Class new instance's this ref was null");
+    // The id held inside
+    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        let of = this.of;
+        let of = env.state.gc.deref(of).unwrap().id;
+        of
+    } else {
+        // This should be caught by method calling
+        // Though it would be good to not panic
+        panic!();
+    };
+
+    let static_ref = initialize_class(env, this_id).unwrap().into_value();
+    let static_ref = match static_ref {
+        ValueException::Value(static_ref) => static_ref,
+        ValueException::Exception(_) => todo!("Handle exception in initializing class"),
+    };
+
+    let target_class = env.classes.get(&this_id).unwrap();
+    if target_class.is_interface()
+        || target_class
+            .access_flags()
+            .contains(ClassAccessFlags::ABSTRACT)
+    {
+        todo!("InstantiationError exception");
+    }
+
+    let fields = match make_fields(env, this_id, |field_info| {
+        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+    })
+    .unwrap()
+    {
+        Either::Left(fields) => fields,
+        Either::Right(_) => {
+            todo!("Exception in making fields for class")
+        }
+    };
+
+    let class = ClassInstance {
+        instanceof: this_id,
+        static_ref,
+        fields,
+    };
+
+    // Allocate the class instance
+    let class_ref = env.state.gc.alloc(class);
+
+    // However, now we have to run the empty constructor if one exists for the class.
+    // Note: We don't include the `this` pointer because that is implicit in the descriptor
+    let descriptor = MethodDescriptor::new_empty();
+
+    // TODO: We need to check that they can access the constructor!
+    let method_id = env
+        .methods
+        .load_method_from_desc(
+            &env.class_directories,
+            &mut env.class_names,
+            &mut env.class_files,
+            this_id,
+            b"<init>",
+            &descriptor,
+        )
+        .unwrap();
+
+    let locals = Locals::new_with_array([RuntimeValue::Reference(class_ref.into_generic())]);
+    let frame = Frame::new_locals(locals);
+    match eval_method(env, method_id, frame).unwrap() {
+        EvalMethodValue::ReturnVoid => {}
+        EvalMethodValue::Return(_) => tracing::warn!("Constructor returned value?"),
+        EvalMethodValue::Exception(_) => {
+            todo!("There was an exception calling the default constructor")
+        }
+    }
+
+    // Now we just return the initialized class ref
+    unsafe { env.get_local_jobject_for(class_ref.into_generic()) }
 }
 
 /// java/lang/System

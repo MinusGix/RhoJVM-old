@@ -22,7 +22,7 @@ use rhojvm_base::{
 use crate::{
     class_instance::{ClassInstance, FieldId, Instance},
     gc::GcRef,
-    jni::{self, JByte, JChar, JDouble, JFloat, JInt, JLong, JObject, JShort},
+    jni::{self, JBoolean, JByte, JChar, JDouble, JFloat, JInt, JLong, JObject, JShort},
     method::NativeMethod,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
@@ -334,6 +334,10 @@ macro_rules! convert_rv {
             .ok_or(EvalError::ExpectedLocalVariableIntRepr($p_index))?
             .as_i16() as u16
     }};
+    ($env:ident ; $v:ident ; $p_index:ident ; JBoolean) => {{
+        $v.into_bool_loose()
+            .ok_or(EvalError::ExpectedLocalVariableIntRepr($p_index))?
+    }};
     ($env:ident ; $v:ident ; $p_index:ident ; JByte) => {{
         $v.into_byte()
             .ok_or(EvalError::ExpectedLocalVariableIntRepr($p_index))?
@@ -639,21 +643,30 @@ pub fn eval_method(
                 }
                 _ => todo!("Fully implement two parameter native methods"),
             }
-        } else if param_count == 3
-            && matches!(
+        } else if param_count == 3 {
+            if matches!(
                 method.descriptor().parameters()[0],
                 DescriptorType::Array { .. } | DescriptorType::Basic(DescriptorTypeBasic::Class(_))
-            )
-            && matches!(
+            ) && matches!(
                 method.descriptor().parameters()[1],
                 DescriptorType::Basic(DescriptorTypeBasic::Long)
-            )
-            && matches!(
+            ) && matches!(
                 method.descriptor().parameters()[2],
                 DescriptorType::Basic(DescriptorTypeBasic::Int)
-            )
-        {
-            impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JLong, param3: JInt));
+            ) {
+                impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JLong, param3: JInt));
+            } else if matches!(
+                method.descriptor().parameters()[0],
+                DescriptorType::Basic(DescriptorTypeBasic::Class(_))
+            ) && matches!(
+                method.descriptor().parameters()[1],
+                DescriptorType::Basic(DescriptorTypeBasic::Boolean)
+            ) && matches!(
+                method.descriptor().parameters()[2],
+                DescriptorType::Basic(DescriptorTypeBasic::Class(_))
+            ) {
+                impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JBoolean, param3: JObject));
+            }
         } else if param_count == 5
             && matches!(
                 method.descriptor().parameters()[0],

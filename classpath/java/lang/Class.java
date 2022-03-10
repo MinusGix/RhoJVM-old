@@ -14,6 +14,8 @@ import java.io.InputStream;
 import java.net.URL;
 import java.security.ProtectionDomain;
 
+import rho.SystemClassLoader;
+
 public final class Class<T> implements AnnotatedElement, GenericDeclaration, Type {
     // TODO: We could make this final
     // internal class id
@@ -27,13 +29,17 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
     static native Class getPrimitive(char name);
 
     public static Class forName(String name) throws ClassNotFoundException {
-        // return forName(name, true, )
-        throw new UnsupportedOperationException("TODO: Implement this");
+        return Class.getClassForName(name);
     }
 
     public static Class forName(String name, boolean initialize, ClassLoader loader) throws ClassNotFoundException {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        return Class.getClassForNameWithClassLoader(name, initialize, loader);
     }
+
+    // We have these as separate functions because looking up the nonoverloaded versions requires
+    // less processing/generation of text
+    private static native Class getClassForName(String name);
+    private static native Class getClassForNameWithClassLoader(String name, boolean initialize, ClassLoader loader) throws ClassNotFoundException;
 
     // public static Class forName(Module module, String name {
     //     throw new UnsupportedOperationException("TODO: Implement this");
@@ -80,7 +86,8 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
     }
 
     public ClassLoader getClassLoader() {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // FIXME: This won't always be correct
+        return SystemClassLoader.systemLoader;
     }
 
     public Class<?> getComponentType() {
@@ -278,9 +285,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public T newInstance() throws IllegalAccessException, InstantiationException {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native T newInstance() throws IllegalAccessException, InstantiationException;
 
     public String toGenericString() {
         throw new UnsupportedOperationException("TODO: Implement this");

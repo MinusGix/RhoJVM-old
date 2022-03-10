@@ -83,6 +83,12 @@ impl RuntimeValuePrimitive {
     }
 
     #[must_use]
+    pub fn into_bool_loose(self) -> Option<u8> {
+        #[allow(clippy::cast_possible_truncation)]
+        self.into_int().map(|x| x as u8)
+    }
+
+    #[must_use]
     pub fn into_f32(self) -> Option<f32> {
         match self {
             RuntimeValuePrimitive::F32(x) => Some(x),
@@ -242,6 +248,14 @@ impl<REF> RuntimeValue<REF> {
     pub fn into_char(self) -> Option<JavaChar> {
         match self {
             Self::Primitive(x) => x.into_char(),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn into_bool_loose(self) -> Option<u8> {
+        match self {
+            Self::Primitive(x) => x.into_bool_loose(),
             _ => None,
         }
     }

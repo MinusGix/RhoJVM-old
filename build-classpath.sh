@@ -5,7 +5,7 @@ cd classpath
 # CLASSPATH="../rhojvm/ex/lib/rt/" 
 J_FILES=""
 # java/lang
-JFILES="$JFILES ./java/lang/Object.java ./java/lang/Class.java ./java/lang/System.java ./java/lang/String.java ./java/lang/StringBuilder.java ./java/lang/Throwable.java ./java/lang/Integer.java ./java/lang/Float.java ./java/lang/Double.java"
+JFILES="$JFILES ./java/lang/Object.java ./java/lang/ClassLoader.java ./java/lang/Class.java ./java/lang/System.java ./java/lang/String.java ./java/lang/StringBuilder.java ./java/lang/Throwable.java ./java/lang/Integer.java ./java/lang/Float.java ./java/lang/Double.java"
 
 # java/lang/reflect
 JFILES="$JFILES ./java/lang/reflect/Field.java"
@@ -17,7 +17,7 @@ JFILES="$JFILES ./java/security/AccessController.java"
 JFILES="$JFILES ./sun/misc/Unsafe.java"
 
 # rho/
-JFILES="$JFILES ./rho/StringConversion.java ./rho/InternalField.java"
+JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/InternalField.java"
 
 echo $JFILES
 # Compile them all
