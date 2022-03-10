@@ -16,6 +16,8 @@ public final class System {
         System.props.setProperty("file.separator", "/");
         // TODO: Platform-specific
         System.props.setProperty("line.separator", "\n");
+        
+        System.props.setProperty("file.encoding", "UTF-8");
     }
 
     // Prevent it from being created
