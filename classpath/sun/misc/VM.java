@@ -8,4 +8,8 @@ package sun.misc;
 
 // TODO: We could have custom annotations / checks in the jvm to warn that a class tried using this // and it is not supported?
 
-public class VM {}
+public class VM {
+    public static boolean isBooted() {
+        return true;
+    }
+}
