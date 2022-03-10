@@ -639,7 +639,7 @@ impl RunInst for InstanceOf {
         let val = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let val = match val {
             RuntimeValue::NullReference => {
-                frame.stack.push(RuntimeValue::NullReference)?;
+                frame.stack.push(RuntimeValuePrimitive::I32(0))?;
                 return Ok(RunInstValue::Continue);
             }
             RuntimeValue::Reference(gc_ref) => gc_ref,
