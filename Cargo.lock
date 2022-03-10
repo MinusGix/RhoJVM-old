@@ -165,6 +165,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "941ba9d78d8e2f7ce474c015eea4d9c6d25b6a3327f9832ee29a4de27f91bbb8"
 
 [[package]]
+name = "radix_fmt"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce082a9940a7ace2ad4a8b7d0b1eac6aa378895f18be598230c5f2284ac05426"
+
+[[package]]
 name = "rhojvm"
 version = "0.1.0"
 dependencies = [
@@ -172,6 +178,7 @@ dependencies = [
  "either",
  "indexmap",
  "libloading",
+ "radix_fmt",
  "rhojvm-base",
  "smallvec",
  "stack_map-verifier",

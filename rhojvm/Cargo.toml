@@ -27,6 +27,8 @@ either = "1.6"
 # For loading native libraries at runtime
 libloading = "0.7.3"
 indexmap = "1.8.0"
+# For formatting integers, since we need to support different radii
+radix_fmt = "1.0.0"
 # Used for profiling allocations and memory usage.
 # Useful, but has many dependencies and runtime-expensive
 #dhat = "0.2.4"

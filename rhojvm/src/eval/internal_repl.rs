@@ -2,7 +2,7 @@
 
 use classfile_parser::field_info::FieldAccessFlags;
 use either::Either;
-use rhojvm_base::id::ClassId;
+use rhojvm_base::{code::types::JavaChar, id::ClassId};
 use usize_cast::IntoUsize;
 
 use crate::{
@@ -86,6 +86,8 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_Double_doubleToRawLongBits" => {
                 into_opaque3ret(double_to_raw_long_bits)
             }
+            b"Java_java_lang_Integer_toString" => into_opaque4ret(integer_to_string),
+            b"Java_java_lang_Integer_parseInt" => into_opaque4ret(integer_parse_int),
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_object_field_offset)
             }
@@ -111,7 +113,7 @@ extern "C" fn class_get_primitive(env: *mut Env<'_>, _this: JObject, name: JChar
     } else if name == u16::from(b'F') {
         b"java/lang/Float"
     } else if name == u16::from(b'I') {
-        b"java/lang/Int"
+        b"java/lang/Integer"
     } else if name == u16::from(b'J') {
         b"java/lang/Long"
     } else if name == u16::from(b'S') {
@@ -148,13 +150,6 @@ extern "C" fn class_get_declared_field(env: *mut Env<'_>, this: JObject, name: J
     // safety for this to be fine to turn into a reference
     let env = unsafe { &mut *env };
 
-    // Get the string field id information, since we need it to extract the value inside name
-    let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
-    let string_content_field = env
-        .state
-        .get_string_data_field(&env.class_files, string_id)
-        .expect("getDeclaredField failed to get data field id for string");
-
     // Class<T>
     // SAFETY: We assume that it is a valid ref and that it has not been
     // forged.
@@ -176,53 +171,14 @@ extern "C" fn class_get_declared_field(env: *mut Env<'_>, this: JObject, name: J
     // SAFETY: We assume that it is a valid ref and that it has not been forged.
     let name = unsafe { env.get_jobject_as_gcref(name) };
     let name = name.expect("getDeclaredField's name was null");
-    let name_text = {
-        // TODO: Don't unwrap
-        let name = match env
-            .state
-            .gc
-            .deref(name)
-            .ok_or(EvalError::InvalidGcRef(name))
-            .unwrap()
-        {
-            Instance::StaticClass(_) => panic!("Got static class gcref for String"),
-            Instance::Reference(v) => match v {
-                ReferenceInstance::Class(v) => v,
-                _ => panic!("Did not get normal Class gcref for String"),
-            },
-        };
-
-        // We don't have to verify that name is of the right class because the function calling
-        // code would verify that it is being passed a string.
-        // but also, String is final
-
-        let data = name
-            .fields
-            .get(string_content_field)
-            .ok_or(EvalError::MissingField(string_content_field))
-            .expect("getDeclaredField failed to get data field from string name");
-
-        let data = data.value();
-        let data = data
-            .into_reference()
-            .expect("string data field to be a reference")
-            .expect("string data field to be non-null");
-
-        let data = match env.state.gc.deref(data).unwrap() {
-            ReferenceInstance::PrimitiveArray(arr) => arr,
-            _ => panic!("Bad type for name text"),
-        };
-        assert_eq!(data.element_type, RuntimeTypePrimitive::Char);
-        // Converting back to cesu8 is expensive, but this kind of operation isn't common enough to do
-        // anything like storing cesu8 versions alongside them, probably.
-        let data = data
-            .elements
-            .iter()
-            .map(|x| x.into_char().unwrap().0)
-            .collect::<Vec<u16>>();
-        // TODO: Convert to cesu8. This is currently incorrect.
-        String::from_utf16(&data).unwrap()
-    };
+    // TODO: This is doing far more work than needs to be done.
+    let name_text = util::get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        name,
+    )
+    .unwrap();
 
     let (field_id, field_info) =
         find_field_with_name(&env.class_files, this_id, name_text.as_bytes())
@@ -429,6 +385,76 @@ extern "C" fn float_to_raw_int_bits(_env: *mut Env<'_>, _this: JObject, value: J
 
 extern "C" fn double_to_raw_long_bits(_env: *mut Env<'_>, _this: JObject, value: JDouble) -> JLong {
     i64::from_be_bytes(value.to_be_bytes())
+}
+
+// TODO: Is this correct for hex/binary/octal in java's integer class?
+extern "C" fn integer_to_string(
+    env: *mut Env<'_>,
+    _this: JObject,
+    val: JInt,
+    radix: JInt,
+) -> JString {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    if !(2..=36).contains(&radix) {
+        todo!("Exception, radix was out of bounds");
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let radix = radix as u8;
+
+    let result = radix_fmt::radix(val, radix as u8);
+    // java uses lowercase for this
+    let result = format!("{}", result);
+    let result = result
+        .encode_utf16()
+        .map(JavaChar)
+        .map(RuntimeValuePrimitive::Char)
+        .collect::<Vec<_>>();
+
+    let string = util::construct_string(env, result).expect("Failed to create string");
+    let string = match string {
+        ValueException::Value(string) => string,
+        ValueException::Exception(_) => {
+            todo!("There was an exception converting integer to string")
+        }
+    };
+
+    unsafe { env.get_local_jobject_for(string.into_generic()) }
+}
+
+extern "C" fn integer_parse_int(
+    env: *mut Env<'_>,
+    _this: JObject,
+    source: JString,
+    radix: JInt,
+) -> JInt {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    if !(2..=36).contains(&radix) {
+        todo!("Exception, radix was out of bounds");
+    }
+
+    let radix = radix.unsigned_abs();
+
+    let source = unsafe { env.get_jobject_as_gcref(source) };
+    let source = source.expect("null source ref");
+    let source = util::get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        source,
+    )
+    .unwrap();
+
+    // TODO: We could do this manually ourselves directly from the utf16 string, which would be
+    // faster than converting it to a rust string and back..
+    // TODO: Does this match java's behavior?
+    i32::from_str_radix(&source, radix).expect("Failed to parse integer")
 }
 
 /// sun/misc/Unsafe
