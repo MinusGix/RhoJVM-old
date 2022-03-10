@@ -94,7 +94,7 @@ macro_rules! impl_reference_instance_conv {
 }
 
 /// An instance of a class, made generic over several common variants
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Instance {
     StaticClass(StaticClassInstance),
     Reference(ReferenceInstance),
@@ -123,7 +123,7 @@ impl MemorySize for Instance {
 }
 impl GcValueMarker for Instance {}
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ReferenceInstance {
     Class(ClassInstance),
     StaticForm(StaticFormInstance),
