@@ -28,6 +28,7 @@ use rhojvm_base::{
         types::{JavaChar, LocalVariableIndex},
     },
     id::ClassId,
+    load_super_classes_iter,
     package::Packages,
     ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
 };
@@ -67,52 +68,70 @@ fn get_field_dest(
         .ok_or(EvalError::InvalidConstantPoolIndex(index.into_generic()))?
         .clone();
 
-    let (_, field_index, dest_ref) = {
-        let dest_class =
-            class_file
-                .get_t(field.class_index)
-                .ok_or(EvalError::InvalidConstantPoolIndex(
-                    field.class_index.into_generic(),
-                ))?;
+    let dest_class =
+        class_file
+            .get_t(field.class_index)
+            .ok_or(EvalError::InvalidConstantPoolIndex(
+                field.class_index.into_generic(),
+            ))?;
 
-        let dest_class_id = class_file.get_text_b(dest_class.name_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(dest_class.name_index.into_generic()),
-        )?;
-        let dest_class_id = env.class_names.gcid_from_bytes(dest_class_id);
+    let dest_class_id =
+        class_file
+            .get_text_b(dest_class.name_index)
+            .ok_or(EvalError::InvalidConstantPoolIndex(
+                dest_class.name_index.into_generic(),
+            ))?;
+    let dest_class_id = env.class_names.gcid_from_bytes(dest_class_id);
 
-        // TODO: Check the begun status
-        // Initialize the target class, since we're going to need to get a field from it
-        // and so it has to be all initialized before we can do that
-        let status = initialize_class(env, dest_class_id)?;
-        let dest_ref = match status.into_value() {
-            ValueException::Value(dest) => dest,
-            ValueException::Exception(exc) => {
-                return Ok(DestRes::RunInst(RunInstValue::Exception(exc)))
-            }
-        };
-
-        let class_file = env
-            .class_files
-            .get(&class_id)
-            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-        let field_nat = class_file.get_t(field.name_and_type_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
-        )?;
-        let field_name = class_file.get_text_b(field_nat.name_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(field_nat.name_index.into_generic()),
-        )?;
-        // TODO: Document assumption that fields stay in order
-        let field_id = find_field_with_name(&env.class_files, dest_class_id, field_name)?;
-
-        let field_id = if let Some((field_id, _)) = field_id {
-            field_id
-        } else {
-            todo!("No such field exception");
-        };
-        (dest_class_id, field_id, dest_ref)
+    // TODO: Check the begun status
+    // Initialize the target class, since we're going to need to get a field from it
+    // and so it has to be all initialized before we can do that
+    let status = initialize_class(env, dest_class_id)?;
+    let dest_ref = match status.into_value() {
+        ValueException::Value(dest) => dest,
+        ValueException::Exception(exc) => {
+            return Ok(DestRes::RunInst(RunInstValue::Exception(exc)))
+        }
     };
 
-    Ok(DestRes::GcRef((dest_ref, field_index, field)))
+    let class_file = env
+        .class_files
+        .get(&class_id)
+        .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+    let field_nat =
+        class_file
+            .get_t(field.name_and_type_index)
+            .ok_or(EvalError::InvalidConstantPoolIndex(
+                field.name_and_type_index.into_generic(),
+            ))?;
+    // TODO: Don't allocate!
+    let field_name = class_file
+        .get_text_b(field_nat.name_index)
+        .ok_or(EvalError::InvalidConstantPoolIndex(
+            field_nat.name_index.into_generic(),
+        ))?
+        .to_owned();
+    // TODO: Document assumption that fields stay in order
+
+    let mut iter = load_super_classes_iter(dest_class_id);
+    while let Some(dest_id) = iter.next_item(
+        &env.class_directories,
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+    ) {
+        let dest_id = dest_id?;
+        let field_id = find_field_with_name(&env.class_files, dest_id, &field_name)?;
+
+        if let Some((field_id, _)) = field_id {
+            // TODO: dest_ref isn't accurate! it should probably be the destination that the field
+            // is actually on!
+            return Ok(DestRes::GcRef((dest_ref, field_id, field)));
+        }
+    }
+
+    todo!("Field not found exception")
 }
 
 /// Theoretically, this shouldn't error since it would've been checked by stack map verifier
