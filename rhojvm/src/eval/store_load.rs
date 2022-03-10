@@ -94,25 +94,7 @@ fn get_field_dest(
         }
     };
 
-    let class_file = env
-        .class_files
-        .get(&class_id)
-        .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-    let field_nat =
-        class_file
-            .get_t(field.name_and_type_index)
-            .ok_or(EvalError::InvalidConstantPoolIndex(
-                field.name_and_type_index.into_generic(),
-            ))?;
-    // TODO: Don't allocate!
-    let field_name = class_file
-        .get_text_b(field_nat.name_index)
-        .ok_or(EvalError::InvalidConstantPoolIndex(
-            field_nat.name_index.into_generic(),
-        ))?
-        .to_owned();
     // TODO: Document assumption that fields stay in order
-
     let mut iter = load_super_classes_iter(dest_class_id);
     while let Some(dest_id) = iter.next_item(
         &env.class_directories,
@@ -121,8 +103,19 @@ fn get_field_dest(
         &mut env.classes,
         &mut env.packages,
     ) {
+        let class_file = env
+            .class_files
+            .get(&class_id)
+            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+        let field_nat = class_file.get_t(field.name_and_type_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(field.name_and_type_index.into_generic()),
+        )?;
+        let field_name = class_file.get_text_b(field_nat.name_index).ok_or(
+            EvalError::InvalidConstantPoolIndex(field_nat.name_index.into_generic()),
+        )?;
+
         let dest_id = dest_id?;
-        let field_id = find_field_with_name(&env.class_files, dest_id, &field_name)?;
+        let field_id = find_field_with_name(&env.class_files, dest_id, field_name)?;
 
         if let Some((field_id, _)) = field_id {
             // TODO: dest_ref isn't accurate! it should probably be the destination that the field
