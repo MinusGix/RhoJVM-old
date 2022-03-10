@@ -388,6 +388,27 @@ public final class String implements java.io.Serializable, Comparable<String>, C
         return -1;
     }
 
+    static int indexOf(char[] target, int targetLength, String other, int start) {
+        if (other.isEmpty()) {
+            return start;
+        }
+
+        for (int i = start; i < targetLength - other.data.length + 1; i++) {
+            int k = 0;
+            for (; k < other.data.length; k++) {
+                if (target[i + k] != other.data[k]) {
+                    break;
+                }
+            }
+
+            if (k == other.data.length) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
     public int lastIndexOf(int chr)  {
         return this.lastIndexOf(chr, this.data.length - 1);
     }
@@ -417,6 +438,29 @@ public final class String implements java.io.Serializable, Comparable<String>, C
             int k = 0;
             for (; k < other.data.length && i + k < this.data.length; k++) {
                 if (this.data[i + k] != other.data[k]) {
+                    break;
+                }
+            }
+
+            if (k == other.data.length) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    static int lastIndexOf(char[] target, int targetLength, String other, int last) {
+        if (other.isEmpty()) {
+            return last;
+        }
+
+        int start = Math.min(targetLength - other.data.length, last);
+
+        for (int i = start; i >= 0; i--) {
+            int k = 0;
+            for (; k < other.data.length && i + k < targetLength; k++) {
+                if (target[i + k] != other.data[k]) {
                     break;
                 }
             }
