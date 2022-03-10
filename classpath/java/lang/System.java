@@ -30,9 +30,7 @@ public final class System {
 
     private static SecurityManager securityManager = null;
 
-    public static void arraycopy(Object src, int srcOffset, Object dest, int destOffset, int length) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public static native void arraycopy(Object src, int srcOffset, Object dest, int destOffset, int length);
 
     public static String getProperty(String name) {
         // TODO: Security checks
