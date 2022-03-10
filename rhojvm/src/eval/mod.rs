@@ -368,18 +368,17 @@ macro_rules! impl_call_native_method {
             let $pname = convert_rv!($env ; $pname ; param_index ; $typ);
         )*
 
+        let class_ref_jobject: JObject = unsafe { $env.get_local_jobject_for(class_ref) };
+        let env_ptr: *mut Env<'_> = $env as *mut Env<'_>;
+        // The native function is only partially defined, we have to convert it into a more
+        // specific form
+        let native_func = $native_func.get();
         if let Some(return_type) = return_type {
             // fn(JNIENv*, JObject, ...) -> SomeType
 
             let rv = RuntimeType::from_descriptor_type(&mut $env.class_names, return_type.clone())
                 .map_err(StepError::BadId)?;
 
-            let class_ref_jobject: JObject = unsafe { $env.get_local_jobject_for(class_ref) };
-
-            let env_ptr: *mut Env<'_> = $env as *mut Env<'_>;
-            // The native function is only partially defined, we have to convert it into a more
-            // specific form
-            let native_func = $native_func.get();
 
             // Safety: Relying on java's declared parameter types
             match rv {
@@ -479,7 +478,14 @@ macro_rules! impl_call_native_method {
                 },
             }
         } else {
-            todo!("Return void functions")
+            let native_func = unsafe {
+                std::mem::transmute::<
+                    unsafe extern "C" fn(*mut Env, JObject),
+                    unsafe extern "C" fn(*mut Env, JObject, $($typ),*),
+                >(native_func)
+            };
+            let _: () = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+            return Ok(EvalMethodValue::ReturnVoid);
         }
     };
 }
@@ -662,6 +668,30 @@ pub fn eval_method(
             )
         {
             impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JLong, param3: JInt));
+        } else if param_count == 5
+            && matches!(
+                method.descriptor().parameters()[0],
+                DescriptorType::Array { .. } | DescriptorType::Basic(DescriptorTypeBasic::Class(_))
+            )
+            && matches!(
+                method.descriptor().parameters()[1],
+                DescriptorType::Basic(DescriptorTypeBasic::Int)
+            )
+            && matches!(
+                method.descriptor().parameters()[2],
+                DescriptorType::Array { .. } | DescriptorType::Basic(DescriptorTypeBasic::Class(_))
+            )
+            && matches!(
+                method.descriptor().parameters()[3],
+                DescriptorType::Basic(DescriptorTypeBasic::Int)
+            )
+            && matches!(
+                method.descriptor().parameters()[4],
+                DescriptorType::Basic(DescriptorTypeBasic::Int)
+            )
+        {
+            // Specifically for arraycopy
+            impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JInt, param3: JObject, param4: JInt, param5: JInt));
         }
         tracing::info!("Method: {:?}", method.descriptor());
         todo!("Fully implement native methods");
