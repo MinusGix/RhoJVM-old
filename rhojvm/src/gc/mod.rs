@@ -101,6 +101,35 @@ impl Gc {
         GcRef::new_unchecked(index)
     }
 
+    /// Clones a given reference shallowly, returning a new `GcRef` to it
+    /// Since this is shallow, this does mean that any references held inside will be the same
+    /// in the cloned version.
+    /// Note that we don't actually use the `T` parameter, it is simply to make the `GcRef` api
+    /// easier
+    /// If it exists, but the `T` parameter is incorrect, it will still be shallowly cloned,
+    /// but the returned `GcRef<T>` will also be bad too.
+    /// Remember that unless you store it somewhere, the gc might pick it up.
+    pub fn shallow_clone<T>(&mut self, reference: GcRef<T>) -> Option<GcRef<T>> {
+        let object = self.objects.get(reference.index).and_then(Option::as_ref)?;
+        let object = GcObject {
+            marked: false,
+            size: object.size,
+            value: object.value.clone(),
+        };
+        self.bytes_used += object.size;
+
+        let index = if let Some(i) = self.free_slots.pop() {
+            debug_assert!(self.objects[i].is_none());
+            self.objects[i] = Some(object);
+            i
+        } else {
+            self.objects.push(Some(object));
+            self.objects.len() - 1
+        };
+
+        Some(GcRef::new_unchecked(index))
+    }
+
     #[must_use]
     pub fn deref<'a, T>(&'a self, reference: GcRef<T>) -> Option<&'a T>
     where
