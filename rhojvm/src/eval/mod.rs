@@ -595,36 +595,10 @@ pub fn eval_method(
         };
         let native_func = native_func.get().clone();
 
-        if method.descriptor().is_nullary_void() {
-            let class_ref = match get_class_ref(&mut env.state, &mut frame, class_id, method)? {
-                ValueException::Value(class_ref) => class_ref,
-                ValueException::Exception(exc) => return Ok(EvalMethodValue::Exception(exc)),
-            };
-            let class_ref_jobject: JObject = unsafe { env.get_local_jobject_for(class_ref) };
-
-            // Safety: We rely on the declared parameter types of java being correct
-            // In this case, we know that it is a nullary void function which means that it takes
-            // in a `*mut JNIEnv`, and `JObject` and returns nothing.
-            // However, the safety of this call depends entirely on the safety of the function
-            // itself.
-            // The native code can store this pointer for use later, but the JVM spec only allows
-            // it to be valid on the same thread. Since they can't use it from a different thread,
-            // I believe we can rely on that they can't reasonably use it unless we call into them.
-            // The pointer.
-            // TODO: Is it valid for there to maybe be live mutable pointers to a mutable
-            // reference, if they aren't used? I'm not sure how we'd get around that if it
-            // isn't... the code we call can simply hold a `*mut Env`, even if it can't modify it
-            // until we call into it, which will always be giving it the `*mut Env`
-            let env_ptr = env as *mut Env<'_>;
-            let native_func = native_func.get();
-            unsafe {
-                (native_func)(env_ptr, class_ref_jobject);
-            };
-            return Ok(EvalMethodValue::ReturnVoid);
-        }
-
         let param_count = method.descriptor().parameters().len();
-        if param_count == 1 {
+        if param_count == 0 {
+            impl_call_native_method!(env, frame, class_id, method, native_func; ());
+        } else if param_count == 1 {
             let first = method.descriptor().parameters()[0];
             match first {
                 DescriptorType::Array { .. }
@@ -652,6 +626,18 @@ pub fn eval_method(
                 DescriptorType::Basic(DescriptorTypeBasic::Short) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JShort));
                 }
+            }
+        } else if param_count == 2 {
+            let first = method.descriptor().parameters()[0];
+            let second = method.descriptor().parameters()[1];
+            match (first, second) {
+                (
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JInt, param2: JInt));
+                }
+                _ => todo!("Fully implement two parameter native methods"),
             }
         } else if param_count == 3
             && matches!(
