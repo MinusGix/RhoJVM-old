@@ -495,13 +495,29 @@ impl RunInst for DoubleCmpG {
 }
 
 impl RunInst for MonitorEnter {
-    fn run(self, _args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+        let _object_ref = frame
+            .stack
+            .pop()
+            .ok_or(EvalError::ExpectedStackValue)?
+            .into_reference()
+            .ok_or(EvalError::ExpectedStackValueReference)?
+            .expect("TODO: null poointer exception");
+
         tracing::warn!("MonitorEnter Not Implemented!");
         Ok(RunInstValue::Continue)
     }
 }
 impl RunInst for MonitorExit {
-    fn run(self, _args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+        let _object_ref = frame
+            .stack
+            .pop()
+            .ok_or(EvalError::ExpectedStackValue)?
+            .into_reference()
+            .ok_or(EvalError::ExpectedStackValueReference)?
+            .expect("TODO: null poointer exception");
+
         tracing::warn!("MonitorExit Not Implemented!");
         Ok(RunInstValue::Continue)
     }
