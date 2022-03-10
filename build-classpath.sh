@@ -14,7 +14,7 @@ JFILES="$JFILES ./java/lang/reflect/Field.java"
 JFILES="$JFILES ./java/security/AccessController.java"
 
 # sun/misc/
-JFILES="$JFILES ./sun/misc/Unsafe.java"
+JFILES="$JFILES ./sun/misc/VM.java ./sun/misc/Unsafe.java"
 
 # rho/
 JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/InternalField.java"
