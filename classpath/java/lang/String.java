@@ -51,7 +51,7 @@ public final class String implements java.io.Serializable, Comparable<String>, C
             throw new StringIndexOutOfBoundsException(offset);
         } else if (length < 0) {
             throw new StringIndexOutOfBoundsException(length);
-        } else if (actualLength <= length + offset) {
+        } else if (offset > data.length - length) {
             throw new StringIndexOutOfBoundsException(length + offset);
         }
 
