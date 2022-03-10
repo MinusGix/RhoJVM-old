@@ -2350,17 +2350,35 @@ impl SuperClassFileIterator {
             return Some(Err(err.into()));
         }
 
-        // We just loaded it
-        let class_file = class_files.get(&topmost).unwrap();
+        // Not everything has a class file, such as arrays
+        let (has_class_file, is_array) = match class_names.name_from_gcid(topmost) {
+            Ok((_, info)) => (info.has_class_file(), info.is_array()),
+            Err(err) => {
+                self.had_error = true;
+                return Some(Err(StepError::BadId(err)));
+            }
+        };
+        if has_class_file {
+            // We just loaded it
+            let class_file = class_files.get(&topmost).unwrap();
 
-        // Get the super class for next iteration, but we delay checking the error
-        self.topmost = class_file
-            .get_super_class_id(class_names)
-            .map_err(StepError::ClassFileIndex)
-            .transpose();
+            // Get the super class for next iteration, but we delay checking the error
+            self.topmost = class_file
+                .get_super_class_id(class_names)
+                .map_err(StepError::ClassFileIndex)
+                .transpose();
 
-        // The class file was initialized
-        Some(Ok(topmost))
+            // The class file was initialized
+            Some(Ok(topmost))
+        } else if is_array {
+            // All arrays extend java/lang/Object
+            self.topmost = Some(Ok(class_names.object_id()));
+            Some(Ok(topmost))
+        } else {
+            // TODO: Should we do something better here?
+            tracing::error!("SuperClassFileIterator ran into an entry that did not have a class file and so was uncertain how to handle it");
+            None
+        }
     }
 }
 
