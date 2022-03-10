@@ -172,6 +172,34 @@ pub(crate) const fn signed_offset_16(lhs: u16, rhs: i16) -> Option<u16> {
     }
 }
 
+pub(crate) fn get_disjoint2_mut<T>(
+    data: &mut [T],
+    index1: usize,
+    index2: usize,
+) -> Option<(&mut T, &mut T)> {
+    use std::cmp::Ordering;
+    if index1 >= data.len() || index2 >= data.len() {
+        return None;
+    }
+
+    // It would be nice if rust had this in the standard library..
+    let (left, right) = data.split_at_mut(index2);
+    let (val1, val2) = match std::cmp::Ord::cmp(&index1, &index2) {
+        Ordering::Less => (left.get_mut(index1), right.get_mut(0)),
+        // Can't have multiple mutable references to the same data
+        Ordering::Equal => return None,
+        Ordering::Greater => {
+            let (left, right) = right.split_at_mut(index1 - index2);
+            (right.get_mut(0), left.get_mut(0))
+        }
+    };
+
+    let val1 = val1?;
+    let val2 = val2?;
+
+    Some((val1, val2))
+}
+
 pub(crate) fn find_field_with_name(
     class_files: &ClassFiles,
     class_id: ClassId,
@@ -357,4 +385,45 @@ pub(crate) fn make_class_form_of(
 
     let static_form = StaticFormInstance::new(inner_class, static_ref);
     Ok(ValueException::Value(env.state.gc.alloc(static_form)))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::util::get_disjoint2_mut;
+
+    #[test]
+    fn test_get_disjoint() {
+        let mut data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 0), None);
+        assert_eq!(get_disjoint2_mut(&mut data, 1, 1), None);
+        assert_eq!(get_disjoint2_mut(&mut data, 50, 50), None);
+
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 1), Some((&mut 0, &mut 1)));
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 2), Some((&mut 0, &mut 2)));
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 3), Some((&mut 0, &mut 3)));
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 4), Some((&mut 0, &mut 4)));
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 5), Some((&mut 0, &mut 5)));
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 6), Some((&mut 0, &mut 6)));
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 7), Some((&mut 0, &mut 7)));
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 8), Some((&mut 0, &mut 8)));
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 9), Some((&mut 0, &mut 9)));
+        assert_eq!(get_disjoint2_mut(&mut data, 0, 10), Some((&mut 0, &mut 10)));
+
+        assert_eq!(get_disjoint2_mut(&mut data, 5, 10), Some((&mut 5, &mut 10)));
+
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 0), Some((&mut 8, &mut 0)));
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 1), Some((&mut 8, &mut 1)));
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 2), Some((&mut 8, &mut 2)));
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 3), Some((&mut 8, &mut 3)));
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 4), Some((&mut 8, &mut 4)));
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 5), Some((&mut 8, &mut 5)));
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 6), Some((&mut 8, &mut 6)));
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 7), Some((&mut 8, &mut 7)));
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 8), None);
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 9), Some((&mut 8, &mut 9)));
+        assert_eq!(get_disjoint2_mut(&mut data, 8, 10), Some((&mut 8, &mut 10)));
+
+        assert_eq!(get_disjoint2_mut(&mut data, 12, 0), None);
+    }
 }
