@@ -16,7 +16,10 @@
 // Annoying. Really shouldn't highlight the entire thing.
 #![allow(clippy::unnecessary_wraps)]
 
-use std::{collections::HashMap, num::NonZeroUsize, path::Path, sync::Arc, thread::ThreadId};
+use std::{
+    collections::HashMap, num::NonZeroUsize, path::Path, string::FromUtf16Error, sync::Arc,
+    thread::ThreadId,
+};
 
 use class_instance::{ClassInstance, FieldId, Instance, StaticClassInstance};
 use classfile_parser::{
@@ -494,6 +497,8 @@ pub enum GeneralError {
     UnparsedFieldType,
     /// The string's value store was not named b"value"
     StringNoValueField,
+    /// We failed to convert a java string to a rust string
+    StringConversionFailure(FromUtf16Error),
 }
 
 impl From<StepError> for GeneralError {

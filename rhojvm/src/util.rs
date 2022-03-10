@@ -7,8 +7,8 @@ use rhojvm_base::{
 
 use crate::{
     class_instance::{
-        ClassInstance, FieldId, FieldIndex, Instance, PrimitiveArrayInstance, StaticClassInstance,
-        StaticFormInstance,
+        ClassInstance, FieldId, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance,
+        StaticClassInstance, StaticFormInstance,
     },
     eval::{
         eval_method, instances::make_fields, EvalError, EvalMethodValue, Frame, Locals,
@@ -306,6 +306,73 @@ pub(crate) fn construct_string(
     }
 
     Ok(ValueException::Value(string_ref))
+}
+
+pub(crate) fn get_string_contents<'a>(
+    class_files: &ClassFiles,
+    class_names: &mut ClassNames,
+    state: &'a mut State,
+    string: GcRef<Instance>,
+) -> Result<&'a [RuntimeValuePrimitive], GeneralError> {
+    let string_id = class_names.gcid_from_bytes(b"java/lang/String");
+    let string_content_field = state
+        .get_string_data_field(class_files, string_id)
+        .expect("getDeclaredField failed to get data field id for string");
+
+    // TODO: Don't unwrap
+    let string = match state
+        .gc
+        .deref(string)
+        .ok_or(EvalError::InvalidGcRef(string))
+        .unwrap()
+    {
+        Instance::StaticClass(_) => panic!("Got static class gcref for String"),
+        Instance::Reference(v) => match v {
+            ReferenceInstance::Class(v) => v,
+            _ => panic!("Did not get normal Class gcref for String"),
+        },
+    };
+
+    // We don't have to verify that name is of the right class because the function calling
+    // code would verify that it is being passed a string.
+    // but also, String is final
+
+    let data = string
+        .fields
+        .get(string_content_field)
+        .ok_or(EvalError::MissingField(string_content_field))
+        .expect("getDeclaredField failed to get data field from string name");
+
+    let data = data.value();
+    let data = data
+        .into_reference()
+        .expect("string data field to be a reference")
+        .expect("string data field to be non-null");
+
+    let data = match state.gc.deref(data).unwrap() {
+        ReferenceInstance::PrimitiveArray(arr) => arr,
+        _ => panic!("Bad type for name text"),
+    };
+    assert_eq!(data.element_type, RuntimeTypePrimitive::Char);
+    Ok(data.elements.as_slice())
+}
+
+/// NOTE: This should not be used unless it can't be avoided, or it is only used as a temporary
+/// stop-gap, as there is typically more efficient ways of directly using the utf16 string you have!
+pub(crate) fn get_string_contents_as_rust_string(
+    class_files: &ClassFiles,
+    class_names: &mut ClassNames,
+    state: &mut State,
+    string: GcRef<Instance>,
+) -> Result<String, GeneralError> {
+    let contents = get_string_contents(class_files, class_names, state, string)?;
+    // Converting back to cesu8 is expensive, but this kind of operation isn't common enough to do
+    // anything like storing cesu8 versions alongside them, probably.
+    let contents = contents
+        .iter()
+        .map(|x| x.into_char().unwrap().0)
+        .collect::<Vec<u16>>();
+    String::from_utf16(&contents).map_err(GeneralError::StringConversionFailure)
 }
 
 pub(crate) fn make_class_form_of(
