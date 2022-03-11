@@ -307,7 +307,7 @@ pub struct NativeInterface {
     pub get_module: GetModuleFn,
 }
 impl NativeInterface {
-    pub(crate) fn new_typical() -> NativeInterface {
+    pub fn new_typical() -> NativeInterface {
         NativeInterface {
             empty_0: unimpl_none_name!("empty_0"),
             empty_1: unimpl_none_name!("empty_1"),

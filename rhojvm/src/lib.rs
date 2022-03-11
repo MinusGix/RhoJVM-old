@@ -17,8 +17,7 @@
 #![allow(clippy::unnecessary_wraps)]
 
 use std::{
-    collections::HashMap, num::NonZeroUsize, path::Path, string::FromUtf16Error, sync::Arc,
-    thread::ThreadId,
+    collections::HashMap, num::NonZeroUsize, string::FromUtf16Error, sync::Arc, thread::ThreadId,
 };
 
 use class_instance::{ClassInstance, FieldId, Instance, StaticClassInstance};
@@ -48,25 +47,17 @@ use rhojvm_base::{
     package::Packages,
     ClassDirectories, ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
 };
-use rv::RuntimeValue;
 use smallvec::{smallvec, SmallVec};
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
-use tracing::info;
-use tracing_subscriber::layer::SubscriberExt;
 use util::{find_field_with_name, Env};
 
-use crate::{
-    class_instance::ReferenceArrayInstance,
-    eval::{eval_method, Frame, Locals, ValueException},
-    jni::native_interface::NativeInterface,
-};
+use crate::eval::{eval_method, Frame, ValueException};
 
 // #[global_allocator]
 // static ALLOCATOR: DhatAlloc = DhatAlloc;
 
 pub mod class_instance;
 pub mod eval;
-mod formatter;
 pub mod gc;
 pub mod jni;
 pub mod memblock;
@@ -74,8 +65,8 @@ pub mod method;
 pub mod rv;
 pub mod util;
 
-const ENV_TRACING_LEVEL: &str = "RHO_LOG_LEVEL";
-const DEFAULT_TRACING_LEVEL: tracing::Level = tracing::Level::WARN;
+pub const ENV_TRACING_LEVEL: &str = "RHO_LOG_LEVEL";
+pub const DEFAULT_TRACING_LEVEL: tracing::Level = tracing::Level::WARN;
 
 /// The maximum amount of 4 bytes that a stack can occupy.
 /// This stores the amount of 4 bytes that can be used since not having
@@ -116,17 +107,18 @@ impl Default for MaxStackSize {
     }
 }
 
-struct StateConfig {
-    tracing_level: tracing::Level,
+pub struct StateConfig {
+    pub tracing_level: tracing::Level,
     pub stack_map_verification_logging: StackMapVerificationLogging,
     /// The maximum amount of 4 bytes that a stack can occupy
     /// `None`: No limit on stack size. Though, limits caused by implementation
     /// mean that this may not result in all available memory being used.
     /// It is advised to have some form of limit, though.
-    max_stack_size: Option<MaxStackSize>,
+    pub max_stack_size: Option<MaxStackSize>,
 }
 impl StateConfig {
-    fn new() -> StateConfig {
+    #[must_use]
+    pub fn new() -> StateConfig {
         let tracing_level = StateConfig::compute_tracing_level();
         StateConfig {
             tracing_level,
@@ -135,7 +127,8 @@ impl StateConfig {
         }
     }
 
-    fn compute_tracing_level() -> tracing::Level {
+    #[must_use]
+    pub fn compute_tracing_level() -> tracing::Level {
         let env_log = std::env::var(ENV_TRACING_LEVEL);
         if let Ok(env_log) = env_log {
             if env_log.eq_ignore_ascii_case("trace") || env_log == "*" {
@@ -155,6 +148,12 @@ impl StateConfig {
     }
 }
 
+impl Default for StateConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A warning
 /// These provide information that isn't a bug but might be indicative of weird
 /// decisions in the compiling code, or incorrect reasoning by this JVM implementation
@@ -163,7 +162,7 @@ impl StateConfig {
 pub enum Warning {}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum Status<T = ()> {
+pub enum Status<T = ()> {
     /// It hasn't been started yet
     NotDone,
     /// It has been started but not yet completed
@@ -190,7 +189,7 @@ impl<T> Default for Status<T> {
 // can become simpler.
 /// A status that only includes the `Started` and `Done` variants
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum BegunStatus<T = ()> {
+pub enum BegunStatus<T = ()> {
     /// It hasn't been started yet
     Started(T),
     /// It has been started and completed
@@ -214,7 +213,7 @@ impl<T> From<BegunStatus<T>> for Status<T> {
 
 /// Information specific to each class
 #[derive(Debug, Default, Clone)]
-struct ClassInfo {
+pub struct ClassInfo {
     pub created: Status,
     pub verified: Status,
     pub initialized: Status<ValueException<GcRef<StaticClassInstance>>>,
@@ -222,7 +221,7 @@ struct ClassInfo {
 
 /// State that is per-thread
 pub struct ThreadData {
-    id: ThreadId,
+    pub id: ThreadId,
 }
 impl ThreadData {
     #[must_use]
@@ -232,14 +231,14 @@ impl ThreadData {
 }
 
 pub struct State {
-    entry_point_class: Option<ClassId>,
-    conf: StateConfig,
+    pub entry_point_class: Option<ClassId>,
+    pub conf: StateConfig,
 
     pub gc: Gc,
 
     pub mem_blocks: MemoryBlocks,
 
-    native: Arc<NativeLibrariesStatic>,
+    pub native: Arc<NativeLibrariesStatic>,
 
     classes_info: ClassesInfo,
     pub method_info: MethodInfo,
@@ -265,7 +264,8 @@ pub struct State {
     field_internal_field_id: Option<FieldId>,
 }
 impl State {
-    fn new(conf: StateConfig) -> Self {
+    #[must_use]
+    pub fn new(conf: StateConfig) -> Self {
         Self {
             entry_point_class: None,
             conf,
@@ -591,252 +591,13 @@ pub enum ResolveError {
     InaccessibleClass { from: ClassId, target: ClassId },
 }
 
-struct EmptyWriter;
-impl std::io::Write for EmptyWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-fn make_log_file() -> std::sync::Arc<std::fs::File> {
-    let log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("./rho.log")
-        .expect("Expected to be able to open log file");
-    std::sync::Arc::new(log_file)
-}
-
-fn init_logging(conf: &StateConfig) {
-    let should_log_console = std::env::var("RHO_LOG_CONSOLE")
-        .map(|x| x != "0")
-        .unwrap_or(true);
-    let should_log_file = std::env::var("RHO_LOG_FILE")
-        .map(|x| x != "0")
-        .unwrap_or(true);
-
-    let console_layer = if should_log_console {
-        Some(
-            tracing_subscriber::fmt::Layer::default()
-                .with_writer(std::io::stderr)
-                .without_time()
-                .event_format(formatter::Formatter),
-        )
-    } else {
-        None
-    };
-    let file_layer = if should_log_file {
-        Some(
-            tracing_subscriber::fmt::Layer::default()
-                .with_writer(make_log_file())
-                .without_time()
-                .event_format(formatter::Formatter),
-        )
-    } else {
-        None
-    };
-
-    let t_subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(conf.tracing_level)
-        .without_time()
-        .event_format(formatter::Formatter)
-        .with_writer(|| EmptyWriter)
-        .finish()
-        .with(console_layer)
-        .with(file_layer);
-
-    // TODO: We may make this jvm a library so this should not be done
-    tracing::subscriber::set_global_default(t_subscriber)
-        .expect("failed to set global default tracing subscriber");
-}
-
-fn main() {
-    // let _dhat = Dhat::start_heap_profiling();
-
-    let mut conf = StateConfig::new();
-    conf.stack_map_verification_logging = StackMapVerificationLogging {
-        log_method_name: false,
-        log_received_frame: false,
-        log_instruction: false,
-        log_stack_modifications: false,
-        log_local_variable_modifications: false,
-    };
-
-    init_logging(&conf);
-
-    info!("RhoJVM Initializing");
-
-    let mut class_directories: ClassDirectories = ClassDirectories::default();
-    let class_names: ClassNames = ClassNames::default();
-    let class_files: ClassFiles = ClassFiles::default();
-    let classes: Classes = Classes::default();
-    let packages: Packages = Packages::default();
-    let methods: Methods = Methods::default();
-
-    let entry_point_cp = ["HelloWorld"];
-    let class_dirs = [
-        // RhoJVM libraries take precedence since it is expected that some code
-        "./classpath/",
-        "./rhojvm/ex/lib/rt/",
-        "./rhojvm/ex/lib/jce/",
-        "./rhojvm/ex/lib/charsets/",
-        "./rhojvm/ex/lib/jfr",
-        "./rhojvm/ex/lib/jsse",
-        "./rhojvm/ex/",
-    ];
-
-    for path in class_dirs {
-        let path = Path::new(path);
-        class_directories
-            .add(path)
-            .expect("for class directory to properly exist");
-    }
-
-    // Initialize State
-    let state = State::new(conf);
-
-    let main_thread_data = ThreadData::new(std::thread::current().id());
-
-    // The general environment structure
-    // This is also used for passing it directly into native functions
-    let env = Env {
-        interface: Box::leak(Box::new(NativeInterface::new_typical())),
-        class_directories,
-        class_names,
-        class_files,
-        classes,
-        packages,
-        methods,
-        state,
-        tdata: main_thread_data,
-    };
-    // We pin this, because the env ptr is expected to stay the same
-    let mut env = Box::pin(env);
-    let mut env: &mut Env = &mut *env;
-
-    // libjava.so depends on libjvm and can't find it itself
-    let needed_libs = [
-        "./rhojvm/ex/lib/amd64/server/libjvm.so",
-        "./rhojvm/ex/lib/amd64/libjava.so",
-    ];
-    for lib_path in needed_libs {
-        unsafe {
-            env.state
-                .native
-                .load_library_blocking(lib_path)
-                .expect("Failed to load lib");
-        };
-
-        // TODO: Actually call this.
-        // TODO: Check for JNI_OnLoadL?
-        let _onload = unsafe {
-            env.state
-                .native
-                .find_symbol_blocking_jni_on_load_in_library(lib_path)
-        };
-        // if let Ok(onload) = onload {
-        //     todo!("Call onload function");
-        // }
-    }
-
-    // Load the entry point
-    let entrypoint_id: ClassId = env
-        .class_files
-        .load_by_class_path_slice(
-            &env.class_directories,
-            &mut env.class_names,
-            &entry_point_cp,
-        )
-        .unwrap();
-    env.classes
-        .load_class(
-            &env.class_directories,
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.packages,
-            entrypoint_id,
-        )
-        .unwrap();
-    env.state.entry_point_class = Some(entrypoint_id);
-
-    if let Err(err) = verify_from_entrypoint(
-        &env.class_directories,
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        entrypoint_id,
-    ) {
-        tracing::error!("failed to verify entrypoint class: {:?}", err);
-        return;
-    }
-
-    if let Err(err) = initialize_class(env, entrypoint_id) {
-        tracing::error!("failed to initialize entrypoint class {:?}", err);
-        return;
-    }
-
-    // We get the main method's id so then we can execute it.
-    // We could check this early to make so errors from a missing main show up faster, but that is
-    // an edge-case, and doesn't matter.
-    {
-        let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
-        let main_name = b"main";
-        let main_descriptor = MethodDescriptor::new_void(vec![DescriptorType::single_array(
-            DescriptorTypeBasic::Class(string_id),
-        )]);
-        let main_method_id = env
-            .methods
-            .load_method_from_desc(
-                &env.class_directories,
-                &mut env.class_names,
-                &mut env.class_files,
-                entrypoint_id,
-                main_name,
-                &main_descriptor,
-            )
-            .expect("Failed to load main method");
-        let args = {
-            let array_id = env
-                .class_names
-                .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), string_id)
-                .expect("Failed to construct type for String[]");
-            // TODO: actually construct args
-            let array = ReferenceArrayInstance::new(array_id, string_id, Vec::new());
-            let array_ref = env.state.gc.alloc(array);
-            array_ref.into_generic()
-        };
-        let frame = Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(args)]));
-        match eval_method(env, main_method_id, frame) {
-            Ok(res) => match res {
-                EvalMethodValue::ReturnVoid => (),
-                EvalMethodValue::Return(v) => {
-                    tracing::warn!("Main returned a value: {:?}", v);
-                }
-                // TODO: Call the method to get a string from the exception
-                EvalMethodValue::Exception(exc) => {
-                    tracing::warn!("Main threw an exception! {:?}", exc);
-                }
-            },
-            Err(err) => tracing::error!("There was an error in running the method: {:?}", err),
-        }
-    }
-}
-
 /// Initialize a class
 /// This involves creating more information about the class, initializing static fields,
 /// verifying it, etc.
 /// That does mean that this runs code.
 /// # Returns
 /// Returns the [`GcRef`] for the static-class instance
-pub(crate) fn initialize_class(
+pub fn initialize_class(
     env: &mut Env<'_>,
     class_id: ClassId,
 ) -> Result<BegunStatus<ValueException<GcRef<StaticClassInstance>>>, GeneralError> {
@@ -914,7 +675,7 @@ pub(crate) fn initialize_class(
     Ok(BegunStatus::Done(ValueException::Value(instance_ref)))
 }
 
-fn verify_from_entrypoint(
+pub fn verify_from_entrypoint(
     class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,

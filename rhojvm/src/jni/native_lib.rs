@@ -177,7 +177,7 @@ impl NativeLibrariesStatic {
     /// # Safety
     /// The function must be a valid function
     /// The safety of calling it primarily depends on the code itself
-    pub(crate) unsafe fn find_symbol_blocking_jni_on_load_in_library(
+    pub unsafe fn find_symbol_blocking_jni_on_load_in_library(
         &self,
         lib_path: impl AsRef<OsStr>,
     ) -> Result<JNIOnLoadFn, FindSymbolError> {

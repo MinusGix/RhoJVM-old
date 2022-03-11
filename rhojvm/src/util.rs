@@ -42,8 +42,8 @@ pub struct Env<'i> {
     pub classes: Classes,
     pub packages: Packages,
     pub methods: Methods,
-    pub(crate) state: State,
-    pub(crate) tdata: ThreadData,
+    pub state: State,
+    pub tdata: ThreadData,
 }
 impl<'i> Env<'i> {
     pub(crate) fn get_empty_string(

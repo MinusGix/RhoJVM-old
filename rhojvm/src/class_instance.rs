@@ -352,7 +352,8 @@ pub struct ReferenceArrayInstance {
     fields: Fields,
 }
 impl ReferenceArrayInstance {
-    pub(crate) fn new(
+    #[must_use]
+    pub fn new(
         instanceof: ClassId,
         element_type: ClassId,
         elements: Vec<Option<GcRef<ReferenceInstance>>>,

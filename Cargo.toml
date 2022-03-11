@@ -1,5 +1,5 @@
 [workspace]
-members = ["rhojvm", "rhojvm-base", "stack_map-verifier"]
+members = ["rhojvm-frontend", "rhojvm", "rhojvm-base", "stack_map-verifier"]
 
 [profile.release]
 lto = "thin"

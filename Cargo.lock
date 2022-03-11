@@ -183,7 +183,6 @@ dependencies = [
  "smallvec",
  "stack_map-verifier",
  "tracing",
- "tracing-subscriber",
  "usize_cast",
 ]
 
@@ -199,6 +198,17 @@ dependencies = [
  "nohash-hasher",
  "smallvec",
  "tracing",
+]
+
+[[package]]
+name = "rhojvm-frontend"
+version = "0.1.0"
+dependencies = [
+ "rhojvm",
+ "rhojvm-base",
+ "stack_map-verifier",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

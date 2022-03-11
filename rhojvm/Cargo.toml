@@ -9,16 +9,6 @@ stack_map-verifier = { path = "../stack_map-verifier/" }
 # TODO: It would be nice to not have to depend on this directly at all.
 classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
 tracing = { version = "0.1", default-features = false }
-# Disables:
-# env-filter (potentially useful but brings in a good bit, and can be enabled for debug)
-# json (we don't really need this)
-# tracing-log (this logging is mainly for rhojvm/rhojvm-base, not for deps)
-# chrono (really don't need to bring in all this just to print some nice dates)
-tracing-subscriber = { version = "0.2.0", default-features = false, features = [
-    "fmt",
-    "registry",
-    "smallvec",
-] }
 smallvec = { version = "1.7", features = ["const_generics"] }
 # For safe conversions of integers into/from usize
 usize_cast = "1.1.0"
@@ -29,6 +19,3 @@ libloading = "0.7.3"
 indexmap = "1.8.0"
 # For formatting integers, since we need to support different radii
 radix_fmt = "1.0.0"
-# Used for profiling allocations and memory usage.
-# Useful, but has many dependencies and runtime-expensive
-#dhat = "0.2.4"
