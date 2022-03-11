@@ -1047,10 +1047,6 @@ fn get_field_id_safe(
             EvalError::InvalidConstantPoolIndex(field_info.name_index.into_generic()),
         )?;
 
-        tracing::info!(
-            "\tOther Name: {}",
-            convert_classfile_text(target_field_name)
-        );
         // If their names are unequal then simply skip it
         if name != target_field_name {
             continue;
@@ -1061,10 +1057,6 @@ fn get_field_id_safe(
             EvalError::InvalidConstantPoolIndex(field_info.descriptor_index.into_generic()),
         )?;
 
-        tracing::info!(
-            "\tOther Desc: {}",
-            convert_classfile_text(target_field_desc)
-        );
         // Linear compare is probably faster than parsing and I don't think we need to do any
         // typecasting?
         // TODO: Though, we could provide some warnings anyway?
