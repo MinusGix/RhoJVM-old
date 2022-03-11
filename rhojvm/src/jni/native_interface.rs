@@ -8,7 +8,7 @@ use crate::{
     eval::{EvalError, ValueException},
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
-    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValuePrimitive},
+    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
     GeneralError,
 };
@@ -141,12 +141,12 @@ pub struct NativeInterface {
 
     pub get_field_id: GetFieldIdFn,
 
-    pub get_object_field: MethodNoArguments,
+    pub get_object_field: GetObjectFieldFn,
     pub get_boolean_field: MethodNoArguments,
     pub get_byte_field: MethodNoArguments,
     pub get_char_field: MethodNoArguments,
     pub get_short_field: MethodNoArguments,
-    pub get_int_field: MethodNoArguments,
+    pub get_int_field: GetIntFieldFn,
     pub get_long_field: MethodNoArguments,
     pub get_float_field: MethodNoArguments,
     pub get_double_field: MethodNoArguments,
@@ -404,12 +404,12 @@ impl NativeInterface {
             call_nonvirtual_void_method_v: unimpl_none_name!("call_nonvirtual_void_method_v"),
             call_nonvirtual_void_method_a: unimpl_none_name!("call_nonvirtual_void_method_a"),
             get_field_id,
-            get_object_field: unimpl_none_name!("get_object_field"),
+            get_object_field,
             get_boolean_field: unimpl_none_name!("get_boolean_field"),
             get_byte_field: unimpl_none_name!("get_byte_field"),
             get_char_field: unimpl_none_name!("get_char_field"),
             get_short_field: unimpl_none_name!("get_short_field"),
-            get_int_field: unimpl_none_name!("get_int_field"),
+            get_int_field,
             get_long_field: unimpl_none_name!("get_long_field"),
             get_float_field: unimpl_none_name!("get_float_field"),
             get_double_field: unimpl_none_name!("get_double_field"),
@@ -886,6 +886,52 @@ unsafe extern "C" fn get_field_id(
             JFieldId::null()
         }
     }
+}
+
+fn get_field_for(env: *mut Env, obj: JObject, field_id: JFieldId) -> RuntimeValue {
+    assert_valid_env(env);
+    let env = unsafe { &mut *env };
+
+    let obj = unsafe { env.get_jobject_as_gcref(obj) }.expect("Object was null");
+    let field_id = unsafe { field_id.into_field_id() }.expect("Null field id");
+
+    let obj_instance = env.state.gc.deref(obj).expect("Bad gc ref");
+    let field = match obj_instance {
+        Instance::StaticClass(_) => panic!("Static class ref is not allowed"),
+        Instance::Reference(re) => match re {
+            ReferenceInstance::Class(class) => class.fields.get(field_id),
+            ReferenceInstance::StaticForm(class) => class.inner.fields.get(field_id),
+            ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => {
+                panic!("Array does not properties")
+            }
+        },
+    };
+
+    let field = field.expect("Failed to find field");
+    field.value()
+}
+
+pub type GetObjectFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JObject;
+unsafe extern "C" fn get_object_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JObject {
+    match get_field_for(env, obj, field_id) {
+        RuntimeValue::Primitive(_) => panic!("Field was a primitive"),
+        RuntimeValue::NullReference => JObject::null(),
+        RuntimeValue::Reference(re) => {
+            assert_valid_env(env);
+            let env = unsafe { &mut *env };
+
+            env.get_local_jobject_for(re.into_generic())
+        }
+    }
+}
+
+pub type GetIntFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JInt;
+unsafe extern "C" fn get_int_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JInt {
+    get_field_for(env, obj, field_id)
+        .into_int()
+        .expect("Failed to get int")
 }
 
 fn get_field_id_safe(
