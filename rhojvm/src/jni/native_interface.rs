@@ -1,19 +1,21 @@
 use std::{ffi::CStr, os::raw::c_char};
 
 use rhojvm_base::{code::method::MethodDescriptor, convert_classfile_text, id::ClassId};
-use usize_cast::IntoIsize;
+use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{
-    class_instance::{FieldIndex, Instance},
+    class_instance::{FieldIndex, Instance, ReferenceInstance},
     eval::{EvalError, ValueException},
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
+    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValuePrimitive},
     util::Env,
     GeneralError,
 };
 
 use super::{
-    JBoolean, JByte, JChar, JClass, JFieldId, JInt, JObject, JSize, JThrowable, MethodNoArguments,
+    JArray, JBoolean, JByte, JByteArray, JChar, JClass, JFieldId, JInt, JObject, JSize, JThrowable,
+    MethodNoArguments,
 };
 
 #[repr(C)]
@@ -215,7 +217,7 @@ pub struct NativeInterface {
     pub get_string_utf_chars: MethodNoArguments,
     pub release_string_utf_chars: MethodNoArguments,
 
-    pub get_array_length: MethodNoArguments,
+    pub get_array_length: GetArrayLengthFn,
 
     pub new_object_array: MethodNoArguments,
     pub get_object_array_element: MethodNoArguments,
@@ -249,7 +251,7 @@ pub struct NativeInterface {
     pub release_double_array_elements: MethodNoArguments,
 
     pub get_boolean_array_region: MethodNoArguments,
-    pub get_byte_array_region: MethodNoArguments,
+    pub get_byte_array_region: GetByteArrayRegionFn,
     pub get_char_array_region: MethodNoArguments,
     pub get_short_array_region: MethodNoArguments,
     pub get_int_array_region: MethodNoArguments,
@@ -469,7 +471,7 @@ impl NativeInterface {
             get_string_utf_length: unimpl_none,
             get_string_utf_chars: unimpl_none,
             release_string_utf_chars: unimpl_none,
-            get_array_length: unimpl_none,
+            get_array_length,
             new_object_array: unimpl_none,
             get_object_array_element: unimpl_none,
             set_object_array_element: unimpl_none,
@@ -498,7 +500,7 @@ impl NativeInterface {
             release_float_array_elements: unimpl_none,
             release_double_array_elements: unimpl_none,
             get_boolean_array_region: unimpl_none,
-            get_byte_array_region: unimpl_none,
+            get_byte_array_region,
             get_char_array_region: unimpl_none,
             get_short_array_region: unimpl_none,
             get_int_array_region: unimpl_none,
@@ -936,4 +938,101 @@ fn get_field_id_safe(
     }
 
     todo!("Return NoSuchFieldException")
+}
+
+pub type GetArrayLengthFn = unsafe extern "C" fn(env: *mut Env, instance: JArray) -> JSize;
+unsafe extern "C" fn get_array_length(env: *mut Env, instance: JArray) -> JSize {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    let instance = env
+        .get_jobject_as_gcref(instance)
+        .expect("GetByteArrayRegion was null ref");
+    let instance = env
+        .state
+        .gc
+        .deref(instance)
+        .expect("Failed to get instance");
+
+    match instance {
+        Instance::StaticClass(_) => panic!("Got static class instance in get array length"),
+        Instance::Reference(re) => match re {
+            ReferenceInstance::StaticForm(_) | ReferenceInstance::Class(_) => panic!("Got class"),
+            ReferenceInstance::PrimitiveArray(arr) => arr.len(),
+            ReferenceInstance::ReferenceArray(arr) => arr.len(),
+        },
+    }
+}
+
+pub type GetByteArrayRegionFn = unsafe extern "C" fn(
+    env: *mut Env,
+    instance: JByteArray,
+    start: JSize,
+    length: JSize,
+    output: *mut JByte,
+);
+unsafe extern "C" fn get_byte_array_region(
+    env: *mut Env,
+    instance: JByteArray,
+    start: JSize,
+    length: JSize,
+    output: *mut JByte,
+) {
+    assert_valid_env(env);
+    assert!(!output.is_null(), "output buffer was a nullptr");
+    let env = &mut *env;
+
+    assert!(start >= 0, "Negative start");
+
+    let start = start.unsigned_abs();
+    let start = start.into_usize();
+
+    assert!(length >= 0, "Negative length");
+
+    let length = length.unsigned_abs();
+    let length = length.into_usize();
+
+    let end = if let Some(end) = start.checked_add(length) {
+        end
+    } else {
+        panic!("length + start would overflow");
+    };
+
+    let instance = env
+        .get_jobject_as_gcref(instance)
+        .expect("GetByteArrayRegion was null ref");
+    let instance = env
+        .state
+        .gc
+        .deref(instance)
+        .expect("Failed to get instance");
+    if let Instance::Reference(ReferenceInstance::PrimitiveArray(instance)) = instance {
+        assert!(instance.element_type == RuntimeTypePrimitive::I8);
+        assert!(isize::try_from(instance.elements.len()).is_ok());
+
+        assert!(
+            start < instance.elements.len(),
+            "Start is past end of array"
+        );
+
+        assert!(end < instance.elements.len(), "End is past end of array");
+
+        let iter = instance
+            .elements
+            .iter()
+            .skip(start)
+            .take(length)
+            .enumerate();
+
+        for (offset, val) in instance.elements.iter().enumerate() {
+            let ptr_dest = output.add(offset);
+            if let RuntimeValuePrimitive::I8(val) = val {
+                *ptr_dest = *val;
+            } else {
+                panic!("Bad value in i8 array");
+            }
+        }
+    } else {
+        panic!("Instance was not a primitive array")
+    }
 }
