@@ -12,4 +12,8 @@ public class VM {
     public static boolean isBooted() {
         return true;
     }
+
+    public static long maxDirectMemory() {
+        return 128 * 1024 * 1024;
+    }
 }
