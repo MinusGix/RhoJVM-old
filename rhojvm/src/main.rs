@@ -33,6 +33,7 @@ use either::Either;
 use eval::{instances::make_fields, EvalError, EvalMethodValue};
 use gc::{Gc, GcRef};
 use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibrariesStatic};
+use memblock::MemoryBlocks;
 use method::MethodInfo;
 // use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
@@ -68,6 +69,7 @@ pub mod eval;
 mod formatter;
 pub mod gc;
 pub mod jni;
+pub mod memblock;
 pub mod method;
 pub mod rv;
 pub mod util;
@@ -235,6 +237,8 @@ pub struct State {
 
     pub gc: Gc,
 
+    pub mem_blocks: MemoryBlocks,
+
     native: Arc<NativeLibrariesStatic>,
 
     classes_info: ClassesInfo,
@@ -267,6 +271,8 @@ impl State {
             conf,
 
             gc: Gc::new(),
+
+            mem_blocks: MemoryBlocks::default(),
 
             // The native libraries is wrapped in an `RwLock` since loading libraries is relatively
             // uncommon, but extracting symbols (immutable op) is more common.

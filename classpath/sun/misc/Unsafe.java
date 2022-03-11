@@ -11,73 +11,41 @@ public final class Unsafe {
         return instance;
     }
 
-    public long allocateMemory(long bytes) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native long allocateMemory(long bytes);
 
     public void setMemory(Object base, long offset, long count, byte value) {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public void freeMemory(long address) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native void freeMemory(long address);
 
-    public byte getByte(long address) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native byte getByte(long address);
 
-    public void putByte(long address, byte value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native void putByte(long address, byte value);
 
-    public short getShort(long address) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native short getShort(long address);
 
-    public void putShort(long address, short value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native void putShort(long address, short value);
 
-    public char getChar(long address) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native char getChar(long address);
 
-    public void putChar(long address, char value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native void putChar(long address, char value);
 
-    public int getInt(long address) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native int getInt(long address);
 
-    public void putInt(long address, int value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native void putInt(long address, int value);
 
-    public long getLong(long address) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native long getLong(long address);
 
-    public void putLong(long address, long value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native void putLong(long address, long value);
 
-    public float getFloat(long address) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native float getFloat(long address);
 
-    public void putFloat(long address, float value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native void putFloat(long address, float value);
 
-    public double getDouble(long address) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native double getDouble(long address);
 
-    public void putDouble(long address, double x) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native void putDouble(long address, double x);
 
     public boolean getBooleanVolatile(Object o, long offset) {
         throw new UnsupportedOperationException("TODO: Implement this");

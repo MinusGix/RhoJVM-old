@@ -3,13 +3,9 @@
 use classfile_parser::{field_info::FieldAccessFlags, ClassAccessFlags};
 use either::Either;
 use rhojvm_base::{
-    code::{
-        method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
-        types::JavaChar,
-    },
+    code::{method::MethodDescriptor, types::JavaChar},
     id::ClassId,
 };
-use smallvec::smallvec;
 use usize_cast::IntoUsize;
 
 use crate::{
@@ -20,9 +16,10 @@ use crate::{
     gc::GcRef,
     initialize_class,
     jni::{
-        JBoolean, JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JString,
+        JBoolean, JByte, JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JShort, JString,
         MethodClassNoArguments, OpaqueClassMethod,
     },
+    memblock::MemoryBlockPtr,
     rv::{RuntimeValue, RuntimeValuePrimitive},
     util::{self, find_field_with_name, Env},
     GeneralError,
@@ -122,7 +119,26 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_java_lang_Integer_toString" => into_opaque4ret(integer_to_string),
             b"Java_java_lang_Integer_parseInt" => into_opaque4ret(integer_parse_int),
-            // Unsafe
+            // Unsafe allocation
+            b"Java_sun_misc_Unsafe_allocateMemory" => into_opaque3ret(unsafe_allocate_memory),
+            b"Java_sun_misc_Unsafe_freeMemory" => into_opaque3ret(unsafe_free_memory),
+            // Unsafe get
+            b"Java_sun_misc_Unsafe_getByte" => into_opaque3ret(unsafe_get_byte),
+            b"Java_sun_misc_Unsafe_getShort" => into_opaque3ret(unsafe_get_short),
+            b"Java_sun_misc_Unsafe_getChar" => into_opaque3ret(unsafe_get_char),
+            b"Java_sun_misc_Unsafe_getInt" => into_opaque3ret(unsafe_get_int),
+            b"Java_sun_misc_Unsafe_getLong" => into_opaque3ret(unsafe_get_long),
+            b"Java_sun_misc_Unsafe_getFloat" => into_opaque3ret(unsafe_get_float),
+            b"Java_sun_misc_Unsafe_getDouble" => into_opaque3ret(unsafe_get_double),
+            // Unsafe put
+            b"Java_sun_misc_Unsafe_putByte" => into_opaque4ret(unsafe_put_byte),
+            b"Java_sun_misc_Unsafe_putShort" => into_opaque4ret(unsafe_put_short),
+            b"Java_sun_misc_Unsafe_putChar" => into_opaque4ret(unsafe_put_char),
+            b"Java_sun_misc_Unsafe_putInt" => into_opaque4ret(unsafe_put_int),
+            b"Java_sun_misc_Unsafe_putLong" => into_opaque4ret(unsafe_put_long),
+            b"Java_sun_misc_Unsafe_putFloat" => into_opaque4ret(unsafe_put_float),
+            b"Java_sun_misc_Unsafe_putDouble" => into_opaque4ret(unsafe_put_double),
+            // Unsafe fields
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_object_field_offset)
             }
@@ -725,6 +741,213 @@ extern "C" fn integer_parse_int(
     // faster than converting it to a rust string and back..
     // TODO: Does this match java's behavior?
     i32::from_str_radix(&source, radix).expect("Failed to parse integer")
+}
+
+type JAddress = JLong;
+
+extern "C" fn unsafe_allocate_memory(env: *mut Env<'_>, _this: JObject, size: JLong) -> JAddress {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    let size: usize = size.try_into().expect("Out of memory error");
+
+    let ptr = env.state.mem_blocks.allocate_block(size).unwrap();
+    let ptr = ptr.get();
+    let ptr = ptr as usize;
+    let ptr: JAddress = ptr
+        .try_into()
+        .expect("Address was too large to fit into a long");
+
+    ptr
+}
+
+unsafe fn conv_address(address: JAddress) -> MemoryBlockPtr {
+    let address: usize = address.try_into().expect("Address was too high to fit into a usize. This is probably indicative of a bug in the Java code or internally.");
+    let address = address as *mut u8;
+    // Safety: We basically have to trust it to be valid.
+    MemoryBlockPtr::new_unchecked(address)
+}
+
+extern "C" fn unsafe_free_memory(env: *mut Env<'_>, _this: JObject, address: JAddress) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We are only deallocating, so it just checks if the pointer exists in our allocations.
+    // So not really unsafe.
+    let address = unsafe { conv_address(address) };
+
+    env.state.mem_blocks.deallocate_block(address);
+}
+
+extern "C" fn unsafe_get_byte(env: *mut Env<'_>, _this: JObject, address: JAddress) -> JByte {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.get_i8_ne(address) }
+}
+
+extern "C" fn unsafe_get_short(env: *mut Env<'_>, _this: JObject, address: JAddress) -> JShort {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.get_i16_ne(address) }
+}
+
+extern "C" fn unsafe_get_char(env: *mut Env<'_>, _this: JObject, address: JAddress) -> JChar {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.get_u16_ne(address) }
+}
+
+extern "C" fn unsafe_get_int(env: *mut Env<'_>, _this: JObject, address: JAddress) -> JInt {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.get_i32_ne(address) }
+}
+
+extern "C" fn unsafe_get_long(env: *mut Env<'_>, _this: JObject, address: JAddress) -> JLong {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.get_i64_ne(address) }
+}
+
+extern "C" fn unsafe_get_float(env: *mut Env<'_>, _this: JObject, address: JAddress) -> JFloat {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.get_f32_ne(address) }
+}
+
+extern "C" fn unsafe_get_double(env: *mut Env<'_>, _this: JObject, address: JAddress) -> JDouble {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.get_f64_ne(address) }
+}
+
+extern "C" fn unsafe_put_byte(env: *mut Env<'_>, _this: JObject, address: JAddress, value: JByte) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.set_i8_ne(address, value) };
+}
+
+extern "C" fn unsafe_put_short(
+    env: *mut Env<'_>,
+    _this: JObject,
+    address: JAddress,
+    value: JShort,
+) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.set_i16_ne(address, value) };
+}
+
+extern "C" fn unsafe_put_char(env: *mut Env<'_>, _this: JObject, address: JAddress, value: JChar) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.set_u16_ne(address, value) };
+}
+
+extern "C" fn unsafe_put_int(env: *mut Env<'_>, _this: JObject, address: JAddress, value: JInt) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.set_i32_ne(address, value) };
+}
+
+extern "C" fn unsafe_put_long(env: *mut Env<'_>, _this: JObject, address: JAddress, value: JLong) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.set_i64_ne(address, value) };
+}
+
+extern "C" fn unsafe_put_float(
+    env: *mut Env<'_>,
+    _this: JObject,
+    address: JAddress,
+    value: JFloat,
+) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.set_f32_ne(address, value) };
+}
+
+extern "C" fn unsafe_put_double(
+    env: *mut Env<'_>,
+    _this: JObject,
+    address: JAddress,
+    value: JDouble,
+) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    unsafe { env.state.mem_blocks.set_f64_ne(address, value) };
 }
 
 /// sun/misc/Unsafe

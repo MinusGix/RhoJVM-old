@@ -641,6 +641,13 @@ pub fn eval_method(
                 ) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JInt, param2: JInt));
                 }
+                (
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JLong, param2: JLong));
+                }
+
                 _ => todo!("Fully implement two parameter native methods"),
             }
         } else if param_count == 3 {
