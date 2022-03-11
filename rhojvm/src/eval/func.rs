@@ -554,6 +554,7 @@ fn find_virtual_method(
     // We also don't bother checking that the base_id exists properly since it would have had to be
     // loaded already.
 
+    // TODO: This is probably too lenient.
     // TODO: Error if it is an instance initialization method?
     let mut current_check_id = instance_id;
     loop {
@@ -575,13 +576,6 @@ fn find_virtual_method(
                     .ok_or(GeneralError::MissingLoadedClass(current_check_id))?
                     .super_id();
                 if let Some(super_id) = super_id {
-                    if super_id == base_id {
-                        // Break out of the loop since we've reached the base class
-                        // and, while it is a potential end result, we still need to check
-                        // the interfaces.
-                        break;
-                    }
-
                     current_check_id = super_id;
                     continue;
                 }
@@ -593,6 +587,7 @@ fn find_virtual_method(
         }
     }
 
+    tracing::info!("Checking interfaces");
     // TODO: Does this check the superinterfaces of the superinterfaces?
     // TODO: Does this check the superinterfaces of the superclasses?
     // Check the superinterfaces of instance_id
@@ -603,9 +598,6 @@ fn find_virtual_method(
     let interfaces: SmallVec<[_; 8]> =
         map_interface_index_small_vec_to_ids(class_names, instance_class_file, interfaces)?;
     for interface_id in interfaces {
-        // let class_file = class_files
-        //     .get(&instance_id)
-        //     .ok_or(GeneralError::MissingLoadedClassFile(instance_id))?;
         let method_id = methods.load_method_from_desc(
             class_directories,
             class_names,
@@ -648,8 +640,6 @@ fn find_virtual_method(
         name,
         descriptor,
     )?)
-
-    // todo!("Exception failed to find function");
 }
 
 impl RunInst for InvokeVirtual {
