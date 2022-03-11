@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use classfile_parser::constant_pool::{ConstantPoolIndex, ConstantPoolIndexRaw};
 
 #[derive(Clone, Eq, PartialEq)]
@@ -27,33 +25,6 @@ impl<'a> std::fmt::Debug for Cesu8Str<'a> {
 #[must_use]
 pub fn convert_classfile_text(bytes: &[u8]) -> std::borrow::Cow<str> {
     cesu8::from_java_cesu8(bytes).unwrap_or_else(|_| String::from_utf8_lossy(bytes))
-}
-
-// We can't really have a generic version for packages and classes because we can't
-// distinguish between a class path and a package path
-/// Convert the access path for a class into a relative path
-pub(crate) fn class_path_slice_to_relative_path<T: AsRef<str>>(class_path: &[T]) -> PathBuf {
-    let mut path = PathBuf::with_capacity(class_path.len());
-    for path_part in class_path.iter() {
-        path.push(path_part.as_ref());
-    }
-
-    path.set_extension("class");
-
-    path
-}
-pub(crate) fn class_path_iter_to_relative_path<'a>(
-    class_path: impl Iterator<Item = &'a str> + Clone,
-) -> PathBuf {
-    let count = class_path.clone().count();
-    let mut path = PathBuf::with_capacity(count);
-    for path_part in class_path {
-        path.push(path_part);
-    }
-
-    path.set_extension("class");
-
-    path
 }
 
 /// Note: This will work fine for path to a class as well

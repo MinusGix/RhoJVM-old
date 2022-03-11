@@ -7,6 +7,7 @@ edition = "2021"
 rhojvm-base = { path = "../rhojvm-base/" }
 stack_map-verifier = { path = "../stack_map-verifier/" }
 rhojvm = { path = "../rhojvm/" }
+rhojvm-class-loaders = { path = "../rhojvm-class-loaders/" }
 tracing = { version = "0.1", default-features = false }
 # Disables:
 # env-filter (potentially useful but brings in a good bit, and can be enabled for debug)

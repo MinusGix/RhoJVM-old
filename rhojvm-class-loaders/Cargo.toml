@@ -1,0 +1,8 @@
+[package]
+name = "rhojvm-class-loaders"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
+rhojvm-base = { path = "../rhojvm-base/" }

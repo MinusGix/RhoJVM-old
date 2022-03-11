@@ -43,7 +43,7 @@ pub struct ClassFileData {
     pub(crate) class_file: ClassFileOpt,
 }
 impl ClassFileData {
-    pub(crate) fn new(
+    pub fn new(
         id: ClassId,
         path: PathBuf,
         class_file_data: Rc<[u8]>,
