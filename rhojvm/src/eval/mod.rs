@@ -674,6 +674,22 @@ pub fn eval_method(
             ) {
                 impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JBoolean, param3: JObject));
             }
+        } else if param_count == 4 {
+            if matches!(
+                method.descriptor().parameters()[0],
+                DescriptorType::Array { .. } | DescriptorType::Basic(DescriptorTypeBasic::Class(_))
+            ) && matches!(
+                method.descriptor().parameters()[1],
+                DescriptorType::Basic(DescriptorTypeBasic::Int)
+            ) && matches!(
+                method.descriptor().parameters()[2],
+                DescriptorType::Basic(DescriptorTypeBasic::Int)
+            ) && matches!(
+                method.descriptor().parameters()[3],
+                DescriptorType::Basic(DescriptorTypeBasic::Boolean)
+            ) {
+                impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JInt, param3: JInt, param4: JBoolean));
+            }
         } else if param_count == 5
             && matches!(
                 method.descriptor().parameters()[0],
