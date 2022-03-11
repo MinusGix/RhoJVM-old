@@ -3,7 +3,7 @@ use classfile_parser::{
     constant_pool::ConstantPoolIndexRaw,
 };
 
-use crate::{class::ClassFileData, code::method::MethodDescriptor, ClassNames};
+use crate::{class::ClassFileData, code::method::MethodDescriptor, data::class_names::ClassNames};
 
 use super::op::Inst;
 

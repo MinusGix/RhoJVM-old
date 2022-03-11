@@ -4,9 +4,15 @@ use rhojvm_base::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         op::{InvokeDynamic, InvokeInterface, InvokeSpecial, InvokeStatic, InvokeVirtual},
     },
+    data::{
+        class_files::ClassFiles,
+        class_names::ClassNames,
+        classes::Classes,
+        methods::{LoadMethodError, Methods},
+    },
     id::{ClassId, MethodId},
     package::Packages,
-    ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
+    StepError,
 };
 use smallvec::SmallVec;
 

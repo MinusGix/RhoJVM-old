@@ -1,5 +1,8 @@
 use rhojvm_base::code::types::{LocalVariableType, PopComplexType};
 
+use rhojvm_base::data::class_files::ClassFiles;
+use rhojvm_base::data::class_names::ClassNames;
+use rhojvm_base::data::classes::Classes;
 use rhojvm_base::{
     class::ClassFileData,
     code::{
@@ -10,7 +13,7 @@ use rhojvm_base::{
     },
     id::ClassId,
     package::Packages,
-    ClassFiles, ClassNames, Classes, StepError,
+    StepError,
 };
 use smallvec::SmallVec;
 

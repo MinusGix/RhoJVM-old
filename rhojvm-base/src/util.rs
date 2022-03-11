@@ -22,6 +22,13 @@ impl<'a> std::fmt::Debug for Cesu8Str<'a> {
     }
 }
 
+/// Tries converting cesu8-java-style strings into Rust's utf8 strings
+/// This tries to avoid allocating but may not be able to avoid it
+#[must_use]
+pub fn convert_classfile_text(bytes: &[u8]) -> std::borrow::Cow<str> {
+    cesu8::from_java_cesu8(bytes).unwrap_or_else(|_| String::from_utf8_lossy(bytes))
+}
+
 // We can't really have a generic version for packages and classes because we can't
 // distinguish between a class path and a package path
 /// Convert the access path for a class into a relative path

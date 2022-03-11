@@ -1,7 +1,10 @@
 use classfile_parser::field_info::{FieldAccessFlags, FieldInfoOpt};
 use either::Either;
 use rhojvm_base::{
-    id::ClassId, package::Packages, util::MemorySize, ClassFiles, ClassNames, Classes, Methods,
+    data::{class_files::ClassFiles, class_names::ClassNames, classes::Classes, methods::Methods},
+    id::ClassId,
+    package::Packages,
+    util::MemorySize,
 };
 
 use crate::{

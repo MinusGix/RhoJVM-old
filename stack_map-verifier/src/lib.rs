@@ -23,8 +23,11 @@ use rhojvm_base::code::types::{
     Category, Instruction, LocalVariableInType, LocalVariableIndex, LocalVariableType, LocalsIn,
     LocalsOutAt, StackSizes,
 };
+use rhojvm_base::data::class_files::ClassFiles;
+use rhojvm_base::data::class_names::ClassNames;
+use rhojvm_base::data::classes::Classes;
+use rhojvm_base::data::methods::Methods;
 use rhojvm_base::id::MethodIndex;
-use rhojvm_base::Methods;
 use rhojvm_base::{
     class::ClassFileData,
     code::{
@@ -35,7 +38,7 @@ use rhojvm_base::{
     },
     id::{ClassId, MethodId},
     package::Packages,
-    ClassFiles, ClassNames, Classes, StepError,
+    StepError,
 };
 use smallvec::SmallVec;
 use types::{ComplexFrameType, FrameType};

@@ -14,8 +14,8 @@ use crate::code::types::{
     PrimitiveType, PushIndex, PushType, PushTypeAt, Short, StackInfo, StackSizes, UnsignedByte,
     UnsignedShort, WithType,
 };
+use crate::data::class_names::ClassNames;
 use crate::util::{MemorySizeU16, StaticMemorySizeU16};
-use crate::ClassNames;
 
 use super::types::ConstantPoolIndexRawU8;
 

@@ -3,8 +3,9 @@ use rhojvm_base::{
         method::{DescriptorType, DescriptorTypeBasic},
         types::{JavaChar, PrimitiveType},
     },
+    data::class_names::ClassNames,
     id::ClassId,
-    BadIdError, ClassNames,
+    BadIdError,
 };
 
 use crate::{class_instance::ReferenceInstance, gc::GcRef};

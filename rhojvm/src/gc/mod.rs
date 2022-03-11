@@ -16,7 +16,11 @@
 //! <https://github.com/ceronman/loxido/blob/master/src/gc.rs>
 use std::{collections::VecDeque, marker::PhantomData};
 
-use rhojvm_base::{package::Packages, util::MemorySize, ClassFiles, ClassNames, Classes, Methods};
+use rhojvm_base::{
+    data::{class_files::ClassFiles, class_names::ClassNames, classes::Classes, methods::Methods},
+    package::Packages,
+    util::MemorySize,
+};
 
 use crate::{
     class_instance::{Instance, ReferenceInstance},

@@ -42,10 +42,15 @@ use rhojvm_base::{
         stack_map::StackMapError,
         types::PrimitiveType,
     },
+    data::{
+        class_files::ClassFiles,
+        class_names::ClassNames,
+        classes::{load_super_classes_iter, Classes},
+        methods::{init_method_overrides, load_method_descriptor_types, LoadMethodError, Methods},
+    },
     id::{ClassId, MethodId},
-    load_super_classes_iter,
     package::Packages,
-    ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
+    StepError,
 };
 use smallvec::{smallvec, SmallVec};
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
@@ -1123,9 +1128,9 @@ fn verify_type_safe_method(
         .verify_access_flags()
         .map_err(StepError::VerifyMethod)?;
 
-    rhojvm_base::load_method_descriptor_types(class_names, class_files, classes, packages, method)?;
+    load_method_descriptor_types(class_names, class_files, classes, packages, method)?;
     // TODO: Document that this assures that it isn't overriding a final method
-    rhojvm_base::init_method_overrides(
+    init_method_overrides(
         class_names,
         class_files,
         classes,

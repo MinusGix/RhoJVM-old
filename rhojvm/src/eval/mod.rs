@@ -12,10 +12,9 @@ use rhojvm_base::{
         op::{Inst, Wide, WideInst},
         types::{Instruction, JavaChar, LocalVariableIndex},
     },
-    convert_classfile_text,
     id::{ClassId, MethodId},
     map_inst,
-    util::MemorySizeU16,
+    util::{convert_classfile_text, MemorySizeU16},
     StepError,
 };
 

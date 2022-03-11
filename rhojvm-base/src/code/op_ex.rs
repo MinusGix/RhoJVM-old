@@ -30,8 +30,9 @@ use super::{
 use crate::class::ClassFileData;
 use crate::code::method::MethodDescriptor;
 use crate::code::types::StackInfoError;
+use crate::data::class_names::ClassNames;
 use crate::id::{ClassId, MethodId};
-use crate::{ClassNames, LoadMethodError, StepError};
+use crate::{LoadMethodError, StepError};
 
 #[derive(Debug)]
 pub enum InstructionParseError {

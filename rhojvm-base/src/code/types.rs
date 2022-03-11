@@ -8,9 +8,10 @@ use classfile_parser::{constant_info::ConstantInfo, constant_pool::ConstantPoolI
 
 use crate::{
     class::ClassFileData,
+    data::class_names::ClassNames,
     id::{ClassId, MethodId},
     util::{MemorySizeU16, StaticMemorySizeU16},
-    ClassNames, StepError,
+    StepError,
 };
 
 use super::method::{DescriptorType, DescriptorTypeBasic};

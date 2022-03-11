@@ -9,7 +9,7 @@ use rhojvm_base::{
         IntReturn, LongCmp, LongReturn, LookupSwitch, MonitorEnter, MonitorExit, Return,
         TableSwitch,
     },
-    does_extend_class,
+    data::classes::does_extend_class,
 };
 
 use crate::{

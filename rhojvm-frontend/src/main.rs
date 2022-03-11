@@ -11,9 +11,12 @@ use rhojvm::{
 };
 use rhojvm_base::{
     code::method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
+    data::{
+        class_file_loader::ClassDirectories, class_files::ClassFiles, class_names::ClassNames,
+        classes::Classes, methods::Methods,
+    },
     id::ClassId,
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
 };
 use stack_map_verifier::StackMapVerificationLogging;
 use tracing_subscriber::layer::SubscriberExt;

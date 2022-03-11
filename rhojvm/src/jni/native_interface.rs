@@ -1,6 +1,6 @@
 use std::{ffi::CStr, os::raw::c_char};
 
-use rhojvm_base::{code::method::MethodDescriptor, convert_classfile_text, id::ClassId};
+use rhojvm_base::{code::method::MethodDescriptor, id::ClassId, util::convert_classfile_text};
 use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{

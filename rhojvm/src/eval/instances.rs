@@ -12,6 +12,7 @@ use rhojvm_base::{
         op::{ANewArray, CheckCast, InstanceOf, MultiANewArray, New, NewArray},
         types::JavaChar,
     },
+    data::classes::load_super_classes_iter,
     id::ClassId,
     StepError,
 };
@@ -161,7 +162,7 @@ pub(crate) fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
 
     // Iterate over the super classes (which includes the current class)
     // Adding all of their fields to the map
-    let mut tree_iter = rhojvm_base::load_super_classes_iter(class_id);
+    let mut tree_iter = load_super_classes_iter(class_id);
     while let Some(target_id) = tree_iter.next_item(
         &mut env.class_names,
         &mut env.class_files,

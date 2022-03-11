@@ -21,10 +21,10 @@ use smallvec::SmallVec;
 use crate::{
     class::{ArrayComponentType, ClassFileData},
     code::{self},
+    data::{class_files::ClassFiles, class_names::ClassNames},
     id::{ClassId, MethodId},
     util::format_class_as_object_desc,
-    BadIdError, ClassFiles, ClassNames, LoadCodeError, LoadMethodError, StepError,
-    VerifyMethodError,
+    BadIdError, LoadCodeError, LoadMethodError, StepError, VerifyMethodError,
 };
 
 use super::CodeInfo;

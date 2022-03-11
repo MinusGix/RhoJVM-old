@@ -9,7 +9,7 @@ use classfile_parser::{
 };
 use smallvec::SmallVec;
 
-use crate::{class::ClassFileData, id::ClassId, BadIdError, ClassNames};
+use crate::{class::ClassFileData, data::class_names::ClassNames, id::ClassId, BadIdError};
 
 use super::{
     method::{DescriptorType, DescriptorTypeBasic, Method},

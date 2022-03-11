@@ -13,9 +13,10 @@ pub use classfile_parser::ClassAccessFlags;
 
 use crate::{
     code::types::PrimitiveType,
+    data::class_names::ClassNames,
     id::{ClassId, MethodId, MethodIndex, PackageId},
     util::format_class_as_object_desc,
-    BadIdError, ClassNames,
+    BadIdError,
 };
 
 #[derive(Debug, Clone)]

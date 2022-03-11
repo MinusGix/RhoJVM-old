@@ -27,10 +27,14 @@ use rhojvm_base::{
         },
         types::{JavaChar, LocalVariableIndex},
     },
+    data::{
+        class_files::ClassFiles,
+        class_names::ClassNames,
+        classes::{load_super_classes_iter, Classes},
+        methods::Methods,
+    },
     id::ClassId,
-    load_super_classes_iter,
     package::Packages,
-    ClassFiles, ClassNames, Classes, Methods,
 };
 use usize_cast::IntoUsize;
 
