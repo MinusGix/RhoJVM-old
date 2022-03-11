@@ -14,8 +14,8 @@ use crate::{
 };
 
 use super::{
-    JArray, JBoolean, JByte, JByteArray, JChar, JClass, JFieldId, JInt, JObject, JSize, JThrowable,
-    MethodNoArguments,
+    JArray, JBoolean, JByte, JByteArray, JChar, JClass, JDouble, JFieldId, JFloat, JInt, JLong,
+    JObject, JShort, JSize, JThrowable, MethodNoArguments,
 };
 
 macro_rules! unimpl_none_name {
@@ -142,14 +142,14 @@ pub struct NativeInterface {
     pub get_field_id: GetFieldIdFn,
 
     pub get_object_field: GetObjectFieldFn,
-    pub get_boolean_field: MethodNoArguments,
-    pub get_byte_field: MethodNoArguments,
-    pub get_char_field: MethodNoArguments,
-    pub get_short_field: MethodNoArguments,
+    pub get_boolean_field: GetBooleanFieldFn,
+    pub get_byte_field: GetByteFieldFn,
+    pub get_char_field: GetCharFieldFn,
+    pub get_short_field: GetShortFieldFn,
     pub get_int_field: GetIntFieldFn,
-    pub get_long_field: MethodNoArguments,
-    pub get_float_field: MethodNoArguments,
-    pub get_double_field: MethodNoArguments,
+    pub get_long_field: GetLongFieldFn,
+    pub get_float_field: GetFloatFieldFn,
+    pub get_double_field: GetDoubleFieldFn,
     pub set_object_field: MethodNoArguments,
     pub set_boolean_field: MethodNoArguments,
     pub set_byte_field: MethodNoArguments,
@@ -405,14 +405,14 @@ impl NativeInterface {
             call_nonvirtual_void_method_a: unimpl_none_name!("call_nonvirtual_void_method_a"),
             get_field_id,
             get_object_field,
-            get_boolean_field: unimpl_none_name!("get_boolean_field"),
-            get_byte_field: unimpl_none_name!("get_byte_field"),
-            get_char_field: unimpl_none_name!("get_char_field"),
-            get_short_field: unimpl_none_name!("get_short_field"),
+            get_boolean_field,
+            get_byte_field,
+            get_char_field,
+            get_short_field,
             get_int_field,
-            get_long_field: unimpl_none_name!("get_long_field"),
-            get_float_field: unimpl_none_name!("get_float_field"),
-            get_double_field: unimpl_none_name!("get_double_field"),
+            get_long_field,
+            get_float_field,
+            get_double_field,
             set_object_field: unimpl_none_name!("set_object_field"),
             set_boolean_field: unimpl_none_name!("set_boolean_field"),
             set_byte_field: unimpl_none_name!("set_byte_field"),
@@ -554,11 +554,6 @@ impl Default for NullMethod {
     fn default() -> Self {
         Self(std::ptr::null())
     }
-}
-
-pub type UnimplNoneFn = unsafe extern "C" fn(env: *mut Env);
-extern "C" fn unimpl_none(_: *mut Env) {
-    unimpl("unimpl_none")
 }
 
 fn unimpl(message: &str) -> ! {
@@ -919,19 +914,111 @@ unsafe extern "C" fn get_object_field(env: *mut Env, obj: JObject, field_id: JFi
         RuntimeValue::NullReference => JObject::null(),
         RuntimeValue::Reference(re) => {
             assert_valid_env(env);
-            let env = unsafe { &mut *env };
+            let env = &mut *env;
 
             env.get_local_jobject_for(re.into_generic())
         }
     }
 }
 
+pub type GetBooleanFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JBoolean;
+unsafe extern "C" fn get_boolean_field(
+    env: *mut Env,
+    obj: JObject,
+    field_id: JFieldId,
+) -> JBoolean {
+    if let RuntimeValue::Primitive(RuntimeValuePrimitive::Bool(value)) =
+        get_field_for(env, obj, field_id)
+    {
+        value.into()
+    } else {
+        panic!("Field did not contain a bool");
+    }
+}
+
+pub type GetByteFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JByte;
+unsafe extern "C" fn get_byte_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JByte {
+    if let RuntimeValue::Primitive(RuntimeValuePrimitive::I8(value)) =
+        get_field_for(env, obj, field_id)
+    {
+        value
+    } else {
+        panic!("Field did not contain a byte");
+    }
+}
+
+pub type GetCharFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JChar;
+unsafe extern "C" fn get_char_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JChar {
+    if let RuntimeValue::Primitive(RuntimeValuePrimitive::Char(value)) =
+        get_field_for(env, obj, field_id)
+    {
+        value.as_i16() as u16
+    } else {
+        panic!("Field did not contain a char");
+    }
+}
+
+pub type GetShortFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JShort;
+unsafe extern "C" fn get_short_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JShort {
+    if let RuntimeValue::Primitive(RuntimeValuePrimitive::I16(value)) =
+        get_field_for(env, obj, field_id)
+    {
+        value
+    } else {
+        panic!("Field did not contain a short");
+    }
+}
+
 pub type GetIntFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JInt;
 unsafe extern "C" fn get_int_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JInt {
-    get_field_for(env, obj, field_id)
-        .into_int()
-        .expect("Failed to get int")
+    if let RuntimeValue::Primitive(RuntimeValuePrimitive::I32(value)) =
+        get_field_for(env, obj, field_id)
+    {
+        value
+    } else {
+        panic!("Field did not contain an int");
+    }
+}
+
+pub type GetLongFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JLong;
+unsafe extern "C" fn get_long_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JLong {
+    if let RuntimeValue::Primitive(RuntimeValuePrimitive::I64(value)) =
+        get_field_for(env, obj, field_id)
+    {
+        value
+    } else {
+        panic!("Field did not contain a long");
+    }
+}
+
+pub type GetFloatFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JFloat;
+unsafe extern "C" fn get_float_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JFloat {
+    if let RuntimeValue::Primitive(RuntimeValuePrimitive::F32(value)) =
+        get_field_for(env, obj, field_id)
+    {
+        value
+    } else {
+        panic!("Field did not contain a float");
+    }
+}
+
+pub type GetDoubleFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JDouble;
+unsafe extern "C" fn get_double_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JDouble {
+    if let RuntimeValue::Primitive(RuntimeValuePrimitive::F64(value)) =
+        get_field_for(env, obj, field_id)
+    {
+        value
+    } else {
+        panic!("Field did not contain a double");
+    }
 }
 
 fn get_field_id_safe(
