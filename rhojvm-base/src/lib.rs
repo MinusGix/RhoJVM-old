@@ -268,6 +268,68 @@ impl ClassDirectories {
         }
         None
     }
+
+    pub fn direct_load_class_file_from_rel_path(
+        &self,
+        class_file_id: ClassId,
+        rel_path: PathBuf,
+    ) -> Result<ClassFileData, LoadClassFileError> {
+        use classfile_parser::parser::ParseData;
+
+        if let Some((file_path, mut file)) = self.load_class_file_with_rel_path(&rel_path) {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data)
+                .map_err(LoadClassFileError::ReadError)?;
+            let data = Rc::from(data);
+
+            // TODO: Better errors
+            let (rem_data, class_file) = class_parser_opt(ParseData::new(&data))
+                .map_err(|x| format!("{:?}", x))
+                .map_err(LoadClassFileError::ClassFileParseError)?;
+            // TODO: Don't assert
+            debug_assert!(rem_data.is_empty());
+
+            Ok(ClassFileData::new(
+                class_file_id,
+                file_path,
+                data,
+                class_file,
+            ))
+        } else {
+            Err(LoadClassFileError::NonexistentFile(rel_path))
+        }
+    }
+}
+
+pub trait ClassFinder {
+    fn direct_load_class_file_by_id(
+        &self,
+        class_names: &ClassNames,
+        class_file_id: ClassId,
+    ) -> Result<Option<ClassFileData>, LoadClassFileError>;
+}
+
+impl ClassFinder for ClassDirectories {
+    fn direct_load_class_file_by_id(
+        &self,
+        class_names: &ClassNames,
+        class_file_id: ClassId,
+    ) -> Result<Option<ClassFileData>, LoadClassFileError> {
+        let (class_name, class_info) = class_names
+            .name_from_gcid(class_file_id)
+            .map_err(LoadClassFileError::BadId)?;
+
+        // It doesn't have a class file at all, so whatever
+        if !class_info.has_class_file() {
+            return Ok(None);
+        }
+
+        let path = convert_classfile_text(class_name.0);
+        let path = util::access_path_iter(&path);
+        let rel_path = util::class_path_iter_to_relative_path(path);
+        self.direct_load_class_file_from_rel_path(class_file_id, rel_path)
+            .map(Some)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1665,7 +1727,7 @@ impl ClassFiles {
             return Ok(());
         }
 
-        let class_file = direct_load_class_file_from_rel_path(class_directories, id, rel_path)?;
+        let class_file = class_directories.direct_load_class_file_from_rel_path(id, rel_path)?;
         self.set_at(id, class_file);
 
         Ok(())
@@ -1679,31 +1741,9 @@ pub fn convert_classfile_text(bytes: &[u8]) -> Cow<str> {
     cesu8::from_java_cesu8(bytes).unwrap_or_else(|_| String::from_utf8_lossy(bytes))
 }
 
-/// The id must be defined inside of the given class names
-pub fn direct_load_class_file_by_id(
-    class_directories: &ClassDirectories,
-    class_names: &ClassNames,
-    class_file_id: ClassId,
-) -> Result<Option<ClassFileData>, LoadClassFileError> {
-    let (class_name, class_info) = class_names
-        .name_from_gcid(class_file_id)
-        .map_err(LoadClassFileError::BadId)?;
-    debug_assert!(!class_name.is_empty());
-
-    if !class_info.has_class_file() {
-        // There's no class file to parse
-        return Ok(None);
-    }
-
-    let path = convert_classfile_text(class_name.0);
-    let path = util::access_path_iter(&path);
-    let rel_path = util::class_path_iter_to_relative_path(path);
-    direct_load_class_file_from_rel_path(class_directories, class_file_id, rel_path).map(Some)
-}
-
 /// Load the class file with the given access path
 /// Returns `None` if it would not have a backing class file (ex: Arrays)
-pub fn direct_load_class_file_by_class_path_slice<T: AsRef<str>>(
+pub(crate) fn direct_load_class_file_by_class_path_slice<T: AsRef<str>>(
     class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_path: &[T],
@@ -1719,9 +1759,7 @@ pub fn direct_load_class_file_by_class_path_slice<T: AsRef<str>>(
     let class_file_id =
         class_names.gcid_from_iter_bytes(class_path.iter().map(AsRef::as_ref).map(str::as_bytes));
 
-    let rel_path = util::class_path_slice_to_relative_path(class_path);
-
-    direct_load_class_file_from_rel_path(class_directories, class_file_id, rel_path).map(Some)
+    class_directories.direct_load_class_file_by_id(class_names, class_file_id)
 }
 
 pub fn direct_load_class_file_by_class_path_iter<'a>(
@@ -1742,36 +1780,7 @@ pub fn direct_load_class_file_by_class_path_iter<'a>(
 
     let class_file_id = class_names.gcid_from_iter_bytes(class_path.clone().map(str::as_bytes));
 
-    let rel_path = util::class_path_iter_to_relative_path(class_path);
-
-    direct_load_class_file_from_rel_path(class_directories, class_file_id, rel_path).map(Some)
-}
-
-pub fn direct_load_class_file_from_rel_path(
-    class_directories: &ClassDirectories,
-    id: ClassId,
-    rel_path: PathBuf,
-) -> Result<ClassFileData, LoadClassFileError> {
-    use classfile_parser::parser::ParseData;
-
-    if let Some((file_path, mut file)) = class_directories.load_class_file_with_rel_path(&rel_path)
-    {
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)
-            .map_err(LoadClassFileError::ReadError)?;
-        let data = Rc::from(data);
-
-        // TODO: Better errors
-        let (rem_data, class_file) = class_parser_opt(ParseData::new(&data))
-            .map_err(|x| format!("{:?}", x))
-            .map_err(LoadClassFileError::ClassFileParseError)?;
-        // TODO: Don't assert
-        debug_assert!(rem_data.is_empty());
-
-        Ok(ClassFileData::new(id, file_path, data, class_file))
-    } else {
-        Err(LoadClassFileError::NonexistentFile(rel_path))
-    }
+    class_directories.direct_load_class_file_by_id(class_names, class_file_id)
 }
 
 // TODO: Will this behave incorrectly for classes which extend arrays? Those are incorrect, but
