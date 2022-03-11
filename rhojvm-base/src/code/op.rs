@@ -3018,8 +3018,8 @@ macro_rules! self_sinfo {
 pub struct LookupSwitch {
     /// 0-3
     padding: u8,
-    default: i32,
-    pairs: Vec<LookupSwitchPair>,
+    pub default: i32,
+    pub pairs: Vec<LookupSwitchPair>,
 }
 impl LookupSwitch {
     pub const OPCODE: RawOpcode = 0xAB;
@@ -3103,8 +3103,8 @@ impl MemorySizeU16 for LookupSwitch {
 
 #[derive(Debug, Clone)]
 pub struct LookupSwitchPair {
-    match_v: i32,
-    offset: i32,
+    pub match_v: i32,
+    pub offset: i32,
 }
 impl LookupSwitchPair {
     pub(crate) fn parse(data: &[u8]) -> Result<LookupSwitchPair, InstructionParseError> {
@@ -3121,10 +3121,10 @@ impl StaticMemorySizeU16 for LookupSwitchPair {
 #[derive(Debug, Clone)]
 pub struct TableSwitch {
     padding: u8,
-    default: i32,
-    low: i32,
-    high: i32,
-    jump_offsets: Vec<i32>,
+    pub default: i32,
+    pub low: i32,
+    pub high: i32,
+    pub jump_offsets: Vec<i32>,
 }
 impl TableSwitch {
     pub const OPCODE: RawOpcode = 0xAA;
