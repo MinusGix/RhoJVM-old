@@ -402,8 +402,32 @@ impl RunInst for IfNull {
 }
 
 impl RunInst for LookupSwitch {
-    fn run(self, _args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
-        todo!()
+    // TODO: lookup switch has a vec, so cloning is rather expensive
+    fn run(
+        self,
+        RunInstArgs {
+            env,
+            method_id,
+            frame,
+            inst_index,
+        }: RunInstArgs,
+    ) -> Result<RunInstValue, GeneralError> {
+        let key = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let key = key.into_int().ok_or(EvalError::ExpectedStackValueIntRepr)?;
+
+        let mut offset = None;
+        for pair in &self.pairs {
+            if key == pair.match_v {
+                offset = Some(pair.offset);
+            }
+        }
+
+        let offset = offset.unwrap_or(self.default);
+
+        let destination =
+            util::signed_offset_32_16(inst_index.0, offset).ok_or(EvalError::BranchOverflows)?;
+        let destination = InstructionIndex(destination);
+        Ok(RunInstValue::ContinueAt(destination))
     }
 }
 impl RunInst for TableSwitch {

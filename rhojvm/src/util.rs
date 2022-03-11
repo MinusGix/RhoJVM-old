@@ -172,6 +172,23 @@ pub(crate) const fn signed_offset_16(lhs: u16, rhs: i16) -> Option<u16> {
     }
 }
 
+pub(crate) fn signed_offset_32_16(lhs: u16, rhs: i32) -> Option<u16> {
+    let lhs = u32::from(lhs);
+    if rhs.is_negative() {
+        if rhs == i32::MIN {
+            None
+        } else {
+            lhs.checked_sub(rhs.abs() as u32)
+        }
+    } else {
+        // It was not negative so it fits inside a u32
+        #[allow(clippy::cast_sign_loss)]
+        lhs.checked_add(rhs as u32)
+    }
+    .map(u16::try_from)
+    .and_then(Result::ok)
+}
+
 pub(crate) fn get_disjoint2_mut<T>(
     data: &mut [T],
     index1: usize,
