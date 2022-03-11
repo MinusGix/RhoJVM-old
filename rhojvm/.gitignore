@@ -1,3 +1,4 @@
 /target
 /ex/lib/
 /ex/*.class
+/ex/*.jar
