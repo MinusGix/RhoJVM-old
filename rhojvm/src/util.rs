@@ -1,8 +1,7 @@
 use classfile_parser::field_info::{FieldAccessFlags, FieldInfoOpt};
 use either::Either;
 use rhojvm_base::{
-    id::ClassId, package::Packages, util::MemorySize, ClassDirectories, ClassFiles, ClassNames,
-    Classes, Methods,
+    id::ClassId, package::Packages, util::MemorySize, ClassFiles, ClassNames, Classes, Methods,
 };
 
 use crate::{
@@ -36,7 +35,6 @@ macro_rules! const_assert {
 pub struct Env<'i> {
     // Interface MUST be the first field so that it is the first field in the jni
     pub interface: &'i NativeInterface,
-    pub class_directories: ClassDirectories,
     pub class_names: ClassNames,
     pub class_files: ClassFiles,
     pub classes: Classes,
@@ -295,7 +293,6 @@ pub(crate) fn construct_string(
 
     // Get the string constructor that would take a char[], bool
     let string_char_array_constructor = env.state.get_string_char_array_constructor(
-        &env.class_directories,
         &mut env.class_names,
         &mut env.class_files,
         &mut env.methods,
@@ -398,7 +395,6 @@ pub(crate) fn make_class_form_of(
     of_class_id: ClassId,
 ) -> Result<ValueException<GcRef<StaticFormInstance>>, GeneralError> {
     resolve_derive(
-        &env.class_directories,
         &mut env.class_names,
         &mut env.class_files,
         &mut env.classes,
@@ -420,7 +416,6 @@ pub(crate) fn make_class_form_of(
 
     // TODO: Some of these errors should be exceptions
     resolve_derive(
-        &env.class_directories,
         &mut env.class_names,
         &mut env.class_files,
         &mut env.classes,

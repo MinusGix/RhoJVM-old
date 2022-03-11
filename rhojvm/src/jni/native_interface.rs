@@ -8,7 +8,7 @@ use crate::{
     eval::{EvalError, ValueException},
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
-    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::Env,
     GeneralError,
 };
@@ -776,7 +776,6 @@ unsafe extern "C" fn register_natives(
             };
 
         let method_id = match env.methods.load_method_from_desc(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             class_id,

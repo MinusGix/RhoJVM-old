@@ -16,9 +16,7 @@
 //! <https://github.com/ceronman/loxido/blob/master/src/gc.rs>
 use std::{collections::VecDeque, marker::PhantomData};
 
-use rhojvm_base::{
-    package::Packages, util::MemorySize, ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
-};
+use rhojvm_base::{package::Packages, util::MemorySize, ClassFiles, ClassNames, Classes, Methods};
 
 use crate::{
     class_instance::{Instance, ReferenceInstance},
@@ -193,7 +191,6 @@ impl Gc {
 
     pub fn collect_garbage(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         classes: &mut Classes,
@@ -201,15 +198,7 @@ impl Gc {
         methods: &mut Methods,
         state: &mut State,
     ) {
-        self.trace_references(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-        );
+        self.trace_references(class_names, class_files, classes, packages, methods, state);
         // self.remove_white_strings()
         self.sweep();
         self.next_gc = self.bytes_used * Gc::HEAP_GROW_FACTOR;
@@ -217,7 +206,6 @@ impl Gc {
 
     fn trace_references(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         classes: &mut Classes,
@@ -227,7 +215,6 @@ impl Gc {
     ) {
         while let Some(index) = self.grey_stack.pop_back() {
             self.blacken_object(
-                class_directories,
                 class_names,
                 class_files,
                 classes,
@@ -259,7 +246,6 @@ impl Gc {
     /// May panic if the index is invalid
     fn blacken_object(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         classes: &mut Classes,
@@ -270,7 +256,6 @@ impl Gc {
     ) {
         let reference = GcRef::new_unchecked(index);
         trace_instance(
-            class_directories,
             class_names,
             class_files,
             classes,
@@ -408,7 +393,6 @@ impl<T> std::fmt::Debug for GcRef<T> {
 ///
 /// This can assume that the ref is valid at first, but it should be careful after running code.
 fn trace_instance(
-    _class_directories: &ClassDirectories,
     _class_names: &mut ClassNames,
     _class_files: &mut ClassFiles,
     _classes: &mut Classes,

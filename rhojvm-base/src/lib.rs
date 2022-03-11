@@ -55,7 +55,7 @@ use id::{ClassId, MethodId, MethodIndex, PackageId};
 use indexmap::{Equivalent, IndexMap};
 use package::Packages;
 use smallvec::{smallvec, SmallVec};
-use tracing::{info, span, Level};
+use tracing::info;
 use util::Cesu8String;
 
 use crate::code::{method::MethodOverride, CodeInfo};
@@ -301,16 +301,27 @@ impl ClassDirectories {
     }
 }
 
-pub trait ClassFinder {
-    fn direct_load_class_file_by_id(
+// TODO: Remove clone
+/// Note: Not exactly a class loader in the java sense, but does somewhat similar things
+pub trait ClassFileLoader {
+    fn load_class_file_by_id(
         &self,
         class_names: &ClassNames,
         class_file_id: ClassId,
     ) -> Result<Option<ClassFileData>, LoadClassFileError>;
 }
+impl<'a, T: ClassFileLoader> ClassFileLoader for &'a T {
+    fn load_class_file_by_id(
+        &self,
+        class_names: &ClassNames,
+        class_file_id: ClassId,
+    ) -> Result<Option<ClassFileData>, LoadClassFileError> {
+        <T as ClassFileLoader>::load_class_file_by_id(self, class_names, class_file_id)
+    }
+}
 
-impl ClassFinder for ClassDirectories {
-    fn direct_load_class_file_by_id(
+impl ClassFileLoader for ClassDirectories {
+    fn load_class_file_by_id(
         &self,
         class_names: &ClassNames,
         class_file_id: ClassId,
@@ -409,7 +420,6 @@ impl Classes {
 
     pub fn load_class(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -429,19 +439,13 @@ impl Classes {
 
         if !class_info.has_class_file() {
             // Just load the array class
-            self.get_array_class(
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                class_file_id,
-            )?;
+            self.get_array_class(class_names, class_files, packages, class_file_id)?;
             return Ok(());
         }
 
         // Requires the class file to be loaded
         if !class_files.contains_key(&class_file_id) {
-            class_files.load_by_class_path_id(class_directories, class_names, class_file_id)?;
+            class_files.load_by_class_path_id(class_names, class_file_id)?;
         }
 
         let class_file = class_files.get(&class_file_id).unwrap();
@@ -473,7 +477,6 @@ impl Classes {
     // allocations so that we can simply check if they exist cheaply
     pub fn load_array_of_instances(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -492,13 +495,7 @@ impl Classes {
 
         let (package, access_flags) = {
             // TODO: For normal classes, we only need to load the class file
-            self.load_class(
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                class_id,
-            )?;
+            self.load_class(class_names, class_files, packages, class_id)?;
             let class = self.get(&class_id).unwrap();
             (class.package(), class.access_flags())
         };
@@ -577,7 +574,6 @@ impl Classes {
 
     pub fn load_level_array_of_desc_type_basic(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -593,24 +589,12 @@ impl Classes {
             return Ok(array_id);
         }
 
-        let component_id = load_basic_descriptor_type(
-            self,
-            class_directories,
-            class_names,
-            class_files,
-            packages,
-            component,
-        )?;
+        let component_id =
+            load_basic_descriptor_type(self, class_names, class_files, packages, component)?;
 
         let (package, access_flags) = if let Some(component_id) = component_id {
             // TODO: For normal classes, we only need to load the class file
-            self.load_class(
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                component_id,
-            )?;
+            self.load_class(class_names, class_files, packages, component_id)?;
             let class = self.get(&component_id).unwrap();
             (class.package(), class.access_flags())
         } else {
@@ -646,7 +630,6 @@ impl Classes {
 
     pub fn load_level_array_of_class_id(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -655,7 +638,6 @@ impl Classes {
     ) -> Result<ClassId, StepError> {
         // TODO: Inline this so that we do slightly less work
         self.load_level_array_of_desc_type_basic(
-            class_directories,
             class_names,
             class_files,
             packages,
@@ -669,7 +651,6 @@ impl Classes {
     /// avoids loading classes that it doesn't need to.
     pub fn get_array_class(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -707,7 +688,6 @@ impl Classes {
         if let DescriptorTypeCF::Array { level, component } = descriptor {
             let component = DescriptorTypeBasic::from_class_file_desc(component, class_names);
             let id = self.load_level_array_of_desc_type_basic(
-                class_directories,
                 class_names,
                 class_files,
                 packages,
@@ -728,7 +708,6 @@ impl Classes {
     /// Note: This specifically checks if it is a super class, if they are equal it returns false
     pub fn is_super_class(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -741,16 +720,12 @@ impl Classes {
             return Ok(false);
         }
 
-        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+        class_files.load_by_class_path_id(class_names, class_id)?;
 
         // If this is an array, then it only extends the given class if it is java.lang.Object
-        if let Some(_array_class) = self.get_array_class(
-            class_directories,
-            class_names,
-            class_files,
-            packages,
-            class_id,
-        )? {
+        if let Some(_array_class) =
+            self.get_array_class(class_names, class_files, packages, class_id)?
+        {
             // Arrays only extend object
             return Ok(maybe_super_class_id == object_id);
         }
@@ -760,7 +735,7 @@ impl Classes {
         // Load the class file, because we need the super id
         let mut current_class_id = class_id;
         loop {
-            class_files.load_by_class_path_id(class_directories, class_names, current_class_id)?;
+            class_files.load_by_class_path_id(class_names, current_class_id)?;
             let class_file = class_files.get(&current_class_id).unwrap();
 
             if let Some(super_id) = class_file
@@ -782,7 +757,6 @@ impl Classes {
 
     pub fn implements_interface(
         &self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         class_id: ClassId,
@@ -805,7 +779,7 @@ impl Classes {
 
         while let Some(current_id) = current_class_id {
             let interfaces = {
-                class_files.load_by_class_path_id(class_directories, class_names, current_id)?;
+                class_files.load_by_class_path_id(class_names, current_id)?;
                 let class_file = class_files.get(&current_id).unwrap();
 
                 // Get all the interfaces. This is collected to a vec because we will invalidate the
@@ -842,7 +816,7 @@ impl Classes {
                 // The problem with this is that it requires loading every interface's class file..
 
                 // We can't trust that the class file is still loaded.
-                class_files.load_by_class_path_id(class_directories, class_names, current_id)?;
+                class_files.load_by_class_path_id(class_names, current_id)?;
                 let class_file = class_files.get(&current_id).unwrap();
 
                 let interface_constant = class_file
@@ -854,7 +828,6 @@ impl Classes {
                 let interface_id = class_names.gcid_from_bytes(interface_name);
 
                 if self.implements_interface(
-                    class_directories,
                     class_names,
                     class_files,
                     interface_id,
@@ -864,7 +837,7 @@ impl Classes {
                 }
             }
 
-            class_files.load_by_class_path_id(class_directories, class_names, current_id)?;
+            class_files.load_by_class_path_id(class_names, current_id)?;
             let class_file = class_files.get(&current_id).unwrap();
 
             current_class_id = class_file
@@ -881,20 +854,15 @@ impl Classes {
     /// That is because it is easy to determine from their class ids
     pub fn is_castable_array(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
         class_id: ClassId,
         target_id: ClassId,
     ) -> Result<bool, StepError> {
-        let class_array = if let Some(class_array) = self.get_array_class(
-            class_directories,
-            class_names,
-            class_files,
-            packages,
-            class_id,
-        )? {
+        let class_array = if let Some(class_array) =
+            self.get_array_class(class_names, class_files, packages, class_id)?
+        {
             class_array
         } else {
             // It wasn't an array
@@ -902,13 +870,9 @@ impl Classes {
         };
         let class_elem = class_array.component_type();
 
-        let target_array = if let Some(target_array) = self.get_array_class(
-            class_directories,
-            class_names,
-            class_files,
-            packages,
-            target_id,
-        )? {
+        let target_array = if let Some(target_array) =
+            self.get_array_class(class_names, class_files, packages, target_id)?
+        {
             target_array
         } else {
             // It wasn't an array
@@ -935,20 +899,17 @@ impl Classes {
         // if it can be cast down because target elem is an interface (A[] -> Cloneable[])
         // or if it can be cast down because it holds a castable array (B[][] -> A[][])
         Ok(self.is_super_class(
-            class_directories,
             class_names,
             class_files,
             packages,
             class_elem_id,
             target_elem_id,
         )? || self.implements_interface(
-            class_directories,
             class_names,
             class_files,
             class_elem_id,
             target_elem_id,
         )? || self.is_castable_array(
-            class_directories,
             class_names,
             class_files,
             packages,
@@ -1007,7 +968,6 @@ impl Methods {
     /// If this returns `Ok(())` then it it assured to exist on this with the same id
     pub fn load_method_from_id(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         method_id: MethodId,
@@ -1017,7 +977,7 @@ impl Methods {
         }
 
         let (class_id, method_index) = method_id.decompose();
-        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+        class_files.load_by_class_path_id(class_names, class_id)?;
         let class_file = class_files.get(&class_id).unwrap();
 
         let method = direct_load_method_from_index(class_names, class_file, method_index)?;
@@ -1043,14 +1003,13 @@ impl Methods {
 
     pub fn load_method_from_desc(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         class_id: ClassId,
         name: &[u8],
         desc: &MethodDescriptor,
     ) -> Result<MethodId, StepError> {
-        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+        class_files.load_by_class_path_id(class_names, class_id)?;
         let class_file = class_files.get(&class_id).unwrap();
 
         let (method_id, method_info) = method_id_from_desc(class_names, class_file, name, desc)?;
@@ -1604,22 +1563,20 @@ impl Default for ClassNames {
     }
 }
 
-#[derive(Debug, Default, Clone)]
 pub struct ClassFiles {
-    /// Whether to log that we are loading a class
-    /// Uses `tracing::info!`
-    pub log_load: bool,
+    pub loader: Box<dyn ClassFileLoader + 'static>,
     map: HashMap<
         ClassId,
         ClassFileData,
         <util::HashWrapper as util::HashWrapperTrait<ClassId>>::HashMapHasher,
     >,
 }
+
 impl ClassFiles {
     #[must_use]
-    pub fn new() -> ClassFiles {
+    pub fn new(loader: impl ClassFileLoader + 'static) -> ClassFiles {
         ClassFiles {
-            log_load: false,
+            loader: Box::new(loader),
             map: HashMap::with_hasher(BuildHasherDefault::default()),
         }
     }
@@ -1659,7 +1616,6 @@ impl ClassFiles {
     /// This is primarily for the JVM impl to load classes from user input
     pub fn load_by_class_path_slice<T: AsRef<str>>(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_path: &[T],
     ) -> Result<ClassId, LoadClassFileError> {
@@ -1670,22 +1626,23 @@ impl ClassFiles {
         // TODO: This is probably not accurate for more complex utf8
         let class_file_id = class_names
             .gcid_from_iter_bytes(class_path.iter().map(AsRef::as_ref).map(str::as_bytes));
-        let (class_file_name, class_file_info) = class_names.name_from_gcid(class_file_id).unwrap();
-        debug_assert!(!class_file_name.is_empty());
-        if !class_file_info.has_class_file() && self.contains_key(&class_file_id) {
+        if self.contains_key(&class_file_id) {
             return Ok(class_file_id);
         }
 
-        // TODO: include current dir? this could be an option.
-        let rel_path = util::class_path_slice_to_relative_path(class_path);
-        self.load_from_rel_path(class_directories, class_file_id, rel_path)?;
+        let class_file = self
+            .loader
+            .load_class_file_by_id(class_names, class_file_id)?;
+        if let Some(class_file) = class_file {
+            self.set_at(class_file_id, class_file);
+        }
+
         Ok(class_file_id)
     }
 
     /// Note: the id should already be registered
     pub fn load_by_class_path_id(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_file_id: ClassId,
     ) -> Result<(), LoadClassFileError> {
@@ -1693,44 +1650,24 @@ impl ClassFiles {
             return Ok(());
         }
 
-        let _span_ = span!(Level::TRACE, "CF::load_by_class_path_id",).entered();
-
-        let (class_name, class_info) = class_names
-            .name_from_gcid(class_file_id)
-            .map_err(LoadClassFileError::BadId)?;
-        debug_assert!(!class_name.is_empty());
-
-        if !class_info.has_class_file() {
-            return Ok(());
+        let class_file = self
+            .loader
+            .load_class_file_by_id(class_names, class_file_id)?;
+        if let Some(class_file) = class_file {
+            // If it has a class file, store it,
+            // If it doesn't, whatever
+            self.set_at(class_file_id, class_file);
         }
 
-        if self.log_load {
-            info!("=> CF{:?}", class_names.tpath(class_file_id));
-        }
-
-        // TODO: Is this the correct way of converting it?
-        let path = convert_classfile_text(class_name.0);
-        let path = util::access_path_iter(&path);
-        let rel_path = util::class_path_iter_to_relative_path(path);
-        self.load_from_rel_path(class_directories, class_file_id, rel_path)?;
         Ok(())
     }
-
-    fn load_from_rel_path(
-        &mut self,
-        class_directories: &ClassDirectories,
-        id: ClassId,
-        rel_path: PathBuf,
-    ) -> Result<(), LoadClassFileError> {
-        if self.contains_key(&id) {
-            // It has already been loaded
-            return Ok(());
-        }
-
-        let class_file = class_directories.direct_load_class_file_from_rel_path(id, rel_path)?;
-        self.set_at(id, class_file);
-
-        Ok(())
+}
+impl std::fmt::Debug for ClassFiles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClassFiles")
+            .field("loader", &"(unprintable)")
+            .field("map", &self.map)
+            .finish()
     }
 }
 
@@ -1739,48 +1676,6 @@ impl ClassFiles {
 #[must_use]
 pub fn convert_classfile_text(bytes: &[u8]) -> Cow<str> {
     cesu8::from_java_cesu8(bytes).unwrap_or_else(|_| String::from_utf8_lossy(bytes))
-}
-
-/// Load the class file with the given access path
-/// Returns `None` if it would not have a backing class file (ex: Arrays)
-pub(crate) fn direct_load_class_file_by_class_path_slice<T: AsRef<str>>(
-    class_directories: &ClassDirectories,
-    class_names: &mut ClassNames,
-    class_path: &[T],
-) -> Result<Option<ClassFileData>, LoadClassFileError> {
-    if let Some(kind) = InternalKind::from_slice(class_path) {
-        if !kind.has_class_file() {
-            // There is no class file to parse
-            return Ok(None);
-        }
-    }
-
-    // TODO: This is probably not accurate for more complex utf8
-    let class_file_id =
-        class_names.gcid_from_iter_bytes(class_path.iter().map(AsRef::as_ref).map(str::as_bytes));
-
-    class_directories.direct_load_class_file_by_id(class_names, class_file_id)
-}
-
-pub fn direct_load_class_file_by_class_path_iter<'a>(
-    class_directories: &ClassDirectories,
-    class_names: &mut ClassNames,
-    class_path: impl Iterator<Item = &'a str> + Clone,
-) -> Result<Option<ClassFileData>, LoadClassFileError> {
-    if class_path.clone().next().is_none() {
-        return Err(LoadClassFileError::EmptyPath);
-    }
-
-    if let Some(kind) = InternalKind::from_iter(class_path.clone()) {
-        if !kind.has_class_file() {
-            // There is no class file to parse
-            return Ok(None);
-        }
-    }
-
-    let class_file_id = class_names.gcid_from_iter_bytes(class_path.clone().map(str::as_bytes));
-
-    class_directories.direct_load_class_file_by_id(class_names, class_file_id)
 }
 
 // TODO: Will this behave incorrectly for classes which extend arrays? Those are incorrect, but
@@ -1871,7 +1766,6 @@ pub fn direct_load_method_from_desc(
 }
 
 pub fn load_method_descriptor_types(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -1879,32 +1773,17 @@ pub fn load_method_descriptor_types(
     method: &Method,
 ) -> Result<(), StepError> {
     for parameter_type in method.descriptor().parameters().iter().copied() {
-        load_descriptor_type(
-            classes,
-            class_directories,
-            class_names,
-            class_files,
-            packages,
-            parameter_type,
-        )?;
+        load_descriptor_type(classes, class_names, class_files, packages, parameter_type)?;
     }
 
     if let Some(return_type) = method.descriptor().return_type().copied() {
-        load_descriptor_type(
-            classes,
-            class_directories,
-            class_names,
-            class_files,
-            packages,
-            return_type,
-        )?;
+        load_descriptor_type(classes, class_names, class_files, packages, return_type)?;
     }
 
     Ok(())
 }
 
 fn helper_get_overrided_method(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -1914,13 +1793,7 @@ fn helper_get_overrided_method(
     over_method: &Method,
     over_method_name: Vec<u8>,
 ) -> Result<Option<MethodId>, StepError> {
-    classes.load_class(
-        class_directories,
-        class_names,
-        class_files,
-        packages,
-        super_class_file_id,
-    )?;
+    classes.load_class(class_names, class_files, packages, super_class_file_id)?;
     // We reget it, so that it does not believe we have `self` borrowed mutably
     let super_class = classes
         .get(&super_class_file_id)
@@ -2036,7 +1909,6 @@ fn helper_get_overrided_method(
             "A class had its own super class be itself"
         );
         helper_get_overrided_method(
-            class_directories,
             class_names,
             class_files,
             classes,
@@ -2053,7 +1925,6 @@ fn helper_get_overrided_method(
 }
 
 pub fn init_method_overrides(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -2061,7 +1932,7 @@ pub fn init_method_overrides(
     methods: &mut Methods,
     method_id: MethodId,
 ) -> Result<(), StepError> {
-    methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;
+    methods.load_method_from_id(class_names, class_files, method_id)?;
 
     let (class_id, _) = method_id.decompose();
     // It should have both the class and method
@@ -2097,7 +1968,6 @@ pub fn init_method_overrides(
             .to_owned();
         if let Some(super_class_file_id) = class.super_class {
             if let Some(overridden) = helper_get_overrided_method(
-                class_directories,
                 class_names,
                 class_files,
                 classes,
@@ -2136,7 +2006,6 @@ pub fn init_method_overrides(
 // a cycle, but that is unpleasant and there should at least be simple ways to do it.
 
 pub fn verify_code_exceptions(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -2200,7 +2069,6 @@ pub fn verify_code_exceptions(
                 let catch_type_id = class_names.gcid_from_bytes(catch_type_name);
 
                 if !does_extend_class(
-                    class_directories,
                     class_names,
                     class_files,
                     classes,
@@ -2228,7 +2096,6 @@ pub fn verify_code_exceptions(
 
 /// Note: includes itself
 pub fn does_extend_class(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &Classes,
@@ -2247,7 +2114,7 @@ pub fn does_extend_class(
             .map_err(StepError::ClassFileIndex)?
     } else {
         // The id should have already been registered by now
-        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+        class_files.load_by_class_path_id(class_names, class_id)?;
         let class_file = class_files
             .get(&class_id)
             .ok_or(StepError::MissingLoadedValue(
@@ -2266,7 +2133,6 @@ pub fn does_extend_class(
             // Crawl further up the tree to see if it extends it
             // Trees should be relatively small so doing recursion probably doesn't matter
             does_extend_class(
-                class_directories,
                 class_names,
                 class_files,
                 classes,
@@ -2290,19 +2156,15 @@ pub struct SuperClassIterator {
 impl SuperClassIterator {
     pub fn next_item(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         classes: &mut Classes,
         packages: &mut Packages,
     ) -> Option<Result<ClassId, StepError>> {
-        match self
-            .scfi
-            .next_item(class_directories, class_names, class_files)
-        {
+        match self.scfi.next_item(class_names, class_files) {
             Some(Ok(id)) => Some(
                 classes
-                    .load_class(class_directories, class_names, class_files, packages, id)
+                    .load_class(class_names, class_files, packages, id)
                     .map(|_| id),
             ),
             Some(Err(err)) => Some(Err(err)),
@@ -2333,7 +2195,6 @@ impl SuperClassFileIterator {
     // for its next and then for any iterator methods which we need
     pub fn next_item(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
     ) -> Option<Result<ClassId, StepError>> {
@@ -2353,8 +2214,7 @@ impl SuperClassFileIterator {
         };
 
         // Load the class file by the id
-        if let Err(err) = class_files.load_by_class_path_id(class_directories, class_names, topmost)
-        {
+        if let Err(err) = class_files.load_by_class_path_id(class_names, topmost) {
             self.had_error = true;
             return Some(Err(err.into()));
         }
@@ -2393,7 +2253,6 @@ impl SuperClassFileIterator {
 
 pub(crate) fn load_basic_descriptor_type(
     classes: &mut Classes,
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     packages: &mut Packages,
@@ -2401,13 +2260,7 @@ pub(crate) fn load_basic_descriptor_type(
 ) -> Result<Option<ClassId>, StepError> {
     match bdesc_type {
         DescriptorTypeBasic::Class(class_id) => {
-            classes.load_class(
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                class_id,
-            )?;
+            classes.load_class(class_names, class_files, packages, class_id)?;
             Ok(Some(class_id))
         }
         _ => Ok(None),
@@ -2416,7 +2269,6 @@ pub(crate) fn load_basic_descriptor_type(
 
 pub(crate) fn load_descriptor_type(
     classes: &mut Classes,
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     packages: &mut Packages,
@@ -2424,19 +2276,11 @@ pub(crate) fn load_descriptor_type(
 ) -> Result<(), StepError> {
     match desc_type {
         DescriptorType::Basic(x) => {
-            load_basic_descriptor_type(
-                classes,
-                class_directories,
-                class_names,
-                class_files,
-                packages,
-                x,
-            )?;
+            load_basic_descriptor_type(classes, class_names, class_files, packages, x)?;
             Ok(())
         }
         DescriptorType::Array { level, component } => {
             classes.load_level_array_of_desc_type_basic(
-                class_directories,
                 class_names,
                 class_files,
                 packages,

@@ -163,7 +163,6 @@ pub(crate) fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
     // Adding all of their fields to the map
     let mut tree_iter = rhojvm_base::load_super_classes_iter(class_id);
     while let Some(target_id) = tree_iter.next_item(
-        &env.class_directories,
         &mut env.class_names,
         &mut env.class_files,
         &mut env.classes,
@@ -207,7 +206,6 @@ impl RunInst for New {
 
         // TODO: This provides some errors that should be exceptions
         resolve_derive(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.classes,
@@ -291,7 +289,6 @@ impl RunInst for ANewArray {
 
         // TODO: This provides some errors that should be exceptions
         resolve_derive(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.classes,
@@ -321,7 +318,6 @@ impl RunInst for ANewArray {
 
         // Register the class for arrays of this type
         let array_id = env.classes.load_array_of_instances(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.packages,
@@ -414,7 +410,6 @@ pub(crate) fn try_casting(
     // TODO: Some of the errors from this should be exceptions
     // Resolve the class from our class
     resolve_derive(
-        &env.class_directories,
         &mut env.class_names,
         &mut env.class_files,
         &mut env.classes,
@@ -493,7 +488,6 @@ pub(crate) fn try_casting(
         // Interface
         if target_class.is_interface() {
             if env.classes.implements_interface(
-                &env.class_directories,
                 &mut env.class_names,
                 &mut env.class_files,
                 class_id,
@@ -522,7 +516,6 @@ pub(crate) fn try_casting(
         // Normal class
         if target_class.is_interface() {
             if env.classes.implements_interface(
-                &env.class_directories,
                 &mut env.class_names,
                 &mut env.class_files,
                 class_id,
@@ -538,7 +531,6 @@ pub(crate) fn try_casting(
                 )?)
             }
         } else if env.classes.is_super_class(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.packages,

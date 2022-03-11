@@ -35,7 +35,7 @@ use rhojvm_base::{
     },
     id::{ClassId, MethodId},
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, StepError,
+    ClassFiles, ClassNames, Classes, StepError,
 };
 use smallvec::SmallVec;
 use types::{ComplexFrameType, FrameType};
@@ -467,7 +467,6 @@ impl Frame {
 ///   If there is no code, then the code is verified (assuming that it shouldn't have code)
 /// # Panics
 pub fn verify_type_safe_method_stack_map(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -539,8 +538,7 @@ pub fn verify_type_safe_method_stack_map(
     // Transformations of the type sthat the instructions have is done, because they encode more
     // information than the main code uses.
     for (idx, inst) in method_code.instructions().iter() {
-        struct Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it> {
-            class_directories: &'cd ClassDirectories,
+        struct Data<'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it> {
             class_names: &'cn mut ClassNames,
             class_files: &'cf mut ClassFiles,
             classes: &'c mut Classes,
@@ -551,14 +549,11 @@ pub fn verify_type_safe_method_stack_map(
             act_frame: &'af mut Frame,
             inst_types: &'it mut InstTypes,
         }
-        impl<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it> InstMapFunc<'_>
-            for Data<'cd, 'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it>
-        {
+        impl<'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it> InstMapFunc<'_> for Data<'cn, 'cf, 'c, 'p, 'cfd, 'af, 'it> {
             type Output = Result<(), VerifyStackMapGeneralError>;
 
             fn call(self, inst: &impl Instruction) -> Self::Output {
                 check_instruction(
-                    self.class_directories,
                     self.class_names,
                     self.class_files,
                     self.classes,
@@ -597,7 +592,6 @@ pub fn verify_type_safe_method_stack_map(
         // This maps the data to the generic version of check_instruction so that Rust
         // can optimize each variant, since many can have statically known sizes and more
         inst.map(Data {
-            class_directories,
             class_names,
             class_files,
             classes,
@@ -662,7 +656,6 @@ fn check_frame(
 }
 
 fn process_pop_type_early_load(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -721,7 +714,6 @@ fn process_pop_type_early_load(
         PopType::Type(typ) => FrameType::from_opcode_type_no_with(class_names, typ)?,
         PopType::Complex(complex) => Some(FrameType::from_opcode_pop_complex_type(
             classes,
-            class_directories,
             class_names,
             class_files,
             packages,
@@ -741,7 +733,6 @@ fn process_pop_type_early_load(
 }
 
 fn process_pop_type_with_load(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -766,7 +757,6 @@ fn process_pop_type_with_load(
     let with_t = if let PopType::Type(Type::With(pop_type_o)) = pop_type_o {
         FrameType::from_opcode_with_type(
             classes,
-            class_directories,
             class_names,
             class_files,
             packages,
@@ -785,7 +775,6 @@ fn process_pop_type_with_load(
 }
 
 fn check_pop_types(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -823,7 +812,6 @@ fn check_pop_types(
         // As well, there are several reference types which are interconvertible
         if pop_type.is_stack_same_of_frame_type(
             classes,
-            class_directories,
             class_names,
             class_files,
             packages,
@@ -902,7 +890,6 @@ fn check_locals_in_type(
 }
 
 fn check_locals_out_type(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -924,7 +911,6 @@ fn check_locals_out_type(
 
     let local_type = FrameType::from_opcode_local_out_type(
         classes,
-        class_directories,
         class_names,
         class_files,
         packages,
@@ -949,7 +935,6 @@ fn check_locals_out_type(
 }
 
 fn check_push_type(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -974,7 +959,6 @@ fn check_push_type(
 
     let push_type = FrameType::from_opcode_push_type(
         classes,
-        class_directories,
         class_names,
         class_files,
         packages,
@@ -997,7 +981,6 @@ fn check_push_type(
 }
 
 fn check_instruction<T: Instruction>(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -1029,7 +1012,6 @@ fn check_instruction<T: Instruction>(
             let pop_type_o = stack_info.pop_type_at(i);
 
             process_pop_type_early_load(
-                class_directories,
                 class_names,
                 class_files,
                 classes,
@@ -1050,7 +1032,6 @@ fn check_instruction<T: Instruction>(
             let pop_type_o = stack_info.pop_type_at(i);
 
             process_pop_type_with_load(
-                class_directories,
                 class_names,
                 class_files,
                 classes,
@@ -1064,7 +1045,6 @@ fn check_instruction<T: Instruction>(
         }
 
         check_pop_types(
-            class_directories,
             class_names,
             class_files,
             classes,
@@ -1090,7 +1070,6 @@ fn check_instruction<T: Instruction>(
 
     for (local_index, local_type) in stack_info.locals_out_type_iter() {
         check_locals_out_type(
-            class_directories,
             class_names,
             class_files,
             classes,
@@ -1109,7 +1088,6 @@ fn check_instruction<T: Instruction>(
         let push_type = stack_info.push_type_at(i);
 
         check_push_type(
-            class_directories,
             class_names,
             class_files,
             classes,

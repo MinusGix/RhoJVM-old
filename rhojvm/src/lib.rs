@@ -45,7 +45,7 @@ use rhojvm_base::{
     id::{ClassId, MethodId},
     load_super_classes_iter,
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
+    ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
 };
 use smallvec::{smallvec, SmallVec};
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
@@ -333,7 +333,6 @@ impl State {
     /// Get the method id for the String(char[], bool) constructor
     pub(crate) fn get_string_char_array_constructor(
         &mut self,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         methods: &mut Methods,
@@ -343,7 +342,7 @@ impl State {
         }
 
         let class_id = self.string_class_id(class_names);
-        class_files.load_by_class_path_id(class_directories, class_names, class_id)?;
+        class_files.load_by_class_path_id(class_names, class_id)?;
 
         let char_array_descriptor = MethodDescriptor::new(
             smallvec![
@@ -357,7 +356,6 @@ impl State {
         );
 
         let id = methods.load_method_from_desc(
-            class_directories,
             class_names,
             class_files,
             class_id,
@@ -607,7 +605,6 @@ pub fn initialize_class(
     }
 
     verify_class(
-        &env.class_directories,
         &mut env.class_names,
         &mut env.class_files,
         &mut env.classes,
@@ -648,7 +645,6 @@ pub fn initialize_class(
     let clinit_name = b"<clinit>";
     let clinit_desc = MethodDescriptor::new_empty();
     match env.methods.load_method_from_desc(
-        &env.class_directories,
         &mut env.class_names,
         &mut env.class_files,
         class_id,
@@ -676,7 +672,6 @@ pub fn initialize_class(
 }
 
 pub fn verify_from_entrypoint(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -686,7 +681,6 @@ pub fn verify_from_entrypoint(
     class_id: ClassId,
 ) -> Result<(), GeneralError> {
     verify_class(
-        class_directories,
         class_names,
         class_files,
         classes,
@@ -700,7 +694,6 @@ pub fn verify_from_entrypoint(
 }
 
 fn verify_class(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -717,7 +710,6 @@ fn verify_class(
     }
 
     let create_status = derive_class(
-        class_directories,
         class_names,
         class_files,
         classes,
@@ -736,7 +728,6 @@ fn verify_class(
 
     // Verify Code
     verify_class_methods(
-        class_directories,
         class_names,
         class_files,
         classes,
@@ -751,7 +742,6 @@ fn verify_class(
     let class = classes.get(&class_id).unwrap();
     if let Some(super_id) = class.super_id() {
         verify_class(
-            class_directories,
             class_names,
             class_files,
             classes,
@@ -770,7 +760,6 @@ fn verify_class(
 
 /// Assumes `class_id` is already loaded
 fn verify_class_methods(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -802,7 +791,6 @@ fn verify_class_methods(
 
     for method_id in method_id_iter {
         verify_type_safe_method(
-            class_directories,
             class_names,
             class_files,
             classes,
@@ -820,7 +808,6 @@ fn verify_class_methods(
 /// similar.
 /// Returns the [`BegunStatus`] of the creation, because it may have already been started elsewhere
 fn derive_class(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -843,13 +830,7 @@ fn derive_class(
     info.created = Status::Started(());
 
     // First we have to load the class, in case it wasn't already loaded
-    classes.load_class(
-        class_directories,
-        class_names,
-        class_files,
-        packages,
-        class_id,
-    )?;
+    classes.load_class(class_names, class_files, packages, class_id)?;
 
     // TODO: Loader stuff?
 
@@ -870,21 +851,11 @@ fn derive_class(
     // We skip the base class, since that is the class we just passed in and we already know what it
     // is.
     super_iter
-        .next_item(
-            class_directories,
-            class_names,
-            class_files,
-            classes,
-            packages,
-        )
+        .next_item(class_names, class_files, classes, packages)
         .expect("Load Super Classes Iter should have at least one entry")?;
-    while let Some(super_class_id) = super_iter.next_item(
-        class_directories,
-        class_names,
-        class_files,
-        classes,
-        packages,
-    ) {
+    while let Some(super_class_id) =
+        super_iter.next_item(class_names, class_files, classes, packages)
+    {
         let super_class_id = super_class_id?;
 
         if super_class_id == class_id {
@@ -898,7 +869,6 @@ fn derive_class(
 
     if let Some(super_id) = class.super_id() {
         resolve_derive(
-            class_directories,
             class_names,
             class_files,
             classes,
@@ -949,7 +919,6 @@ fn derive_class(
         for interface_id in interfaces {
             // TODO: Check for circular interfaces
             resolve_derive(
-                class_directories,
                 class_names,
                 class_files,
                 classes,
@@ -965,7 +934,6 @@ fn derive_class(
         for interface_name in array_interfaces {
             let interface_id = class_names.gcid_from_bytes(interface_name);
             resolve_derive(
-                class_directories,
                 class_names,
                 class_files,
                 classes,
@@ -1017,7 +985,6 @@ pub(crate) fn map_interface_index_small_vec_to_ids<const N: usize>(
 /// Resolve a class or interface and create it
 /// Equivalent to calling [`resolve_class_interface`] and then [`create_class`]
 fn resolve_derive(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -1028,7 +995,6 @@ fn resolve_derive(
     origin_class_id: ClassId,
 ) -> Result<(), GeneralError> {
     resolve_class_interface(
-        class_directories,
         class_names,
         class_files,
         classes,
@@ -1040,7 +1006,6 @@ fn resolve_derive(
     )?;
 
     derive_class(
-        class_directories,
         class_names,
         class_files,
         classes,
@@ -1056,7 +1021,6 @@ fn resolve_derive(
 /// Resolve a class or interface
 /// 5.4.3.1
 fn resolve_class_interface(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -1067,13 +1031,7 @@ fn resolve_class_interface(
     origin_class_id: ClassId,
 ) -> Result<(), GeneralError> {
     // TODO: Loader stuff, since the origin loader should be used to load the class id
-    classes.load_class(
-        class_directories,
-        class_names,
-        class_files,
-        packages,
-        class_id,
-    )?;
+    classes.load_class(class_names, class_files, packages, class_id)?;
 
     let class = classes
         .get(&class_id)
@@ -1084,7 +1042,6 @@ fn resolve_class_interface(
             // If it has a class as a component, we also have to resolve it
             // TODO: Should the origin be the array's class id or the origin id?
             resolve_derive(
-                class_directories,
                 class_names,
                 class_files,
                 classes,
@@ -1098,7 +1055,6 @@ fn resolve_class_interface(
     }
 
     if !can_access_class_from_class(
-        class_directories,
         class_names,
         class_files,
         classes,
@@ -1117,7 +1073,6 @@ fn resolve_class_interface(
 }
 
 fn can_access_class_from_class(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -1125,20 +1080,8 @@ fn can_access_class_from_class(
     target_class_id: ClassId,
     from_class_id: ClassId,
 ) -> Result<bool, GeneralError> {
-    classes.load_class(
-        class_directories,
-        class_names,
-        class_files,
-        packages,
-        target_class_id,
-    )?;
-    classes.load_class(
-        class_directories,
-        class_names,
-        class_files,
-        packages,
-        from_class_id,
-    )?;
+    classes.load_class(class_names, class_files, packages, target_class_id)?;
+    classes.load_class(class_names, class_files, packages, from_class_id)?;
 
     let target = classes
         .get(&target_class_id)
@@ -1162,7 +1105,6 @@ fn can_access_class_from_class(
 }
 
 fn verify_type_safe_method(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -1175,23 +1117,15 @@ fn verify_type_safe_method(
     // It is generally cheaper to clone since they tend to load it as well..
     let class_file = class_files.get(&class_id).unwrap().clone();
     // let mut methods = Methods::default();
-    methods.load_method_from_id(class_directories, class_names, class_files, method_id)?;
+    methods.load_method_from_id(class_names, class_files, method_id)?;
     let method = methods.get(&method_id).unwrap();
     method
         .verify_access_flags()
         .map_err(StepError::VerifyMethod)?;
 
-    rhojvm_base::load_method_descriptor_types(
-        class_directories,
-        class_names,
-        class_files,
-        classes,
-        packages,
-        method,
-    )?;
+    rhojvm_base::load_method_descriptor_types(class_names, class_files, classes, packages, method)?;
     // TODO: Document that this assures that it isn't overriding a final method
     rhojvm_base::init_method_overrides(
-        class_directories,
         class_names,
         class_files,
         classes,
@@ -1210,7 +1144,6 @@ fn verify_type_safe_method(
 
     if let Some(method_code) = method_code {
         stack_map_verifier::verify_type_safe_method_stack_map(
-            class_directories,
             class_names,
             class_files,
             classes,

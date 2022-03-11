@@ -1,5 +1,3 @@
-use std::borrow::BorrowMut;
-
 use classfile_parser::{constant_info::ConstantInfo, method_info::MethodAccessFlags};
 use rhojvm_base::{
     code::{
@@ -8,7 +6,7 @@ use rhojvm_base::{
     },
     id::{ClassId, MethodId},
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
+    ClassFiles, ClassNames, Classes, LoadMethodError, Methods, StepError,
 };
 use smallvec::SmallVec;
 
@@ -22,7 +20,6 @@ use crate::{
 use super::{RunInst, RunInstArgs, RunInstValue};
 
 fn grab_runtime_value_from_stack_for_function(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -72,7 +69,6 @@ fn grab_runtime_value_from_stack_for_function(
 
                     let is_castable = instance_id == *target_id
                         || classes.is_super_class(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
@@ -80,14 +76,12 @@ fn grab_runtime_value_from_stack_for_function(
                             *target_id,
                         )?
                         || classes.implements_interface(
-                            class_directories,
                             class_names,
                             class_files,
                             instance_id,
                             *target_id,
                         )?
                         || classes.is_castable_array(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
@@ -121,7 +115,6 @@ fn grab_runtime_value_from_stack_for_function(
 
                     let is_castable = instance_id == target_id
                         || classes.is_super_class(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
@@ -129,14 +122,12 @@ fn grab_runtime_value_from_stack_for_function(
                             target_id,
                         )?
                         || classes.implements_interface(
-                            class_directories,
                             class_names,
                             class_files,
                             instance_id,
                             target_id,
                         )?
                         || classes.is_castable_array(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
@@ -223,7 +214,6 @@ impl RunInst for InvokeStatic {
 
         // TODO: Some of these errors should be exceptions
         resolve_derive(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.classes,
@@ -238,7 +228,6 @@ impl RunInst for InvokeStatic {
         initialize_class(env, target_class_id)?;
 
         let target_method_id = env.methods.load_method_from_desc(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             target_class_id,
@@ -249,7 +238,6 @@ impl RunInst for InvokeStatic {
         let mut locals = Locals::default();
         for parameter in method_descriptor.parameters().iter().rev() {
             let value = grab_runtime_value_from_stack_for_function(
-                &env.class_directories,
                 &mut env.class_names,
                 &mut env.class_files,
                 &mut env.classes,
@@ -334,7 +322,6 @@ impl RunInst for InvokeInterface {
 
         // TODO: Some errors should be excpetions
         resolve_derive(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.classes,
@@ -350,7 +337,6 @@ impl RunInst for InvokeInterface {
         let mut locals = Locals::default();
         for parameter in method_descriptor.parameters().iter().rev() {
             let value = grab_runtime_value_from_stack_for_function(
-                &env.class_directories,
                 &mut env.class_names,
                 &mut env.class_files,
                 &mut env.classes,
@@ -380,7 +366,6 @@ impl RunInst for InvokeInterface {
 
         // Find the actual method to execute
         let target_method_id = find_virtual_method(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.classes,
@@ -473,7 +458,6 @@ impl RunInst for InvokeSpecial {
 
         // TODO: Some of these errors should be exceptions
         resolve_derive(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.classes,
@@ -488,7 +472,6 @@ impl RunInst for InvokeSpecial {
         initialize_class(env, target_class_id)?;
 
         let target_method_id = env.methods.load_method_from_desc(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             target_class_id,
@@ -500,7 +483,6 @@ impl RunInst for InvokeSpecial {
 
         for parameter in method_descriptor.parameters().iter().rev() {
             let value = grab_runtime_value_from_stack_for_function(
-                &env.class_directories,
                 &mut env.class_names,
                 &mut env.class_files,
                 &mut env.classes,
@@ -539,7 +521,6 @@ impl RunInst for InvokeSpecial {
 
 /// Find  the most specific virtual method
 fn find_virtual_method(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -559,7 +540,6 @@ fn find_virtual_method(
     let mut current_check_id = instance_id;
     loop {
         let method_id = methods.load_method_from_desc(
-            class_directories,
             class_names,
             class_files,
             current_check_id,
@@ -598,14 +578,8 @@ fn find_virtual_method(
     let interfaces: SmallVec<[_; 8]> =
         map_interface_index_small_vec_to_ids(class_names, instance_class_file, interfaces)?;
     for interface_id in interfaces {
-        let method_id = methods.load_method_from_desc(
-            class_directories,
-            class_names,
-            class_files,
-            interface_id,
-            name,
-            descriptor,
-        );
+        let method_id =
+            methods.load_method_from_desc(class_names, class_files, interface_id, name, descriptor);
         match method_id {
             Ok(method_id) => {
                 // While we got a method that matches, we first need to check that it is not
@@ -632,14 +606,7 @@ fn find_virtual_method(
     // base class version..
     // If we simply look up the chain, then we'd always find the base class version before we bother
     // checking the interfaces?
-    Ok(methods.load_method_from_desc(
-        class_directories,
-        class_names,
-        class_files,
-        base_id,
-        name,
-        descriptor,
-    )?)
+    Ok(methods.load_method_from_desc(class_names, class_files, base_id, name, descriptor)?)
 }
 
 impl RunInst for InvokeVirtual {
@@ -709,7 +676,6 @@ impl RunInst for InvokeVirtual {
 
         // TODO: Some of these errors should be exceptions
         resolve_derive(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.classes,
@@ -729,7 +695,6 @@ impl RunInst for InvokeVirtual {
 
         for parameter in method_descriptor.parameters().iter().rev() {
             let value = grab_runtime_value_from_stack_for_function(
-                &env.class_directories,
                 &mut env.class_names,
                 &mut env.class_files,
                 &mut env.classes,
@@ -759,7 +724,6 @@ impl RunInst for InvokeVirtual {
 
         // Find the actual target method to execute
         let target_method_id = find_virtual_method(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.classes,

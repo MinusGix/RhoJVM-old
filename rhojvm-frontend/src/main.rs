@@ -101,30 +101,32 @@ fn main() {
     tracing::info!("RhoJVM Initializing");
 
     let mut class_directories: ClassDirectories = ClassDirectories::default();
+    {
+        let class_dirs = [
+            // RhoJVM libraries take precedence since it is expected that some code
+            "./classpath/",
+            "./rhojvm/ex/lib/rt/",
+            "./rhojvm/ex/lib/jce/",
+            "./rhojvm/ex/lib/charsets/",
+            "./rhojvm/ex/lib/jfr",
+            "./rhojvm/ex/lib/jsse",
+            "./rhojvm/ex/",
+        ];
+
+        for path in class_dirs {
+            let path = Path::new(path);
+            class_directories
+                .add(path)
+                .expect("for class directory to properly exist");
+        }
+    }
     let class_names: ClassNames = ClassNames::default();
-    let class_files: ClassFiles = ClassFiles::default();
+    let class_files: ClassFiles = ClassFiles::new(class_directories);
     let classes: Classes = Classes::default();
     let packages: Packages = Packages::default();
     let methods: Methods = Methods::default();
 
     let entry_point_cp = ["HelloWorld"];
-    let class_dirs = [
-        // RhoJVM libraries take precedence since it is expected that some code
-        "./classpath/",
-        "./rhojvm/ex/lib/rt/",
-        "./rhojvm/ex/lib/jce/",
-        "./rhojvm/ex/lib/charsets/",
-        "./rhojvm/ex/lib/jfr",
-        "./rhojvm/ex/lib/jsse",
-        "./rhojvm/ex/",
-    ];
-
-    for path in class_dirs {
-        let path = Path::new(path);
-        class_directories
-            .add(path)
-            .expect("for class directory to properly exist");
-    }
 
     // Initialize State
     let state = State::new(conf);
@@ -135,7 +137,6 @@ fn main() {
     // This is also used for passing it directly into native functions
     let env = Env {
         interface: Box::leak(Box::new(NativeInterface::new_typical())),
-        class_directories,
         class_names,
         class_files,
         classes,
@@ -176,15 +177,10 @@ fn main() {
     // Load the entry point
     let entrypoint_id: ClassId = env
         .class_files
-        .load_by_class_path_slice(
-            &env.class_directories,
-            &mut env.class_names,
-            &entry_point_cp,
-        )
+        .load_by_class_path_slice(&mut env.class_names, &entry_point_cp)
         .unwrap();
     env.classes
         .load_class(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             &mut env.packages,
@@ -194,7 +190,6 @@ fn main() {
     env.state.entry_point_class = Some(entrypoint_id);
 
     if let Err(err) = verify_from_entrypoint(
-        &env.class_directories,
         &mut env.class_names,
         &mut env.class_files,
         &mut env.classes,
@@ -224,7 +219,6 @@ fn main() {
         let main_method_id = env
             .methods
             .load_method_from_desc(
-                &env.class_directories,
                 &mut env.class_names,
                 &mut env.class_files,
                 entrypoint_id,

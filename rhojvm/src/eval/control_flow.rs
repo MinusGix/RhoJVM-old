@@ -150,7 +150,6 @@ impl RunInst for AThrow {
                 if let ReferenceInstance::Class(instance) = instance {
                     let throwable_id = env.class_names.gcid_from_bytes(b"java/lang/Throwable");
                     if does_extend_class(
-                        &env.class_directories,
                         &mut env.class_names,
                         &mut env.class_files,
                         &env.classes,

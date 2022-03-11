@@ -328,7 +328,6 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
     let method_id = env
         .methods
         .load_method_from_desc(
-            &env.class_directories,
             &mut env.class_names,
             &mut env.class_files,
             this_id,

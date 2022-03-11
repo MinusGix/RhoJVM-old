@@ -10,7 +10,7 @@ use rhojvm_base::{
     },
     id::ClassId,
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, StepError,
+    ClassFiles, ClassNames, Classes, StepError,
 };
 use smallvec::SmallVec;
 
@@ -61,7 +61,6 @@ impl FrameType {
     pub(crate) fn is_stack_same_of_frame_type(
         &self,
         classes: &mut Classes,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -78,22 +77,14 @@ impl FrameType {
                 ) => {
                     l_id == r_id
                         || classes.is_super_class(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
                             *r_id,
                             *l_id,
                         )?
-                        || classes.implements_interface(
-                            class_directories,
-                            class_names,
-                            class_files,
-                            *r_id,
-                            *l_id,
-                        )?
+                        || classes.implements_interface(class_names, class_files, *r_id, *l_id)?
                         || classes.is_castable_array(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
@@ -114,22 +105,14 @@ impl FrameType {
                 ) => {
                     l_id == r_id
                         || classes.is_super_class(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
                             *r_id,
                             *l_id,
                         )?
-                        || classes.implements_interface(
-                            class_directories,
-                            class_names,
-                            class_files,
-                            *r_id,
-                            *l_id,
-                        )?
+                        || classes.implements_interface(class_names, class_files, *r_id, *l_id)?
                         || classes.is_castable_array(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
@@ -143,22 +126,14 @@ impl FrameType {
                 ) => {
                     l_id == r_id
                         || classes.is_super_class(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
                             *r_id,
                             *l_id,
                         )?
-                        || classes.implements_interface(
-                            class_directories,
-                            class_names,
-                            class_files,
-                            *r_id,
-                            *l_id,
-                        )?
+                        || classes.implements_interface(class_names, class_files, *r_id, *l_id)?
                         || classes.is_castable_array(
-                            class_directories,
                             class_names,
                             class_files,
                             packages,
@@ -278,7 +253,6 @@ impl FrameType {
 
     pub(crate) fn from_opcode_with_type(
         classes: &mut Classes,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -334,13 +308,7 @@ impl FrameType {
                     FrameType::Complex(complex) => match complex {
                         ComplexFrameType::ReferenceClass(id) => {
                             let arr = classes
-                                .get_array_class(
-                                    class_directories,
-                                    class_names,
-                                    class_files,
-                                    packages,
-                                    *id,
-                                )?
+                                .get_array_class(class_names, class_files, packages, *id)?
                                 .ok_or(VerifyStackMapError::RefArrayRefTypeNonArray)?;
                             let elem = arr.component_type();
                             let elem_id = elem
@@ -398,7 +366,6 @@ impl FrameType {
 
     pub(crate) fn from_opcode_pop_complex_type(
         classes: &mut Classes,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -455,13 +422,8 @@ impl FrameType {
                 FrameType::Complex(complex) => match complex {
                     ComplexFrameType::ReferenceClass(id)
                     | ComplexFrameType::UninitializedReferenceClass(id) => {
-                        let array_class = classes.get_array_class(
-                            class_directories,
-                            class_names,
-                            class_files,
-                            packages,
-                            *id,
-                        )?;
+                        let array_class =
+                            classes.get_array_class(class_names, class_files, packages, *id)?;
                         if let Some(array_class) = array_class {
                             if array_class.component_type().is_primitive() {
                                 return Err(VerifyStackMapError::InstExpectedArrayOfReferencesGotPrimitives {
@@ -493,13 +455,8 @@ impl FrameType {
                 FrameType::Complex(complex) => match complex {
                     ComplexFrameType::ReferenceClass(id)
                     | ComplexFrameType::UninitializedReferenceClass(id) => {
-                        let array_class = classes.get_array_class(
-                            class_directories,
-                            class_names,
-                            class_files,
-                            packages,
-                            *id,
-                        )?;
+                        let array_class =
+                            classes.get_array_class(class_names, class_files, packages, *id)?;
                         if array_class.is_none() {
                             return Err(VerifyStackMapError::InstExpectedArrayGotClass {
                                 inst_name,
@@ -540,7 +497,6 @@ impl FrameType {
     /// not just the ones from before the instruction was activated
     pub(crate) fn from_opcode_type(
         classes: &mut Classes,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -554,7 +510,6 @@ impl FrameType {
             Type::Complex(complex) => FrameType::from_opcode_complex_type(class_names, complex),
             Type::With(with_t) => FrameType::from_opcode_with_type(
                 classes,
-                class_directories,
                 class_names,
                 class_files,
                 packages,
@@ -583,7 +538,6 @@ impl FrameType {
 
     pub(crate) fn from_opcode_local_out_type(
         classes: &mut Classes,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -595,7 +549,6 @@ impl FrameType {
         match typ {
             LocalVariableType::Type(typ) => Self::from_opcode_type(
                 classes,
-                class_directories,
                 class_names,
                 class_files,
                 packages,
@@ -609,7 +562,6 @@ impl FrameType {
 
     pub(crate) fn from_opcode_push_type(
         classes: &mut Classes,
-        class_directories: &ClassDirectories,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         packages: &mut Packages,
@@ -621,7 +573,6 @@ impl FrameType {
         match typ {
             PushType::Type(typ) => Self::from_opcode_type(
                 classes,
-                class_directories,
                 class_names,
                 class_files,
                 packages,

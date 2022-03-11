@@ -30,7 +30,7 @@ use rhojvm_base::{
     id::ClassId,
     load_super_classes_iter,
     package::Packages,
-    ClassDirectories, ClassFiles, ClassNames, Classes, Methods,
+    ClassFiles, ClassNames, Classes, Methods,
 };
 use usize_cast::IntoUsize;
 
@@ -97,7 +97,6 @@ fn get_field_dest(
     // TODO: Document assumption that fields stay in order
     let mut iter = load_super_classes_iter(dest_class_id);
     while let Some(dest_id) = iter.next_item(
-        &env.class_directories,
         &mut env.class_names,
         &mut env.class_files,
         &mut env.classes,
@@ -130,7 +129,6 @@ fn get_field_dest(
 /// Theoretically, this shouldn't error since it would've been checked by stack map verifier
 /// already.
 fn convert_field_type_store(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -236,21 +234,8 @@ fn convert_field_type_store(
             let instance_id = src.instanceof();
 
             let is_castable = instance_id == id
-                || classes.is_super_class(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    packages,
-                    instance_id,
-                    id,
-                )?
-                || classes.implements_interface(
-                    class_directories,
-                    class_names,
-                    class_files,
-                    instance_id,
-                    id,
-                )?;
+                || classes.is_super_class(class_names, class_files, packages, instance_id, id)?
+                || classes.implements_interface(class_names, class_files, instance_id, id)?;
 
             if is_castable {
                 RuntimeValue::Reference(src_ref)
@@ -339,7 +324,6 @@ impl RunInst for PutStaticField {
 
             // TODO: Some of the errors should be exceptions
             let field_value = convert_field_type_store(
-                &env.class_directories,
                 &mut env.class_names,
                 &mut env.class_files,
                 &mut env.classes,
@@ -475,7 +459,6 @@ impl RunInst for PutField {
 
             // TODO: Some of the errors should be exceptions
             let field_value = convert_field_type_store(
-                &env.class_directories,
                 &mut env.class_names,
                 &mut env.class_files,
                 &mut env.classes,
@@ -1338,7 +1321,6 @@ fn array_load(
 }
 
 fn arraystore_exception(
-    class_directories: &ClassDirectories,
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -1489,7 +1471,6 @@ impl RunInst for AAStore {
         if let Some(id) = id {
             let is_castable = id == array_inst.element_type
                 || env.classes.is_super_class(
-                    &env.class_directories,
                     &mut env.class_names,
                     &mut env.class_files,
                     &mut env.packages,
@@ -1497,14 +1478,12 @@ impl RunInst for AAStore {
                     array_inst.element_type,
                 )?
                 || env.classes.implements_interface(
-                    &env.class_directories,
                     &mut env.class_names,
                     &mut env.class_files,
                     id,
                     array_inst.element_type,
                 )?
                 || env.classes.is_castable_array(
-                    &env.class_directories,
                     &mut env.class_names,
                     &mut env.class_files,
                     &mut env.packages,
