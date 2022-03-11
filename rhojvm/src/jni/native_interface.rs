@@ -651,7 +651,8 @@ extern "C" fn throw_new(env: *mut Env, class: JClass, message: *const JChar) -> 
 
 pub type ExceptionOccurredFn = unsafe extern "C" fn(env: *mut Env) -> JThrowable;
 extern "C" fn exception_occurred(env: *mut Env) -> JThrowable {
-    unimpl("ExceptionOccurred")
+    tracing::warn!("Exception occurred called but is unimplemented");
+    JThrowable::null()
 }
 
 pub type ExceptionDescribeFn = unsafe extern "C" fn(env: *mut Env);
