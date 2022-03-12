@@ -15,6 +15,8 @@
 #![allow(clippy::similar_names)]
 // Annoying. Really shouldn't highlight the entire thing.
 #![allow(clippy::unnecessary_wraps)]
+// Not really that useful
+#![allow(clippy::redundant_else)]
 
 use std::{
     collections::HashMap, num::NonZeroUsize, string::FromUtf16Error, sync::Arc, thread::ThreadId,
@@ -248,6 +250,9 @@ pub struct State {
     classes_info: ClassesInfo,
     pub method_info: MethodInfo,
 
+    /// Holds an exception that occurred in native code
+    pub native_exception: Option<GcRef<ClassInstance>>,
+
     // Caching of various ids
     char_array_id: Option<ClassId>,
 
@@ -293,6 +298,8 @@ impl State {
             classes_info: ClassesInfo::default(),
             method_info: MethodInfo::default(),
 
+            native_exception: None,
+
             char_array_id: None,
             string_class_id: None,
             string_char_array_constructor: None,
@@ -313,6 +320,28 @@ impl State {
 
     fn conf(&self) -> &StateConfig {
         &self.conf
+    }
+
+    pub fn fill_native_exception(&mut self, exc: GcRef<ClassInstance>) {
+        if self.native_exception.is_some() {
+            tracing::warn!(
+                "Native exception occurred while there was an unhandled native exception."
+            );
+            return;
+        }
+
+        self.native_exception = Some(exc);
+    }
+
+    /// Get the value out of a [`ValueException`], or store the exception
+    pub fn extract_value<T>(&mut self, val: ValueException<T>) -> Option<T> {
+        match val {
+            ValueException::Value(val) => Some(val),
+            ValueException::Exception(exc) => {
+                self.fill_native_exception(exc);
+                None
+            }
+        }
     }
 
     /// Get the id for `char[]`

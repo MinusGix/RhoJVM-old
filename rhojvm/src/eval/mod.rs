@@ -384,7 +384,7 @@ macro_rules! impl_call_native_method {
 
 
             // Safety: Relying on java's declared parameter types
-            match rv {
+            let return_value: RuntimeValue = match rv {
                 RuntimeType::Primitive(prim) => match prim {
                     RuntimeTypePrimitive::I64 => {
                         let native_func = unsafe {
@@ -394,7 +394,7 @@ macro_rules! impl_call_native_method {
                             >(native_func)
                         };
                         let value: JLong = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
-                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::I64(value).into()));
+                        RuntimeValuePrimitive::I64(value).into()
                     },
                     RuntimeTypePrimitive::I32 => {
                         let native_func = unsafe {
@@ -404,7 +404,7 @@ macro_rules! impl_call_native_method {
                             >(native_func)
                         };
                         let value: JInt = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
-                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::I32(value).into()));
+                        RuntimeValuePrimitive::I32(value).into()
                     },
                     RuntimeTypePrimitive::I16 => {
                         let native_func = unsafe {
@@ -414,7 +414,7 @@ macro_rules! impl_call_native_method {
                             >(native_func)
                         };
                         let value: JShort = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
-                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::I16(value).into()));
+                        RuntimeValuePrimitive::I16(value).into()
                     },
                     RuntimeTypePrimitive::I8 => {
                         // TODO: This might need more handling for bools
@@ -425,7 +425,7 @@ macro_rules! impl_call_native_method {
                             >(native_func)
                         };
                         let value: JByte = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
-                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::I8(value).into()));
+                        RuntimeValuePrimitive::I8(value).into()
                     },
                     RuntimeTypePrimitive::F32 => {
                         let native_func = unsafe {
@@ -435,7 +435,7 @@ macro_rules! impl_call_native_method {
                             >(native_func)
                         };
                         let value: JFloat = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
-                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::F32(value).into()));
+                        RuntimeValuePrimitive::F32(value).into()
                     },
                     RuntimeTypePrimitive::F64 => {
                         let native_func = unsafe {
@@ -445,7 +445,7 @@ macro_rules! impl_call_native_method {
                             >(native_func)
                         };
                         let value: JDouble = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
-                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::F64(value).into()));
+                        RuntimeValuePrimitive::F64(value).into()
                     },
                     RuntimeTypePrimitive::Char => {
                         let native_func = unsafe {
@@ -456,7 +456,7 @@ macro_rules! impl_call_native_method {
                         };
                         let value: JChar = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
                         let value = JavaChar(value);
-                        return Ok(EvalMethodValue::Return(RuntimeValuePrimitive::Char(value).into()));
+                        RuntimeValuePrimitive::Char(value).into()
                     },
                 },
                 RuntimeType::Reference(_) => {
@@ -472,13 +472,21 @@ macro_rules! impl_call_native_method {
                     if let Some(value) = value {
                         let inst = $env.state.gc.deref(value).ok_or(EvalError::InvalidGcRef(value))?;
                         if matches!(inst, Instance::Reference(_)) {
-                            return Ok(EvalMethodValue::Return(RuntimeValue::Reference(value.unchecked_as())));
+                            RuntimeValue::Reference(value.unchecked_as())
+                        } else {
+                            todo!("native function returned gcref to static class");
                         }
-                        todo!("native function returned gcref to static class");
                     } else {
-                        return Ok(EvalMethodValue::Return(RuntimeValue::NullReference));
+                        RuntimeValue::NullReference
                     }
                 },
+            };
+
+            if let Some(native_exception) = $env.state.native_exception.take() {
+                // Ignore the return value, assume it is garbage
+                return Ok(EvalMethodValue::Exception(native_exception));
+            } else {
+                return Ok(EvalMethodValue::Return(return_value));
             }
         } else {
             let native_func = unsafe {
@@ -488,7 +496,11 @@ macro_rules! impl_call_native_method {
                 >(native_func)
             };
             let _: () = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
-            return Ok(EvalMethodValue::ReturnVoid);
+            if let Some(native_exception) = $env.state.native_exception.take() {
+                return Ok(EvalMethodValue::Exception(native_exception));
+            } else {
+                return Ok(EvalMethodValue::ReturnVoid);
+            }
         }
     };
 }
@@ -498,6 +510,14 @@ macro_rules! impl_call_native_method {
 pub enum ValueException<V> {
     Value(V),
     Exception(GcRef<ClassInstance>),
+}
+impl ValueException<GcRef<ClassInstance>> {
+    #[must_use]
+    pub fn flatten(self) -> GcRef<ClassInstance> {
+        match self {
+            ValueException::Value(v) | ValueException::Exception(v) => v,
+        }
+    }
 }
 
 pub enum EvalMethodValue {

@@ -1,10 +1,10 @@
 use rhojvm_base::code::types::JavaChar;
 
 use crate::{
-    eval::ValueException,
+    eval::{internal_repl::JINT_GARBAGE, ValueException},
     jni::{JDouble, JFloat, JInt, JLong, JObject, JString},
     rv::RuntimeValuePrimitive,
-    util::{self, Env},
+    util::{self, make_exception_with_text, Env},
 };
 
 pub(crate) extern "C" fn float_to_raw_int_bits(
@@ -78,17 +78,46 @@ pub(crate) extern "C" fn integer_parse_int(
     let radix = radix.unsigned_abs();
 
     let source = unsafe { env.get_jobject_as_gcref(source) };
-    let source = source.expect("null source ref");
+    let source = if let Some(source) = source {
+        source
+    } else {
+        let npe = make_exception_with_text(
+            env,
+            b"java/lang/NullPointerException",
+            "Integer#parseInt source was null",
+        )
+        .expect("Failed to create NPE")
+        .flatten();
+        env.state.fill_native_exception(npe);
+
+        // There is no meaningful return value
+        return JINT_GARBAGE;
+    };
     let source = util::get_string_contents_as_rust_string(
         &env.class_files,
         &mut env.class_names,
         &mut env.state,
         source,
-    )
-    .unwrap();
+    );
+    let source = match source {
+        Ok(source) => source,
+        Err(_) => todo!(),
+    };
 
     // TODO: We could do this manually ourselves directly from the utf16 string, which would be
     // faster than converting it to a rust string and back..
     // TODO: Does this match java's behavior?
-    i32::from_str_radix(&source, radix).expect("Failed to parse integer")
+    match i32::from_str_radix(&source, radix) {
+        Ok(value) => value,
+        Err(err) => {
+            let err_text = format!("{}", err);
+
+            let exc = make_exception_with_text(env, b"java/lang/NumberFormatException", &err_text)
+                .expect("Failed to create exception")
+                .flatten();
+            env.state.fill_native_exception(exc);
+
+            JINT_GARBAGE
+        }
+    }
 }

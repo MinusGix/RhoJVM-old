@@ -3,7 +3,7 @@ use either::Either;
 use rhojvm_base::{
     code::{method::MethodDescriptor, types::JavaChar},
     id::ClassId,
-    util::{access_path_iter, convert_classfile_text},
+    util::convert_classfile_text,
 };
 
 use crate::{

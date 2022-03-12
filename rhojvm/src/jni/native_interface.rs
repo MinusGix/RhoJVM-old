@@ -1,6 +1,6 @@
 use std::{ffi::CStr, os::raw::c_char};
 
-use rhojvm_base::{code::method::MethodDescriptor, id::ClassId, util::convert_classfile_text};
+use rhojvm_base::{code::method::MethodDescriptor, id::ClassId};
 use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{
@@ -638,7 +638,19 @@ extern "C" fn get_module(env: *mut Env, class: JClass) -> JObject {
 
 pub type ThrowFn = unsafe extern "C" fn(env: *mut Env, obj: JThrowable) -> JInt;
 extern "C" fn throw(env: *mut Env, obj: JThrowable) -> JInt {
-    unimpl("Throw")
+    assert_valid_env(env);
+    let env = unsafe { &mut *env };
+
+    // TODO: assert that the obj is actually throwable
+
+    let obj = unsafe { env.get_jobject_as_gcref(obj) };
+    if let Some(obj) = obj {
+        let obj = obj.unchecked_as();
+        env.state.fill_native_exception(obj);
+        return 0;
+    }
+
+    panic!("trying to throw null reference");
 }
 
 pub type ThrowNewFn =
@@ -649,8 +661,14 @@ extern "C" fn throw_new(env: *mut Env, class: JClass, message: *const JChar) -> 
 
 pub type ExceptionOccurredFn = unsafe extern "C" fn(env: *mut Env) -> JThrowable;
 extern "C" fn exception_occurred(env: *mut Env) -> JThrowable {
-    tracing::warn!("Exception occurred called but is unimplemented");
-    JThrowable::null()
+    assert_valid_env(env);
+    let env = unsafe { &mut *env };
+
+    if let Some(exc) = env.state.native_exception {
+        unsafe { env.get_local_jobject_for(exc.into_generic()) }
+    } else {
+        JThrowable::null()
+    }
 }
 
 pub type ExceptionDescribeFn = unsafe extern "C" fn(env: *mut Env);
@@ -660,17 +678,24 @@ extern "C" fn exception_describe(env: *mut Env) {
 
 pub type ExceptionClearFn = unsafe extern "C" fn(env: *mut Env);
 extern "C" fn exception_clear(env: *mut Env) {
-    unimpl("ExceptionClear")
+    assert_valid_env(env);
+    let env = unsafe { &mut *env };
+
+    let _ = env.state.native_exception.take();
 }
 
 pub type FatalErrorFn = unsafe extern "C" fn(env: *mut Env, msg: *const JChar);
 extern "C" fn fatal_error(env: *mut Env, msg: *const JChar) {
-    unimpl("FatalError")
+    // TODO: log message
+    panic!("Fatal Error");
 }
 
 pub type ExceptionCheckFn = unsafe extern "C" fn(env: *mut Env) -> JBoolean;
 extern "C" fn exception_check(env: *mut Env) -> JBoolean {
-    unimpl("ExceptionCheck")
+    assert_valid_env(env);
+    let env = unsafe { &mut *env };
+
+    u8::from(env.state.native_exception.is_some())
 }
 
 #[repr(C)]

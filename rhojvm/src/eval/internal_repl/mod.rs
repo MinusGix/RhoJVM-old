@@ -1,7 +1,7 @@
 //! Internal replacements for native functions  
 
 use crate::{
-    jni::{JObject, MethodClassNoArguments, OpaqueClassMethod},
+    jni::{JInt, JObject, MethodClassNoArguments, OpaqueClassMethod},
     util::Env,
 };
 
@@ -11,6 +11,10 @@ mod primitive;
 mod system;
 mod system_class_loader;
 mod unsafe_;
+
+/// A garbage value intended for use in returns that shouldn't be used, because an exception was
+/// thrown
+pub(crate) const JINT_GARBAGE: JInt = JInt::MAX;
 
 // TODO: Should we use something like PHF? Every native lookup is going to check this array
 // for if it exists, which does make them all more expensive for this case. PHF would probably be
