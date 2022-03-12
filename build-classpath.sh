@@ -6,6 +6,7 @@ cd classpath
 J_FILES=""
 # java/lang
 JFILES="$JFILES ./java/lang/Object.java ./java/lang/ClassLoader.java ./java/lang/Class.java ./java/lang/Package.java ./java/lang/System.java ./java/lang/String.java ./java/lang/StringBuilder.java ./java/lang/Throwable.java ./java/lang/Integer.java ./java/lang/Float.java ./java/lang/Double.java"
+JFILE="$JFILES ./java/lang/UnsupportedOperationException.java"
 
 # java/lang/reflect
 JFILES="$JFILES ./java/lang/reflect/Field.java"

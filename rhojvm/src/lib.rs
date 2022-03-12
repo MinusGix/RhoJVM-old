@@ -122,6 +122,9 @@ pub struct StateConfig {
     /// mean that this may not result in all available memory being used.
     /// It is advised to have some form of limit, though.
     pub max_stack_size: Option<MaxStackSize>,
+    /// Whether it should abort when an `UnsupportedOperationException` is thrown.
+    /// This is typically only on for debugging of code, to make it easier to pinpoint in logs.
+    pub abort_on_unsupported: bool,
 }
 impl StateConfig {
     #[must_use]
@@ -131,6 +134,7 @@ impl StateConfig {
             tracing_level,
             stack_map_verification_logging: StackMapVerificationLogging::default(),
             max_stack_size: Some(MaxStackSize::default()),
+            abort_on_unsupported: false,
         }
     }
 

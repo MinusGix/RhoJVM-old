@@ -43,6 +43,20 @@ struct CliArgs {
     #[clap(subcommand)]
     command: CliCommands,
 }
+impl CliArgs {
+    pub fn abort_on_unsupported(&self) -> bool {
+        match &self.command {
+            CliCommands::Run {
+                abort_on_unsupported,
+                ..
+            } => *abort_on_unsupported,
+            CliCommands::RunJar {
+                abort_on_unsupported,
+                ..
+            } => *abort_on_unsupported,
+        }
+    }
+}
 
 #[derive(Debug, Subcommand)]
 enum CliCommands {
@@ -50,10 +64,15 @@ enum CliCommands {
         // Class file name to run
         #[clap(value_name = "CLASS_NAME")]
         class_name: String,
+        // TODO: Can we avoid duplication?
+        #[clap(long)]
+        abort_on_unsupported: bool,
     },
     RunJar {
         #[clap(parse(from_os_str), value_name = "JAR_FILE")]
         jar: PathBuf,
+        #[clap(long)]
+        abort_on_unsupported: bool,
     },
 }
 
@@ -126,13 +145,15 @@ fn main() {
 
     // Note that clap autoexits if it didn't get a thing to do
     let args = CliArgs::parse();
+    let conf = make_state_conf(&args);
 
     match &args.command {
-        CliCommands::Run { class_name } => {
+        CliCommands::Run { class_name, .. } => {
             let class_directories = make_class_directories(&args);
             // TODO: This is probably incorrect
             execute_class_name(
                 &args,
+                conf,
                 class_directories,
                 |env| {
                     env.class_files
@@ -142,13 +163,13 @@ fn main() {
                 |_| {},
             )
         }
-        CliCommands::RunJar { jar } => {
-            execute_jar(&args, jar);
+        CliCommands::RunJar { jar, .. } => {
+            execute_jar(&args, conf, jar);
         }
     }
 }
 
-fn execute_jar(args: &CliArgs, jar: &PathBuf) {
+fn execute_jar(args: &CliArgs, conf: StateConfig, jar: &PathBuf) {
     let class_directories = make_class_directories(args);
     let mut jar_loader = JarClassFileLoader::new(jar.to_owned()).expect("Failed to load jar file");
 
@@ -177,6 +198,7 @@ fn execute_jar(args: &CliArgs, jar: &PathBuf) {
 
     execute_class_name(
         args,
+        conf,
         combine_loader,
         |env| {
             env.class_names
@@ -239,7 +261,7 @@ fn execute_jar(args: &CliArgs, jar: &PathBuf) {
     );
 }
 
-fn make_state_conf(_args: &CliArgs) -> StateConfig {
+fn make_state_conf(args: &CliArgs) -> StateConfig {
     // TODO: make arguments for these
     let mut conf = StateConfig::new();
     conf.stack_map_verification_logging = StackMapVerificationLogging {
@@ -249,6 +271,7 @@ fn make_state_conf(_args: &CliArgs) -> StateConfig {
         log_stack_modifications: false,
         log_local_variable_modifications: false,
     };
+    conf.abort_on_unsupported = args.abort_on_unsupported();
     conf
 }
 
@@ -340,12 +363,11 @@ fn load_required_libs(env: &mut Env) {
 
 fn execute_class_name(
     args: &CliArgs,
+    conf: StateConfig,
     cfile_loader: impl ClassFileLoader + 'static,
     get_entrypoint_id: impl FnOnce(&mut Env) -> ClassId,
     pre_execute: impl FnOnce(&mut Env),
 ) {
-    let conf = make_state_conf(args);
-
     init_logging(&conf);
 
     let mut env = make_env(args, conf, cfile_loader);

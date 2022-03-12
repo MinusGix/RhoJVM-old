@@ -149,7 +149,22 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_sun_misc_Unsafe_getAndAddInt" => {
                 into_opaque5ret(unsafe_::unsafe_get_and_add_int)
             }
+
+            // UnsupportedOperationException
+            b"Java_java_lang_UnsupportedOperationException_checkAbort" => {
+                into_opaque2ret(unsupported_operation_exception_check_abort)
+            }
             _ => return None,
         })
     }
+}
+
+extern "C" fn unsupported_operation_exception_check_abort(env: *mut Env<'_>, _this: JObject) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    assert!(
+        !env.state.conf().abort_on_unsupported,
+        "UnsupportedOperationException"
+    );
 }
