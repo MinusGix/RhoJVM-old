@@ -13,8 +13,10 @@ use rhojvm_base::{
         class_names::ClassNames,
     },
     id::ClassId,
-    util,
+    util::{access_path_iter, convert_classfile_text},
 };
+pub mod jar_loader;
+pub mod util;
 
 #[derive(Debug, Default, Clone)]
 pub struct ClassDirectories {
@@ -47,7 +49,7 @@ impl ClassDirectories {
     ) -> Result<ClassFileData, LoadClassFileError> {
         use classfile_parser::parser::ParseData;
 
-        if let Some((file_path, mut file)) = self.load_class_file_with_rel_path(&rel_path) {
+        if let Some((_, mut file)) = self.load_class_file_with_rel_path(&rel_path) {
             let mut data = Vec::new();
             file.read_to_end(&mut data)
                 .map_err(LoadClassFileError::ReadError)?;
@@ -60,12 +62,7 @@ impl ClassDirectories {
             // TODO: Don't assert
             debug_assert!(rem_data.is_empty());
 
-            Ok(ClassFileData::new(
-                class_file_id,
-                file_path,
-                data,
-                class_file,
-            ))
+            Ok(ClassFileData::new(class_file_id, data, class_file))
         } else {
             Err(LoadClassFileError::NonexistentFile(rel_path))
         }
@@ -74,7 +71,7 @@ impl ClassDirectories {
 
 impl ClassFileLoader for ClassDirectories {
     fn load_class_file_by_id(
-        &self,
+        &mut self,
         class_names: &ClassNames,
         class_file_id: ClassId,
     ) -> Result<Option<ClassFileData>, LoadClassFileError> {
@@ -87,8 +84,8 @@ impl ClassFileLoader for ClassDirectories {
             return Ok(None);
         }
 
-        let path = util::convert_classfile_text(class_name.get());
-        let path = util::access_path_iter(&path);
+        let path = convert_classfile_text(class_name.get());
+        let path = access_path_iter(&path);
         let rel_path = class_path_iter_to_relative_path(path);
         self.direct_load_class_file_from_rel_path(class_file_id, rel_path)
             .map(Some)
@@ -107,4 +104,23 @@ pub(crate) fn class_path_iter_to_relative_path<'a>(
     path.set_extension("class");
 
     path
+}
+
+pub(crate) fn class_path_iter_to_relative_path_string<'a>(
+    class_path: impl Iterator<Item = &'a str> + Clone,
+) -> String {
+    // TODO: We could cheaply compute capacity beforehand
+    let count = class_path.clone().count();
+    let mut result = String::new();
+
+    for (i, part) in class_path.enumerate() {
+        result.push_str(part);
+        if i + 1 < count {
+            result.push('/');
+        }
+    }
+
+    result.push_str(".class");
+
+    result
 }

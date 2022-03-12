@@ -6,3 +6,12 @@ edition = "2021"
 [dependencies]
 classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
 rhojvm-base = { path = "../rhojvm-base/" }
+# For parsing the manifest
+kv-parser = { path = "../kv-parser/" }
+# For logging
+tracing = { version = "0.1", default-features = false }
+# TODO: Put this under a feature, along with the jar loader?
+# TODO: Don't use our fork of the library
+#   We are currently using our fork because the version on crates.io seems to be a bit out of date
+# For loading jar files
+zip = { git = "https://github.com/MinusGix/zip" }

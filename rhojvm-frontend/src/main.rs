@@ -23,7 +23,7 @@ use rhojvm_base::{
     id::ClassId,
     package::Packages,
 };
-use rhojvm_class_loaders::ClassDirectories;
+use rhojvm_class_loaders::{jar_loader::JarClassFileLoader, util::CombineLoader, ClassDirectories};
 use stack_map_verifier::StackMapVerificationLogging;
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -129,9 +129,45 @@ fn main() {
     match &args.command {
         CliCommands::Run { class_name } => {
             let class_directories = make_class_directories(&args);
-            execute_class_name(&args, class_directories, class_name.as_str())
+            // TODO: This is probably incorrect
+            execute_class_name(&args, class_directories, |env| {
+                env.class_files
+                    .load_by_class_path_slice(&mut env.class_names, &[class_name.as_str()])
+                    .unwrap()
+            })
         }
-        CliCommands::RunJar { jar } => todo!("Running a jar is not yet implemented"),
+        CliCommands::RunJar { jar } => {
+            let class_directories = make_class_directories(&args);
+            let mut jar_loader =
+                JarClassFileLoader::new(jar.to_owned()).expect("Failed to load jar file");
+
+            let manifest = jar_loader
+                .load_manifest()
+                .expect("Failed to load jar manifest");
+            // TODO: Check manifest version
+            // TODO: Add manifest class path field to class directories
+            // TODO: manifest extensions?
+            // TODO: manifest implementation field?
+            // TODO: manifest sealed?
+
+            // This will be dot separated
+            let main_class_name = manifest
+                .get(0, "Main-Class")
+                .expect("There was no Main-Class manifest attribute");
+            // Convert it to bytes since we typically deal with cesu8
+            // TODO: actually convert it to cesu8
+            let main_class_name = main_class_name.as_bytes();
+            let main_class_name = main_class_name.split(|x| *x == b'.');
+
+            // Combine the jar loader and the class directories loader into one loader
+            let combine_loader = CombineLoader::new(jar_loader, class_directories);
+
+            execute_class_name(&args, combine_loader, |env| {
+                env.class_names.gcid_from_iter_bytes(main_class_name)
+            });
+
+            todo!()
+        }
     }
 }
 
@@ -237,24 +273,19 @@ fn load_required_libs(env: &mut Env) {
 fn execute_class_name(
     args: &CliArgs,
     cfile_loader: impl ClassFileLoader + 'static,
-    class_name: &str,
+    get_entrypoint_id: impl FnOnce(&mut Env) -> ClassId,
 ) {
     let conf = make_state_conf(args);
 
     init_logging(&conf);
-
-    let entry_point_cp = [class_name];
 
     let mut env = make_env(args, conf, cfile_loader);
     let mut env: &mut Env = &mut *env;
 
     load_required_libs(env);
 
+    let entrypoint_id = get_entrypoint_id(env);
     // Load the entry point
-    let entrypoint_id: ClassId = env
-        .class_files
-        .load_by_class_path_slice(&mut env.class_names, &entry_point_cp)
-        .unwrap();
     env.classes
         .load_class(
             &mut env.class_names,
