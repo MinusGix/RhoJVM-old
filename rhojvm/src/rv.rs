@@ -63,6 +63,7 @@ impl RuntimeValuePrimitive {
                 | RuntimeValuePrimitive::I16(_)
                 | RuntimeValuePrimitive::I8(_)
                 | RuntimeValuePrimitive::Char(_)
+                | RuntimeValuePrimitive::Bool(_)
         )
     }
 
@@ -139,6 +140,7 @@ impl RuntimeValuePrimitive {
             RuntimeValuePrimitive::I16(x) => i32::from(x),
             RuntimeValuePrimitive::I8(x) => i32::from(x),
             RuntimeValuePrimitive::Char(x) => x.as_int(),
+            RuntimeValuePrimitive::Bool(x) => i32::from(x),
             _ => return None,
         })
     }

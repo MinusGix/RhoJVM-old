@@ -350,6 +350,19 @@ pub(crate) fn alloc_string(
     Ok(ValueException::Value(env.state.gc.alloc(instance)))
 }
 
+pub(crate) fn to_utf16_arr(text: &str) -> Vec<RuntimeValuePrimitive> {
+    text.encode_utf16()
+        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+        .collect()
+}
+
+pub(crate) fn construct_string_r(
+    env: &mut Env,
+    text: &str,
+) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
+    construct_string(env, to_utf16_arr(text))
+}
+
 /// Construct a JVM String given some string
 /// Note that `utf16_text` should be completely `RuntimeValuePrimitive::Char`
 pub(crate) fn construct_string(

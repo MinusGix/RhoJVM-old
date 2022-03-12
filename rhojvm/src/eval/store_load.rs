@@ -835,6 +835,7 @@ fn intload_index(
         frame.stack.push(local)?;
         Ok(RunInstValue::Continue)
     } else {
+        tracing::info!("Value: {:?}", local);
         Err(EvalError::ExpectedLocalVariableIntRepr(index).into())
     }
 }

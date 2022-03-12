@@ -1,7 +1,10 @@
 use classfile_parser::{field_info::FieldAccessFlags, ClassAccessFlags};
 use either::Either;
 use rhojvm_base::{
-    code::{method::MethodDescriptor, types::JavaChar},
+    code::{
+        method::{DescriptorTypeBasic, MethodDescriptor},
+        types::JavaChar,
+    },
     id::ClassId,
     util::convert_classfile_text,
 };
@@ -13,7 +16,7 @@ use crate::{
     initialize_class,
     jni::{JBoolean, JChar, JObject, JString},
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{self, construct_string, find_field_with_name, Env},
+    util::{self, construct_string, find_field_with_name, to_utf16_arr, Env},
     GeneralError,
 };
 
@@ -420,6 +423,7 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
     unsafe { env.get_local_jobject_for(class_ref.into_generic()) }
 }
 
+// TODO: Cache created packages
 pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> JObject {
     assert!(!env.is_null(), "Env was null. Internal bug?");
     let env = unsafe { &mut *env };
@@ -441,20 +445,123 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
 
     // TODO: Should we assume its loaded?
     let class = env.classes.get(&this_id).unwrap();
-    let package_name = if let Some(package_id) = class.package() {
-        env.packages.get(package_id).unwrap().name()
+    let (package_name, package_info) = if let Some(package_id) = class.package() {
+        let package = env.packages.get(package_id).unwrap();
+        (package.name(), &package.info)
     } else {
-        b"" as &[u8]
+        (b"" as &[u8], &env.packages.null_package_info)
     };
 
-    let package_name = convert_classfile_text(package_name);
-    let package_name = package_name
-        .encode_utf16()
-        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
-        .collect();
+    // TODO: reduce the amount of code repetition
+    let package_name = to_utf16_arr(convert_classfile_text(package_name).as_ref());
+    let spec_title = package_info
+        .specification_title
+        .as_ref()
+        .map(AsRef::as_ref)
+        .map(to_utf16_arr);
+    let spec_vendor = package_info
+        .specification_vendor
+        .as_ref()
+        .map(AsRef::as_ref)
+        .map(to_utf16_arr);
+    let spec_version = package_info
+        .specification_version
+        .as_ref()
+        .map(AsRef::as_ref)
+        .map(to_utf16_arr);
+    let impl_title = package_info
+        .implementation_title
+        .as_ref()
+        .map(AsRef::as_ref)
+        .map(to_utf16_arr);
+    let impl_vendor = package_info
+        .implementation_vendor
+        .as_ref()
+        .map(AsRef::as_ref)
+        .map(to_utf16_arr);
+    let impl_version = package_info
+        .implementation_version
+        .as_ref()
+        .map(AsRef::as_ref)
+        .map(to_utf16_arr);
+
+    let sealed = package_info.sealed;
+
     let package_name_ref = match construct_string(env, package_name).unwrap() {
         ValueException::Value(name) => name,
         ValueException::Exception(_) => todo!("Exception initializing package name"),
+    };
+    let spec_title_ref = if let Some(val) = spec_title
+        .map(|x| construct_string(env, x))
+        .transpose()
+        .unwrap()
+    {
+        match val {
+            ValueException::Value(val) => RuntimeValue::Reference(val.into_generic()),
+            ValueException::Exception(_) => todo!(),
+        }
+    } else {
+        RuntimeValue::NullReference
+    };
+    let spec_vendor_ref = if let Some(val) = spec_vendor
+        .map(|x| construct_string(env, x))
+        .transpose()
+        .unwrap()
+    {
+        match val {
+            ValueException::Value(val) => RuntimeValue::Reference(val.into_generic()),
+            ValueException::Exception(_) => todo!(),
+        }
+    } else {
+        RuntimeValue::NullReference
+    };
+    let spec_version_ref = if let Some(val) = spec_version
+        .map(|x| construct_string(env, x))
+        .transpose()
+        .unwrap()
+    {
+        match val {
+            ValueException::Value(val) => RuntimeValue::Reference(val.into_generic()),
+            ValueException::Exception(_) => todo!(),
+        }
+    } else {
+        RuntimeValue::NullReference
+    };
+    let impl_title_ref = if let Some(val) = impl_title
+        .map(|x| construct_string(env, x))
+        .transpose()
+        .unwrap()
+    {
+        match val {
+            ValueException::Value(val) => RuntimeValue::Reference(val.into_generic()),
+            ValueException::Exception(_) => todo!(),
+        }
+    } else {
+        RuntimeValue::NullReference
+    };
+    let impl_vendor_ref = if let Some(val) = impl_vendor
+        .map(|x| construct_string(env, x))
+        .transpose()
+        .unwrap()
+    {
+        match val {
+            ValueException::Value(val) => RuntimeValue::Reference(val.into_generic()),
+            ValueException::Exception(_) => todo!(),
+        }
+    } else {
+        RuntimeValue::NullReference
+    };
+    let impl_version_ref = if let Some(val) = impl_version
+        .map(|x| construct_string(env, x))
+        .transpose()
+        .unwrap()
+    {
+        match val {
+            ValueException::Value(val) => RuntimeValue::Reference(val.into_generic()),
+            ValueException::Exception(_) => todo!(),
+        }
+    } else {
+        RuntimeValue::NullReference
     };
 
     let package_class_id = env.class_names.gcid_from_bytes(b"java/lang/Package");
@@ -466,7 +573,7 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
         ValueException::Exception(_) => todo!("Exception initializing Package class"),
     };
 
-    let mut fields = match make_fields(env, package_class_id, |field_info| {
+    let fields = match make_fields(env, package_class_id, |field_info| {
         !field_info.access_flags.contains(FieldAccessFlags::STATIC)
     })
     .unwrap()
@@ -475,14 +582,6 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
         Either::Right(_exc) => todo!(),
     };
 
-    let package_name_field_id = env
-        .state
-        .get_package_name_field_id(&env.class_files, package_class_id)
-        .unwrap();
-
-    let value = fields.get_mut(package_name_field_id).unwrap().value_mut();
-    *value = RuntimeValue::Reference(package_name_ref.into_generic());
-
     let package_instance = ClassInstance {
         instanceof: package_class_id,
         static_ref: package_class_ref,
@@ -490,6 +589,62 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
     };
 
     let package_ref = env.state.gc.alloc(package_instance);
+
+    let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
+    let constructor_desc = MethodDescriptor::new(
+        smallvec::smallvec![
+            // name
+            DescriptorTypeBasic::Class(string_id).into(),
+            // spec title
+            DescriptorTypeBasic::Class(string_id).into(),
+            // spec vendor
+            DescriptorTypeBasic::Class(string_id).into(),
+            // spec version
+            DescriptorTypeBasic::Class(string_id).into(),
+            // impl title
+            DescriptorTypeBasic::Class(string_id).into(),
+            // impl vendor
+            DescriptorTypeBasic::Class(string_id).into(),
+            // impl version
+            DescriptorTypeBasic::Class(string_id).into(),
+            // is sealed
+            DescriptorTypeBasic::Boolean.into()
+        ],
+        None,
+    );
+
+    let constructor_id = env
+        .methods
+        .load_method_from_desc(
+            &mut env.class_names,
+            &mut env.class_files,
+            package_class_id,
+            b"<init>",
+            &constructor_desc,
+        )
+        .unwrap();
+
+    let locals = Locals::new_with_array([
+        RuntimeValue::Reference(package_ref.into_generic()),
+        RuntimeValue::Reference(package_name_ref.into_generic()),
+        spec_title_ref,
+        spec_vendor_ref,
+        spec_version_ref,
+        impl_title_ref,
+        impl_vendor_ref,
+        impl_version_ref,
+        RuntimeValuePrimitive::Bool(sealed.unwrap_or(false)).into(),
+    ]);
+    let frame = Frame::new_locals(locals);
+
+    match eval_method(env, constructor_id, frame) {
+        Ok(res) => match res {
+            EvalMethodValue::ReturnVoid => {}
+            EvalMethodValue::Return(_) => tracing::warn!("Constructor returned value"),
+            EvalMethodValue::Exception(_) => todo!(),
+        },
+        Err(err) => panic!("{:?}", err),
+    };
 
     unsafe { env.get_local_jobject_for(package_ref.into_generic()) }
 }

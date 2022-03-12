@@ -6,6 +6,8 @@ pub struct Packages {
     // the main issue is that we still need to do a bunch of manual handling to ensure correctness
     packages: Vec<Package>,
     next_id: u32,
+    /// Package info for the root package
+    pub null_package_info: PackageInfo,
 }
 impl Packages {
     fn get_new_id(&mut self) -> PackageId {
@@ -25,6 +27,11 @@ impl Packages {
     #[must_use]
     pub fn get(&self, id: PackageId) -> Option<&Package> {
         self.packages.iter().find(|x| x.id() == id)
+    }
+
+    #[must_use]
+    pub fn get_mut(&mut self, id: PackageId) -> Option<&mut Package> {
+        self.packages.iter_mut().find(|x| x.id() == id)
     }
 
     #[must_use]
@@ -56,16 +63,34 @@ impl Packages {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PackageInfo {
+    pub specification_title: Option<String>,
+    pub specification_vendor: Option<String>,
+    pub specification_version: Option<String>,
+
+    pub implementation_title: Option<String>,
+    pub implementation_vendor: Option<String>,
+    pub implementation_version: Option<String>,
+
+    pub sealed: Option<bool>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Package {
     id: PackageId,
     /// `java`, `java/lang`, `java/io`
     name: Vec<u8>,
+    pub info: PackageInfo,
 }
 impl Package {
     #[must_use]
     fn new(id: PackageId, name: Vec<u8>) -> Self {
-        Self { id, name }
+        Self {
+            id,
+            name,
+            info: PackageInfo::default(),
+        }
     }
 
     #[must_use]

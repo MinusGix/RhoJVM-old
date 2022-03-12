@@ -5,7 +5,38 @@ import java.lang.annotation.Annotation;
 import java.net.URL;
 
 public class Package implements AnnotatedElement {
-    private String name;
+    private final String name;
+    
+    private final String specTitle;
+    private final String specVendor;
+    private final String specVersion;
+
+    private final String implTitle;
+    private final String implVendor;
+    private final String implVersion;
+
+    private final boolean isSealed;
+
+    // Used by the jvm
+    private Package(
+        String name,
+        String specTitle,
+        String specVendor,
+        String specVersion,
+        String implTitle,
+        String implVendor,
+        String implVersion,
+        boolean isSealed
+    ) {
+        this.name = name;
+        this.specTitle = specTitle;
+        this.specVendor = specVendor;
+        this.specVersion = specVersion;
+        this.implTitle = implTitle;
+        this.implVendor = implVendor;
+        this.implVersion = implVersion;
+        this.isSealed = isSealed;
+    }
 
     public static Package getPackage(String name) {
         throw new UnsupportedOperationException("TODO");
@@ -21,34 +52,35 @@ public class Package implements AnnotatedElement {
 
     // TODO: implement these.
     public String getImplementationTitle() {
-        return null;
+        return this.implTitle;
     }
 
     public String getImplementationVendor() {
-        return null;
+        return this.implVendor;
     }
 
     public String getImplementationVersion() {
-        return null;
+        return this.implVersion;
     }
 
     public String getSpecificationTitle() {
-        return null;
+        return this.specTitle;
     }
 
     public String getSpecificationVendor() {
-        return null;
+        return this.specVendor;
     }
 
     public String getSpecificationVersion() {
-        return null;
+        return this.specVersion;
     }
 
     public boolean isSealed() {
-        return false;
+        return this.isSealed;
     }
 
     public boolean isSealed(URL url) {
+        // TODO: ?
         return false;
     }
 

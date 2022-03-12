@@ -131,43 +131,112 @@ fn main() {
         CliCommands::Run { class_name } => {
             let class_directories = make_class_directories(&args);
             // TODO: This is probably incorrect
-            execute_class_name(&args, class_directories, |env| {
-                env.class_files
-                    .load_by_class_path_slice(&mut env.class_names, &[class_name.as_str()])
-                    .unwrap()
-            })
+            execute_class_name(
+                &args,
+                class_directories,
+                |env| {
+                    env.class_files
+                        .load_by_class_path_slice(&mut env.class_names, &[class_name.as_str()])
+                        .unwrap()
+                },
+                |_| {},
+            )
         }
         CliCommands::RunJar { jar } => {
-            let class_directories = make_class_directories(&args);
-            let mut jar_loader =
-                JarClassFileLoader::new(jar.to_owned()).expect("Failed to load jar file");
-
-            let manifest = jar_loader
-                .load_manifest()
-                .expect("Failed to load jar manifest");
-            // TODO: Check manifest version
-            // TODO: Add manifest class path field to class directories
-            // TODO: manifest extensions?
-            // TODO: manifest implementation field?
-            // TODO: manifest sealed?
-
-            // This will be dot separated
-            let main_class_name = manifest
-                .get(0, "Main-Class")
-                .expect("There was no Main-Class manifest attribute");
-            // Convert it to bytes since we typically deal with cesu8
-            // TODO: actually convert it to cesu8
-            let main_class_name = main_class_name.as_bytes();
-            let main_class_name = main_class_name.split(|x| *x == b'.');
-
-            // Combine the jar loader and the class directories loader into one loader
-            let combine_loader = CombineLoader::new(jar_loader, class_directories);
-
-            execute_class_name(&args, combine_loader, |env| {
-                env.class_names.gcid_from_iter_bytes(main_class_name)
-            });
+            execute_jar(&args, jar);
         }
     }
+}
+
+fn execute_jar(args: &CliArgs, jar: &PathBuf) {
+    let class_directories = make_class_directories(args);
+    let mut jar_loader = JarClassFileLoader::new(jar.to_owned()).expect("Failed to load jar file");
+
+    let manifest = jar_loader
+        .load_manifest()
+        .expect("Failed to load jar manifest");
+    // TODO: Check manifest version
+    // TODO: Add manifest class path field to class directories
+    // TODO: manifest extensions?
+    // TODO: manifest implementation field?
+    // TODO: manifest sealed?
+
+    let root_index = 0;
+    // This will be dot separated
+    let main_class_name = manifest
+        .get(root_index, "Main-Class")
+        .expect("There was no Main-Class manifest attribute");
+    // Convert it to bytes since we typically deal with cesu8
+    // TODO: actually convert it to cesu8
+    let main_class_name = main_class_name.as_bytes();
+    let main_class_name = main_class_name.split(|x| *x == b'.');
+    let main_class_name = &main_class_name;
+
+    // Combine the jar loader and the class directories loader into one loader
+    let combine_loader = CombineLoader::new(jar_loader, class_directories);
+
+    execute_class_name(
+        args,
+        combine_loader,
+        |env| {
+            env.class_names
+                .gcid_from_iter_bytes(main_class_name.clone())
+        },
+        |env| {
+            let main_id = env
+                .class_names
+                .gcid_from_iter_bytes(main_class_name.clone());
+            let package_id = env
+                .classes
+                .get(&main_id)
+                .expect("class should be instantiated at pre-execute stage")
+                .package();
+
+            let info = if let Some(package_id) = package_id {
+                &mut env
+                    .packages
+                    .get_mut(package_id)
+                    .expect("package id was not valid in pre-execute stage")
+                    .info
+            } else {
+                &mut env.packages.null_package_info
+            };
+
+            if let Some(spec_title) = manifest.get(root_index, "Specification-Title") {
+                info.specification_title = Some(spec_title.to_string());
+            }
+
+            if let Some(spec_vendor) = manifest.get(root_index, "Specification-Vendor") {
+                info.specification_vendor = Some(spec_vendor.to_string());
+            }
+
+            if let Some(spec_version) = manifest.get(root_index, "Specification-Version") {
+                info.specification_version = Some(spec_version.to_string());
+            }
+
+            if let Some(impl_title) = manifest.get(root_index, "Implementation-Title") {
+                info.implementation_title = Some(impl_title.to_string());
+            }
+
+            if let Some(impl_vendor) = manifest.get(root_index, "Implementation-Vendor") {
+                info.implementation_vendor = Some(impl_vendor.to_string());
+            }
+
+            if let Some(impl_version) = manifest.get(root_index, "Implementation-Version") {
+                info.implementation_version = Some(impl_version.to_string());
+            }
+
+            if let Some(sealed) = manifest.get(root_index, "Sealed") {
+                if sealed == "true" {
+                    info.sealed = Some(true);
+                } else if sealed == "false" {
+                    info.sealed = Some(false);
+                } else {
+                    tracing::warn!("Manifest's sealed property was not true or false. Ignoring.");
+                }
+            }
+        },
+    );
 }
 
 fn make_state_conf(_args: &CliArgs) -> StateConfig {
@@ -273,6 +342,7 @@ fn execute_class_name(
     args: &CliArgs,
     cfile_loader: impl ClassFileLoader + 'static,
     get_entrypoint_id: impl FnOnce(&mut Env) -> ClassId,
+    pre_execute: impl FnOnce(&mut Env),
 ) {
     let conf = make_state_conf(args);
 
@@ -343,6 +413,9 @@ fn execute_class_name(
             array_ref.into_generic()
         };
         let frame = Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(args)]));
+
+        pre_execute(env);
+
         match eval_method(env, main_method_id, frame) {
             Ok(res) => match res {
                 EvalMethodValue::ReturnVoid => (),
