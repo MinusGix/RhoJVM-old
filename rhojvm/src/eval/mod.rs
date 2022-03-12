@@ -544,6 +544,7 @@ pub fn eval_method(
         }
     }
 
+    // TODO: native exceptions
     // TODO: Move to separate function to make it easier to reason about and maintain safety
     if method.access_flags().contains(MethodAccessFlags::NATIVE) {
         tracing::info!("\tNative Method");
@@ -771,7 +772,77 @@ pub fn eval_method(
             RunInstValue::ContinueAt(i) => pc = i,
             RunInstValue::ReturnVoid => return Ok(EvalMethodValue::ReturnVoid),
             RunInstValue::Return(x) => return Ok(EvalMethodValue::Return(x)),
-            RunInstValue::Exception(exc) => return Ok(EvalMethodValue::Exception(exc)),
+            RunInstValue::Exception(exc) => {
+                let exception_id = env
+                    .state
+                    .gc
+                    .deref(exc)
+                    .ok_or(EvalError::InvalidGcRef(exc.into_generic()))?
+                    .instanceof;
+
+                let method = env
+                    .methods
+                    .get(&method_id)
+                    .ok_or(EvalError::MissingMethod(method_id))?;
+
+                let exception_tables = method.code().unwrap().exception_table();
+                let exception_tables = exception_tables
+                    .iter()
+                    .filter(|entry| pc >= entry.start_pc && pc < entry.end_pc);
+
+                let mut jump_to = None;
+                for exception in exception_tables {
+                    let catch_type = exception.catch_type;
+                    if catch_type.is_zero() {
+                        // It is for all exceptions
+                        jump_to = Some(exception.handler_pc);
+                        break;
+                    }
+
+                    let class_file = env
+                        .class_files
+                        .get(&class_id)
+                        .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+                    let catch_type = class_file
+                        .get_t(catch_type)
+                        .ok_or(GeneralError::BadClassFileIndex(catch_type.into_generic()))?;
+                    let catch_type = class_file.get_text_b(catch_type.name_index).ok_or(
+                        GeneralError::BadClassFileIndex(catch_type.name_index.into_generic()),
+                    )?;
+                    let catch_type_id = env.class_names.gcid_from_bytes(catch_type);
+
+                    let is_castable = exception_id == catch_type_id
+                        || env.classes.is_super_class(
+                            &mut env.class_names,
+                            &mut env.class_files,
+                            &mut env.packages,
+                            exception_id,
+                            catch_type_id,
+                        )?
+                        || env.classes.implements_interface(
+                            &mut env.class_names,
+                            &mut env.class_files,
+                            exception_id,
+                            catch_type_id,
+                        )?;
+
+                    if is_castable {
+                        jump_to = Some(exception.handler_pc);
+                        break;
+                    }
+                }
+
+                if let Some(jump_to) = jump_to {
+                    // We have a location to jump to
+                    frame
+                        .stack
+                        .push(RuntimeValue::Reference(exc.into_generic()))?;
+                    pc = jump_to;
+                } else {
+                    // Otherwise, we bubble the exception up
+                    return Ok(EvalMethodValue::Exception(exc));
+                }
+            }
         }
     }
 }
