@@ -45,9 +45,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
     //     throw new UnsupportedOperationException("TODO: Implement this");
     // }
 
-    public String getName() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native String getName();
 
     public String getCanonicalName() {
         throw new UnsupportedOperationException("TODO: Implement this");

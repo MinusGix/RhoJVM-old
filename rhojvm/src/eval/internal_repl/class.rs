@@ -3,7 +3,7 @@ use either::Either;
 use rhojvm_base::{
     code::{method::MethodDescriptor, types::JavaChar},
     id::ClassId,
-    util::convert_classfile_text,
+    util::{access_path_iter, convert_classfile_text},
 };
 
 use crate::{
@@ -129,6 +129,72 @@ pub(crate) extern "C" fn class_get_class_for_name(
     name: JString,
 ) -> JObject {
     todo!()
+}
+
+pub(crate) extern "C" fn class_get_name(env: *mut Env<'_>, this: JObject) -> JString {
+    assert!(!env.is_null(), "Env was null when passed to java/lang/Class getDeclaredField, which is indicative of an internal bug.");
+
+    // SAFETY: We already checked that it is not null, and we rely on native method calling's
+    // safety for this to be fine to turn into a reference
+    let env = unsafe { &mut *env };
+
+    // Class<T>
+    // SAFETY: We assume that it is a valid ref and that it has not been
+    // forged.
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("RegisterNative's class was null");
+    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        let of = this.of;
+        let of = env.state.gc.deref(of).unwrap().id;
+        of
+    } else {
+        // This should be caught by method calling
+        // Though it would be good to not panic
+        panic!();
+    };
+
+    let (name, info) = env.class_names.name_from_gcid(this_id).unwrap();
+
+    let name = if info.is_array() {
+        convert_classfile_text(name.get())
+    } else {
+        let name: &[u8] = match name.get() {
+            // TODO: is this right?
+            // Primitive classes get mapped to a short name, I believe
+            b"java/lang/Byte" => b"byte",
+            b"java/lang/Character" => b"char",
+            b"java/lang/Double" => b"double",
+            b"java/lang/Float" => b"float",
+            b"java/lang/Integer" => b"int",
+            b"java/lang/Long" => b"long",
+            b"java/lang/Short" => b"short",
+            b"java/lang/Bool" => b"bool",
+            // TODO: does this a shortening?
+            b"java/lang/Void" => b"void",
+            _ => name.get(),
+        };
+
+        // TODO: Don't use this
+        let name = convert_classfile_text(name);
+
+        // Split it up by /
+        // The output is separated by .'s
+        std::borrow::Cow::Owned(name.replace('/', "."))
+    };
+
+    let name = name
+        .encode_utf16()
+        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+        .collect();
+    let name = construct_string(env, name).unwrap();
+    let name = match name {
+        ValueException::Value(name) => name,
+        ValueException::Exception(_) => todo!(),
+    };
+
+    unsafe { env.get_local_jobject_for(name.into_generic()) }
 }
 
 // TODO: Could we use &mut Env instead, since we know it will call native methods with a non-null
