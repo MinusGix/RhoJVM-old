@@ -114,7 +114,7 @@ public final class String implements java.io.Serializable, Comparable<String>, C
     }
 
     public char charAt(int index) {
-        if (index < 0|| index >= this.data.length) {
+        if (index < 0 || index >= this.data.length) {
             throw new StringIndexOutOfBoundsException(index);
         }
 
@@ -122,15 +122,26 @@ public final class String implements java.io.Serializable, Comparable<String>, C
     }
 
     public int codePointAt(int index) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // TODO: This is probably incorrect.
+        return (int) this.charAt(index);
     }
 
     public int codePointBefore(int index) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // TODO: This is incorrect
+        return (int) this.charAt(index - 1);
     }
     
     public int codePointCount(int start, int end) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        if (end > this.data.length) {
+            throw new StringIndexOutOfBoundsException(end);
+        }
+
+        if (start < 0) {
+            throw new StringIndexOutOfBoundsException(start);
+        }
+
+        // TODO: This is probably incorrect
+        return end - start;
     }
     
     public int offsetByCodePoints(int index, int offset) {
