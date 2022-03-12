@@ -1,5 +1,9 @@
-use std::{num::NonZeroUsize, path::Path};
+use std::{
+    num::NonZeroUsize,
+    path::{Path, PathBuf},
+};
 
+use clap::{Parser, Subcommand};
 use rhojvm::{
     class_instance::ReferenceArrayInstance,
     eval::{eval_method, EvalMethodValue, Frame, Locals},
@@ -20,6 +24,33 @@ use stack_map_verifier::StackMapVerificationLogging;
 use tracing_subscriber::layer::SubscriberExt;
 
 mod formatter;
+
+// TODO: We should provide some separate binary wrapper
+//   (or maybe a command line argument? but that isn't as portable to a wide variety of programs)
+// that emulates the official jvm's flags
+#[derive(Debug, Parser)]
+#[clap(name = "RhoJVM (Frontend)")]
+#[clap(author = "MinusGix")]
+#[clap(version = "0.1.0")]
+#[clap(about = "A JVM implementation")]
+#[clap(propagate_version = true)]
+struct CliArgs {
+    #[clap(subcommand)]
+    command: CliCommands,
+}
+
+#[derive(Debug, Subcommand)]
+enum CliCommands {
+    Run {
+        // Class file name to run
+        #[clap(value_name = "CLASS_NAME")]
+        class_name: String,
+    },
+    RunJar {
+        #[clap(parse(from_os_str), value_name = "JAR_FILE")]
+        jar: PathBuf,
+    },
+}
 
 struct EmptyWriter;
 impl std::io::Write for EmptyWriter {
@@ -88,6 +119,16 @@ fn init_logging(conf: &StateConfig) {
 fn main() {
     // let _dhat = Dhat::start_heap_profiling();
 
+    // Note that clap autoexits if it didn't get a thing to do
+    let args = CliArgs::parse();
+
+    match &args.command {
+        CliCommands::Run { class_name } => execute_class_name(&args, class_name.as_str()),
+        CliCommands::RunJar { jar } => todo!("Running a jar is not yet implemented"),
+    }
+}
+
+fn execute_class_name(args: &CliArgs, class_name: &str) {
     let mut conf = StateConfig::new();
     conf.stack_map_verification_logging = StackMapVerificationLogging {
         log_method_name: false,
@@ -127,7 +168,7 @@ fn main() {
     let packages: Packages = Packages::default();
     let methods: Methods = Methods::default();
 
-    let entry_point_cp = ["HelloWorld"];
+    let entry_point_cp = [class_name];
 
     // Initialize State
     let state = State::new(conf);

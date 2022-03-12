@@ -19,6 +19,8 @@ tracing-subscriber = { version = "0.2.0", default-features = false, features = [
     "registry",
     "smallvec",
 ] }
+# For command line argument parsing
+clap = { version = "3.1.0", features = ["derive"] }
 # Used for profiling allocations and memory usage.
 # Useful, but has many dependencies and runtime-expensive
 #dhat = "0.2.4"
