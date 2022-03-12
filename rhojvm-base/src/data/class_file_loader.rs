@@ -9,10 +9,6 @@ use super::class_names::ClassNames;
 pub enum LoadClassFileError {
     /// The path given was empty
     EmptyPath,
-    /// That class file has already been loaded.
-    /// Note that the [`Command::LoadClassFile`] does not care if it already exists, but
-    /// this helps be explicit about expectations in the code
-    AlreadyExists,
     /// The file didn't exist with the relative path
     NonexistentFile(PathBuf),
     /// The class didn't exist
