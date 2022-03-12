@@ -15,6 +15,8 @@ pub enum LoadClassFileError {
     AlreadyExists,
     /// The file didn't exist with the relative path
     NonexistentFile(PathBuf),
+    /// The class didn't exist
+    Nonexistent,
     /// There was an error in reading the file
     ReadError(std::io::Error),
     /// There was an error in parsing the class file
@@ -27,6 +29,10 @@ pub enum LoadClassFileError {
 // TODO: Remove clone
 /// Note: Not exactly a class loader in the java sense, but does somewhat similar things
 pub trait ClassFileLoader {
+    /// Load the class file with the given id
+    /// Note: It should only return `Ok(None)` if it had good reason to believe that it should not
+    /// have a class file at all.
+    /// Return `LoadClassFileError::Nonexistent` (or related) if it was not found.
     fn load_class_file_by_id(
         &self,
         class_names: &ClassNames,
