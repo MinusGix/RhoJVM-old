@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ops::Range, path::PathBuf, rc::Rc};
+use std::{borrow::Cow, ops::Range, rc::Rc};
 
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo, Utf8Constant},
@@ -30,9 +30,6 @@ pub enum ClassFileIndexError {
 #[derive(Debug, Clone)]
 pub struct ClassFileData {
     pub(crate) id: ClassId,
-    #[allow(dead_code)]
-    /// The direct path to the file
-    pub(crate) path: PathBuf,
     /// The raw bytes of the class file
     /// We keep this around because the majority of class files are relatively small
     /// This could switch to holding a File, or just opening the file as needed, to read the bytes
@@ -43,15 +40,10 @@ pub struct ClassFileData {
     pub(crate) class_file: ClassFileOpt,
 }
 impl ClassFileData {
-    pub fn new(
-        id: ClassId,
-        path: PathBuf,
-        class_file_data: Rc<[u8]>,
-        class_file: ClassFileOpt,
-    ) -> ClassFileData {
+    #[must_use]
+    pub fn new(id: ClassId, class_file_data: Rc<[u8]>, class_file: ClassFileOpt) -> ClassFileData {
         ClassFileData {
             id,
-            path,
             class_file_data,
             class_file,
         }
