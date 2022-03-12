@@ -454,6 +454,11 @@ impl DescriptorType {
         }
     }
 }
+impl From<DescriptorTypeBasic> for DescriptorType {
+    fn from(basic: DescriptorTypeBasic) -> Self {
+        DescriptorType::Basic(basic)
+    }
+}
 
 pub type ParametersContainer = SmallVec<[DescriptorType; 8]>;
 
