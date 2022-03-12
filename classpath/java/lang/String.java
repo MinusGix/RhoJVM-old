@@ -343,6 +343,10 @@ public final class String implements java.io.Serializable, Comparable<String>, C
         return false;
     }
 
+    public boolean contains(CharSequence other) {
+        return this.indexOf(other.toString()) != -1;
+    }
+
     public int indexOf(int chr) {
         for (int i = 0; i < this.data.length; i++) {
             if (this.data[i] == chr) {
