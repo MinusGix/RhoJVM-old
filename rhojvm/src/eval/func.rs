@@ -526,7 +526,7 @@ impl RunInst for InvokeSpecial {
 }
 
 /// Find  the most specific virtual method
-fn find_virtual_method(
+pub fn find_virtual_method(
     class_names: &mut ClassNames,
     class_files: &mut ClassFiles,
     classes: &mut Classes,
@@ -573,7 +573,6 @@ fn find_virtual_method(
         }
     }
 
-    tracing::info!("Checking interfaces");
     // TODO: Does this check the superinterfaces of the superinterfaces?
     // TODO: Does this check the superinterfaces of the superclasses?
     // Check the superinterfaces of instance_id

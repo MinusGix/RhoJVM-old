@@ -6,13 +6,14 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use rhojvm::{
-    class_instance::ReferenceArrayInstance,
-    eval::{eval_method, EvalMethodValue, Frame, Locals},
+    class_instance::{ClassInstance, ReferenceArrayInstance, ReferenceInstance},
+    eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
+    gc::GcRef,
     initialize_class,
     jni::native_interface::NativeInterface,
     rv::RuntimeValue,
-    util::Env,
-    verify_from_entrypoint, State, StateConfig, ThreadData,
+    util::{get_string_contents_as_rust_string, Env},
+    verify_from_entrypoint, GeneralError, State, StateConfig, ThreadData,
 };
 use rhojvm_base::{
     code::method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
@@ -350,10 +351,67 @@ fn execute_class_name(
                 }
                 // TODO: Call the method to get a string from the exception
                 EvalMethodValue::Exception(exc) => {
-                    tracing::warn!("Main threw an exception! {:?}", exc);
+                    eprintln!("There was an unhandled exception.");
+                    let text = to_string_for(env, exc)
+                        .expect("Got an internal error when calling toString on exception.");
+                    match text {
+                        ValueException::Value(text) => eprintln!("{}", text),
+                        // TODO: We could provide some info.
+                        ValueException::Exception(_) => eprintln!(
+                            "There was an exception calling toString on the thrown exception. Skipping trying to call toString on that exception.."
+                        ),
+                    }
                 }
             },
             Err(err) => tracing::error!("There was an error in running the method: {:?}", err),
         }
     }
+}
+
+fn to_string_for(
+    env: &mut Env,
+    val: GcRef<ClassInstance>,
+) -> Result<ValueException<String>, GeneralError> {
+    let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
+    let throwable_id = env.class_names.gcid_from_bytes(b"java/lang/Throwable");
+    let to_string_desc =
+        MethodDescriptor::new_ret(DescriptorType::Basic(DescriptorTypeBasic::Class(string_id)));
+
+    let to_string_id = env.methods.load_method_from_desc(
+        &mut env.class_names,
+        &mut env.class_files,
+        throwable_id,
+        b"toString",
+        &to_string_desc,
+    )?;
+
+    let text = eval_method(
+        env,
+        to_string_id,
+        Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(
+            val.into_generic(),
+        )])),
+    )?;
+    let text = match text {
+        EvalMethodValue::ReturnVoid => {
+            // TODO: don't panic
+            panic!("We got nothing from calling toString");
+        }
+        EvalMethodValue::Return(text) => text,
+        EvalMethodValue::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    };
+
+    let text = if let RuntimeValue::Reference(text) = text {
+        text
+    } else {
+        panic!("Text was not a reference and thus could not be a string");
+    };
+
+    get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        text.into_generic(),
+    )
+    .map(ValueException::Value)
 }

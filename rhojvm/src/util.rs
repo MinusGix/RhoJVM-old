@@ -376,7 +376,7 @@ pub(crate) fn get_string_contents<'a>(
 
 /// NOTE: This should not be used unless it can't be avoided, or it is only used as a temporary
 /// stop-gap, as there is typically more efficient ways of directly using the utf16 string you have!
-pub(crate) fn get_string_contents_as_rust_string(
+pub fn get_string_contents_as_rust_string(
     class_files: &ClassFiles,
     class_names: &mut ClassNames,
     state: &mut State,

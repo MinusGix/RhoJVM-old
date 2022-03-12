@@ -646,6 +646,12 @@ pub fn eval_method(
                 ) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JLong, param2: JLong));
                 }
+                (
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JInt));
+                }
 
                 _ => todo!("Fully implement two parameter native methods"),
             }
