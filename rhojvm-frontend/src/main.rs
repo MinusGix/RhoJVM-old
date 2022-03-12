@@ -1,6 +1,7 @@
 use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
+    pin::Pin,
 };
 
 use clap::{Parser, Subcommand};
@@ -15,7 +16,10 @@ use rhojvm::{
 };
 use rhojvm_base::{
     code::method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
-    data::{class_files::ClassFiles, class_names::ClassNames, classes::Classes, methods::Methods},
+    data::{
+        class_file_loader::ClassFileLoader, class_files::ClassFiles, class_names::ClassNames,
+        classes::Classes, methods::Methods,
+    },
     id::ClassId,
     package::Packages,
 };
@@ -123,12 +127,16 @@ fn main() {
     let args = CliArgs::parse();
 
     match &args.command {
-        CliCommands::Run { class_name } => execute_class_name(&args, class_name.as_str()),
+        CliCommands::Run { class_name } => {
+            let class_directories = make_class_directories(&args);
+            execute_class_name(&args, class_directories, class_name.as_str())
+        }
         CliCommands::RunJar { jar } => todo!("Running a jar is not yet implemented"),
     }
 }
 
-fn execute_class_name(args: &CliArgs, class_name: &str) {
+fn make_state_conf(_args: &CliArgs) -> StateConfig {
+    // TODO: make arguments for these
     let mut conf = StateConfig::new();
     conf.stack_map_verification_logging = StackMapVerificationLogging {
         log_method_name: false,
@@ -137,38 +145,46 @@ fn execute_class_name(args: &CliArgs, class_name: &str) {
         log_stack_modifications: false,
         log_local_variable_modifications: false,
     };
+    conf
+}
 
-    init_logging(&conf);
+fn make_class_directories(_args: &CliArgs) -> ClassDirectories {
+    // TODO: accept class directories from command line
+    let mut class_directories: ClassDirectories = ClassDirectories::default();
 
+    let class_dirs = [
+        // RhoJVM libraries take precedence since we need to implement internal versions
+        "./classpath/",
+        "./rhojvm/ex/lib/rt/",
+        "./rhojvm/ex/lib/jce/",
+        "./rhojvm/ex/lib/charsets/",
+        "./rhojvm/ex/lib/jfr",
+        "./rhojvm/ex/lib/jsse",
+        "./rhojvm/ex/",
+    ];
+
+    for path in class_dirs {
+        let path = Path::new(path);
+        class_directories
+            .add(path)
+            .expect("for class directory to properly exist");
+    }
+
+    class_directories
+}
+
+fn make_env(
+    _args: &CliArgs,
+    conf: StateConfig,
+    cfile_loader: impl ClassFileLoader + 'static,
+) -> Pin<Box<Env>> {
     tracing::info!("RhoJVM Initializing");
 
-    let mut class_directories: ClassDirectories = ClassDirectories::default();
-    {
-        let class_dirs = [
-            // RhoJVM libraries take precedence since it is expected that some code
-            "./classpath/",
-            "./rhojvm/ex/lib/rt/",
-            "./rhojvm/ex/lib/jce/",
-            "./rhojvm/ex/lib/charsets/",
-            "./rhojvm/ex/lib/jfr",
-            "./rhojvm/ex/lib/jsse",
-            "./rhojvm/ex/",
-        ];
-
-        for path in class_dirs {
-            let path = Path::new(path);
-            class_directories
-                .add(path)
-                .expect("for class directory to properly exist");
-        }
-    }
     let class_names: ClassNames = ClassNames::default();
-    let class_files: ClassFiles = ClassFiles::new(class_directories);
+    let class_files: ClassFiles = ClassFiles::new(cfile_loader);
     let classes: Classes = Classes::default();
     let packages: Packages = Packages::default();
     let methods: Methods = Methods::default();
-
-    let entry_point_cp = [class_name];
 
     // Initialize State
     let state = State::new(conf);
@@ -188,9 +204,10 @@ fn execute_class_name(args: &CliArgs, class_name: &str) {
         tdata: main_thread_data,
     };
     // We pin this, because the env ptr is expected to stay the same
-    let mut env = Box::pin(env);
-    let mut env: &mut Env = &mut *env;
+    Box::pin(env)
+}
 
+fn load_required_libs(env: &mut Env) {
     // libjava.so depends on libjvm and can't find it itself
     let needed_libs = [
         "./rhojvm/ex/lib/amd64/server/libjvm.so",
@@ -215,6 +232,23 @@ fn execute_class_name(args: &CliArgs, class_name: &str) {
         //     todo!("Call onload function");
         // }
     }
+}
+
+fn execute_class_name(
+    args: &CliArgs,
+    cfile_loader: impl ClassFileLoader + 'static,
+    class_name: &str,
+) {
+    let conf = make_state_conf(args);
+
+    init_logging(&conf);
+
+    let entry_point_cp = [class_name];
+
+    let mut env = make_env(args, conf, cfile_loader);
+    let mut env: &mut Env = &mut *env;
+
+    load_required_libs(env);
 
     // Load the entry point
     let entrypoint_id: ClassId = env
