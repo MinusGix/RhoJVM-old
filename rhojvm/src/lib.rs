@@ -267,6 +267,9 @@ pub struct State {
 
     /// internalField in java/lang/reflect/Field
     field_internal_field_id: Option<FieldId>,
+
+    /// name field in java/lang/Package
+    package_name_field_id: Option<FieldId>,
 }
 impl State {
     #[must_use]
@@ -303,6 +306,8 @@ impl State {
             internal_field_field_ids: None,
 
             field_internal_field_id: None,
+
+            package_name_field_id: None,
         }
     }
 
@@ -465,6 +470,25 @@ impl State {
         let (field_id, _) = find_field_with_name(class_files, class_id, b"internalField")?
             .expect("Failed to get field id for internal java/lang/Field#internalField field");
         self.field_internal_field_id = Some(field_id);
+
+        Ok(field_id)
+    }
+
+    /// The Package class should already be loaded, and the id given should be for it
+    /// # Panics
+    /// If it can't find the field
+    pub(crate) fn get_package_name_field_id(
+        &mut self,
+        class_files: &ClassFiles,
+        class_id: ClassId,
+    ) -> Result<FieldId, GeneralError> {
+        if let Some(field) = self.package_name_field_id {
+            return Ok(field);
+        }
+
+        let (field_id, _) = find_field_with_name(class_files, class_id, b"name")?
+            .expect("Failed to get field id for internal java/lang/Package#name field");
+        self.package_name_field_id = Some(field_id);
 
         Ok(field_id)
     }

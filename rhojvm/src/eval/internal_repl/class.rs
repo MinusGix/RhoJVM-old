@@ -1,6 +1,10 @@
 use classfile_parser::{field_info::FieldAccessFlags, ClassAccessFlags};
 use either::Either;
-use rhojvm_base::{code::method::MethodDescriptor, id::ClassId};
+use rhojvm_base::{
+    code::{method::MethodDescriptor, types::JavaChar},
+    id::ClassId,
+    util::convert_classfile_text,
+};
 
 use crate::{
     class_instance::{ClassInstance, Instance, ReferenceInstance},
@@ -9,7 +13,7 @@ use crate::{
     initialize_class,
     jni::{JBoolean, JChar, JObject, JString},
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{self, find_field_with_name, Env},
+    util::{self, construct_string, find_field_with_name, Env},
     GeneralError,
 };
 
@@ -348,4 +352,78 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
 
     // Now we just return the initialized class ref
     unsafe { env.get_local_jobject_for(class_ref.into_generic()) }
+}
+
+pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("Class new instance's this ref was null");
+    // The id held inside
+    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        let of = this.of;
+        let of = env.state.gc.deref(of).unwrap().id;
+        of
+    } else {
+        // This should be caught by method calling
+        // Though it would be good to not panic
+        panic!();
+    };
+
+    // TODO: Should we assume its loaded?
+    let class = env.classes.get(&this_id).unwrap();
+    let package_name = if let Some(package_id) = class.package() {
+        env.packages.get(package_id).unwrap().name()
+    } else {
+        b"" as &[u8]
+    };
+
+    let package_name = convert_classfile_text(package_name);
+    let package_name = package_name
+        .encode_utf16()
+        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+        .collect();
+    let package_name_ref = match construct_string(env, package_name).unwrap() {
+        ValueException::Value(name) => name,
+        ValueException::Exception(_) => todo!("Exception initializing package name"),
+    };
+
+    let package_class_id = env.class_names.gcid_from_bytes(b"java/lang/Package");
+    let package_class_ref = match initialize_class(env, package_class_id)
+        .unwrap()
+        .into_value()
+    {
+        ValueException::Value(re) => re,
+        ValueException::Exception(_) => todo!("Exception initializing Package class"),
+    };
+
+    let mut fields = match make_fields(env, package_class_id, |field_info| {
+        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+    })
+    .unwrap()
+    {
+        Either::Left(fields) => fields,
+        Either::Right(_exc) => todo!(),
+    };
+
+    let package_name_field_id = env
+        .state
+        .get_package_name_field_id(&env.class_files, package_class_id)
+        .unwrap();
+
+    let value = fields.get_mut(package_name_field_id).unwrap().value_mut();
+    *value = RuntimeValue::Reference(package_name_ref.into_generic());
+
+    let package_instance = ClassInstance {
+        instanceof: package_class_id,
+        static_ref: package_class_ref,
+        fields,
+    };
+
+    let package_ref = env.state.gc.alloc(package_instance);
+
+    unsafe { env.get_local_jobject_for(package_ref.into_generic()) }
 }

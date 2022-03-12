@@ -201,9 +201,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public Package getPackage() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native Package getPackage();
 
     public String getPackageName() {
         throw new UnsupportedOperationException("TODO: Implement this");
