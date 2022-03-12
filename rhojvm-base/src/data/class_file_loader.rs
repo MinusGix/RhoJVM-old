@@ -30,17 +30,8 @@ pub trait ClassFileLoader {
     /// have a class file at all.
     /// Return `LoadClassFileError::Nonexistent` (or related) if it was not found.
     fn load_class_file_by_id(
-        &self,
+        &mut self,
         class_names: &ClassNames,
         class_file_id: ClassId,
     ) -> Result<Option<ClassFileData>, LoadClassFileError>;
-}
-impl<'a, T: ClassFileLoader> ClassFileLoader for &'a T {
-    fn load_class_file_by_id(
-        &self,
-        class_names: &ClassNames,
-        class_file_id: ClassId,
-    ) -> Result<Option<ClassFileData>, LoadClassFileError> {
-        <T as ClassFileLoader>::load_class_file_by_id(self, class_names, class_file_id)
-    }
 }
