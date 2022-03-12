@@ -165,8 +165,6 @@ fn main() {
             execute_class_name(&args, combine_loader, |env| {
                 env.class_names.gcid_from_iter_bytes(main_class_name)
             });
-
-            todo!()
         }
     }
 }
