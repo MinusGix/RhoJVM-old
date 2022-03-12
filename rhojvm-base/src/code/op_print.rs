@@ -87,7 +87,14 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
     let index = index.into_generic();
     if let Some(value) = class_file.get_t(index) {
         match value {
-            ConstantInfo::Utf8(v) => format!("utf8\"{}\"", v.as_text(&class_file.class_file_data)),
+            ConstantInfo::Utf8(v) => {
+                let text = v
+                    .as_text(&class_file.class_file_data)
+                    .replace('\n', "\\n")
+                    .replace('\r', "\\r")
+                    .replace('\t', "\\t");
+                format!("utf8\"{}\"", text)
+            }
             ConstantInfo::Integer(v) => format!("{}", v.value),
             ConstantInfo::Float(v) => format!("{}_f", v.value),
             ConstantInfo::Long(v) => format!("{}_l", v.value),
@@ -110,6 +117,10 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
             }
             ConstantInfo::String(v) => {
                 if let Some(text) = class_file.get_text_t(v.string_index) {
+                    let text = text
+                        .replace('\n', "\\n")
+                        .replace('\r', "\\r")
+                        .replace('\t', "\\t");
                     format!("str\"{}\"", text)
                 } else {
                     format!("str[BAD POOL INDEX #{}->#{}]", index.0, v.string_index.0)
