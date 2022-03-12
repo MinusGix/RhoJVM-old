@@ -1026,12 +1026,6 @@ fn get_field_id_safe(
     signature: &[u8],
     class_id: ClassId,
 ) -> Result<ValueException<FieldIndex>, GeneralError> {
-    tracing::info!(
-        "get_field_id_safe\n\t\tname: {}\n\t\tsign: {}",
-        convert_classfile_text(name),
-        convert_classfile_text(signature)
-    );
-
     // TODO: Don't unwrap
     let class_file = env
         .class_files
