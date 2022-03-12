@@ -52,7 +52,6 @@ pub enum KeyValueParseError {
     /// We expected this character to come next
     Expected(char),
     ValueContainedNull,
-    ValueContainedCRLF,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,12 +111,9 @@ pub fn parse_keyvalue_data<'a>(
 
 fn parse_otherchars(data: &str) -> Result<(&str, &str), KeyValueParseError> {
     let mut end = 0;
-    let mut iter = data.char_indices().peekable();
-    while let Some((i, c)) = iter.next() {
+    for (i, c) in data.char_indices() {
         if c == '\0' {
             return Err(KeyValueParseError::ValueContainedNull);
-        } else if c == '\r' && matches!(iter.next(), Some((_, '\n'))) {
-            return Err(KeyValueParseError::ValueContainedCRLF);
         }
 
         let cur_data = &data[i..];
