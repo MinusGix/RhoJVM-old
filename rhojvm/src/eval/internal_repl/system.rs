@@ -1,11 +1,176 @@
+use rhojvm_base::code::{
+    method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
+    types::JavaChar,
+};
 use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{Instance, PrimitiveArrayInstance, ReferenceInstance},
+    eval::{eval_method, Frame, Locals, ValueException},
     gc::GcRef,
     jni::{JInt, JObject},
-    util::Env,
+    rv::{RuntimeValue, RuntimeValuePrimitive},
+    util::{construct_string, Env},
 };
+
+/// Initialize properties based on operating system
+#[allow(clippy::items_after_statements)]
+pub(crate) extern "C" fn system_set_properties(env: *mut Env<'_>, _this: JObject, props: JObject) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let props = unsafe { env.get_jobject_as_gcref(props) };
+    let props = props.expect("internal errror: System properties was null");
+    let props = props.unchecked_as();
+
+    let properties_id = env.class_names.gcid_from_bytes(b"java/util/Properties");
+    let object_id = env.class_names.object_id();
+    let string_id = env.state.string_class_id(&mut env.class_names);
+    // Object setProperty(String key, String value)
+    let set_property_desc = MethodDescriptor::new(
+        smallvec::smallvec![
+            DescriptorType::Basic(DescriptorTypeBasic::Class(string_id)),
+            DescriptorType::Basic(DescriptorTypeBasic::Class(string_id)),
+        ],
+        Some(DescriptorType::Basic(DescriptorTypeBasic::Class(object_id))),
+    );
+
+    let set_property_id = env
+        .methods
+        .load_method_from_desc(
+            &mut env.class_names,
+            &mut env.class_files,
+            properties_id,
+            b"setProperty",
+            &set_property_desc,
+        )
+        .expect("Failed to load Properties#setProperty method which is needed for initialization");
+
+    let properties = Properties::get_properties(env);
+
+    // TODO: We could lessen the work a bit by writing as ascii
+    // or directly as utf-16
+    for (property_name, property_value) in properties {
+        let property_name = property_name
+            .encode_utf16()
+            .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+            .collect();
+        let property_name = match construct_string(env, property_name)
+            .expect("Failed to construct UTF-16 string for property name")
+        {
+            ValueException::Value(name) => name,
+            ValueException::Exception(_) => {
+                panic!("There was an exception constructing a UTF-16 string for property name")
+            }
+        };
+
+        let property_value = property_value
+            .encode_utf16()
+            .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+            .collect();
+        let property_value = match construct_string(env, property_value)
+            .expect("Failed to construct UTF-16 string for property value")
+        {
+            ValueException::Value(name) => name,
+            ValueException::Exception(_) => {
+                panic!("There was an exception constructing a UTF-16 string for property value")
+            }
+        };
+
+        let frame = Frame::new_locals(Locals::new_with_array([
+            RuntimeValue::Reference(props),
+            RuntimeValue::Reference(property_name.into_generic()),
+            RuntimeValue::Reference(property_value.into_generic()),
+        ]));
+        eval_method(env, set_property_id, frame).expect("Failed to set property");
+    }
+}
+
+struct Properties {
+    file_sep: &'static str,
+    line_sep: &'static str,
+    file_encoding: &'static str,
+    os_name: &'static str,
+    os_arch: &'static str,
+}
+impl Properties {
+    // TODO: Can we warn/error at compile time if there is unknown data?
+    fn get_properties(_env: &mut Env) -> Properties {
+        // TODO: Is line sep correct?
+        if cfg!(target_os = "windows") || cfg!(target_family = "windows") {
+            Properties::windows_properties()
+        } else if cfg!(unix) {
+            // FIXME: Provide more detailed names and information
+            // both for Linux and for MacOS
+            Properties::unix_properties()
+        } else {
+            tracing::warn!("No target os/family detected, assuming unix");
+            Properties::unix_properties()
+        }
+    }
+
+    // CLippy gets a bit confused, it seems
+    #[allow(clippy::same_functions_in_if_condition)]
+    fn os_arch() -> &'static str {
+        if cfg!(target_arch = "x86") {
+            "x86"
+        } else if cfg!(target_arch = "x86_64") {
+            "x86_64"
+        } else if cfg!(target_arch = "mips") {
+            // TODO: Correct?
+            "mips"
+        } else if cfg!(target_arch = "powerpc") || cfg!(target_arch = "powerpc64") {
+            // TODO: correct?
+            "ppc"
+        } else if cfg!(target_arch = "arm") || cfg!(target_arch = "aarch64") {
+            // TODO: correct?
+            "arm"
+        } else if cfg!(target_arch = "riscv") {
+            "rsicv"
+        } else if cfg!(target_arch = "wasm32") {
+            "wasm32"
+        } else {
+            tracing::warn!("Unknown architecture");
+            "unknown"
+        }
+    }
+
+    fn windows_properties() -> Properties {
+        Properties {
+            file_sep: "\\",
+            line_sep: "\n",
+            file_encoding: "UTF-8",
+            os_name: "windows",
+            os_arch: Properties::os_arch(),
+        }
+    }
+
+    fn unix_properties() -> Properties {
+        Properties {
+            file_sep: "/",
+            line_sep: "\n",
+            file_encoding: "UTF-8",
+            os_name: "unix",
+            os_arch: Properties::os_arch(),
+        }
+    }
+}
+impl IntoIterator for Properties {
+    type Item = (&'static str, &'static str);
+
+    type IntoIter = std::array::IntoIter<Self::Item, 5>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        [
+            ("file.separator", self.file_sep),
+            ("line.separator", self.line_sep),
+            ("file.encoding", self.file_encoding),
+            ("os.name", self.os_name),
+            ("os.arch", self.os_arch),
+        ]
+        .into_iter()
+    }
+}
 
 /// java/lang/System
 /// `public static void arraycopy(Object src, int src_pos, Object dest, int dest_position, int

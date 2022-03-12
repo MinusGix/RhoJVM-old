@@ -12,13 +12,10 @@ import java.util.Properties;
 public final class System {
     private static Properties props = new Properties();
     static {
-        // TODO: Platform-specific
-        System.props.setProperty("file.separator", "/");
-        // TODO: Platform-specific
-        System.props.setProperty("line.separator", "\n");
-        
-        System.props.setProperty("file.encoding", "UTF-8");
+        System.setProperties(props);
     }
+    
+    private static native void setProperties(Properties props);
 
     // Prevent it from being created
     private System() {}

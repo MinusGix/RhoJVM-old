@@ -102,6 +102,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_java_lang_Class_newInstance" => into_opaque2ret(class::class_new_instance),
             // System
+            b"Java_java_lang_System_setProperties" => {
+                into_opaque3ret(system::system_set_properties)
+            }
             b"Java_java_lang_System_arraycopy" => into_opaque7ret(system::system_arraycopy),
             // Primitive wrappers
             b"Java_java_lang_Float_floatToRawIntBits" => {
