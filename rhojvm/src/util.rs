@@ -503,6 +503,16 @@ pub(crate) fn make_class_form_of(
         ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
     };
 
+    if let Some(form) = env
+        .state
+        .gc
+        .deref(static_ref)
+        .ok_or(EvalError::InvalidGcRef(static_ref.into_generic()))?
+        .form
+    {
+        return Ok(ValueException::Value(form));
+    }
+
     let class_form_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
 
     // TODO: Some of these errors should be exceptions
@@ -554,7 +564,16 @@ pub(crate) fn make_class_form_of(
     // eval_method(env, method_id, frame)?;
 
     let static_form = StaticFormInstance::new(inner_class, static_ref);
-    Ok(ValueException::Value(env.state.gc.alloc(static_form)))
+    let static_form_ref = env.state.gc.alloc(static_form);
+
+    // Store the created form on the static inst so that it can be reused and cached
+    let static_inst = env
+        .state
+        .gc
+        .deref_mut(static_ref)
+        .ok_or(EvalError::InvalidGcRef(static_ref.into_generic()))?;
+    static_inst.form = Some(static_form_ref);
+    Ok(ValueException::Value(static_form_ref))
 }
 
 #[cfg(test)]

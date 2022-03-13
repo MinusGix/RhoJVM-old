@@ -286,10 +286,15 @@ pub struct StaticClassInstance {
     pub id: ClassId,
     /// Static fields
     pub fields: Fields,
+    pub form: Option<GcRef<StaticFormInstance>>,
 }
 impl StaticClassInstance {
     pub(crate) fn new(id: ClassId, fields: Fields) -> StaticClassInstance {
-        StaticClassInstance { id, fields }
+        StaticClassInstance {
+            id,
+            fields,
+            form: None,
+        }
     }
 }
 impl_instance_conv!(StaticClass => StaticClassInstance);
