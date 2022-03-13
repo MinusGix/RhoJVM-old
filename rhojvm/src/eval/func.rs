@@ -538,7 +538,6 @@ pub fn find_virtual_method(
     name: &[u8],
     descriptor: &MethodDescriptor,
 ) -> Result<MethodId, GeneralError> {
-    tracing::info!("Find virtual method");
     // We don't bother checking that the instance class has been initialized, since we assume that
     // the caller got a good `GcRef` to it, which would thus keep the static class instance alive.
     // We also don't bother checking that the base_id exists properly since it would have had to be
@@ -666,16 +665,11 @@ impl RunInst for InvokeVirtual {
         let index = self.index;
 
         let (class_id, _) = method_id.decompose();
-        tracing::info!(
-            "Executing InvokeVirtual within {:?}",
-            env.class_names.name_from_gcid(class_id)
-        );
 
         let class_file = env
             .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-        tracing::info!("Got class file");
 
         let info = class_file
             .get_t(index)
@@ -721,7 +715,6 @@ impl RunInst for InvokeVirtual {
             MethodDescriptor::from_text(method_descriptor, &mut env.class_names)
                 .map_err(EvalError::InvalidMethodDescriptor)?;
 
-        tracing::info!("Resolving");
         // TODO: Some of these errors should be exceptions
         resolve_derive(
             &mut env.class_names,
@@ -734,7 +727,6 @@ impl RunInst for InvokeVirtual {
             class_id,
         )?;
 
-        tracing::info!("Initializing");
         // TODO: Some of these errors should be exceptions
         initialize_class(env, target_class_id)?;
 
