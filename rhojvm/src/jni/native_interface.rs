@@ -922,13 +922,6 @@ unsafe extern "C" fn get_field_id(
     let name = CStr::from_ptr(name);
     let signature = CStr::from_ptr(signature);
 
-    println!(
-        "Target Class: {:?}",
-        env.class_names.name_from_gcid(class_id)
-    );
-    println!("Name: {:?}", name);
-    println!("Signature: {:?}", signature);
-
     let name_bytes = name.to_bytes();
     let signature_bytes = signature.to_bytes();
 
