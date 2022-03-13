@@ -60,8 +60,8 @@ pub struct NativeInterface {
     pub push_local_frame: MethodNoArguments,
     pub pop_local_frame: MethodNoArguments,
 
-    pub new_global_ref: MethodNoArguments,
-    pub delete_global_ref: MethodNoArguments,
+    pub new_global_ref: NewGlobalRefFn,
+    pub delete_global_ref: DeleteGlobalRefFn,
     pub delete_local_ref: MethodNoArguments,
     pub is_same_object: MethodNoArguments,
     pub new_local_ref: MethodNoArguments,
@@ -330,8 +330,8 @@ impl NativeInterface {
             fatal_error,
             push_local_frame: unimpl_none_name!("push_local_frame"),
             pop_local_frame: unimpl_none_name!("pop_local_frame"),
-            new_global_ref: unimpl_none_name!("new_global_ref"),
-            delete_global_ref: unimpl_none_name!("delete_global_ref"),
+            new_global_ref,
+            delete_global_ref,
             delete_local_ref: unimpl_none_name!("delete_local_ref"),
             is_same_object: unimpl_none_name!("is_same_object"),
             new_local_ref: unimpl_none_name!("new_local_ref"),
@@ -1226,4 +1226,20 @@ unsafe extern "C" fn ensure_local_capacity(env: *mut Env, capacity: JInt) -> JIn
     // saying that we can allocate how many instances it wants.
 
     Status::Ok as JInt
+}
+
+pub type NewGlobalRefFn = unsafe extern "C" fn(env: *mut Env, obj: JObject) -> JObject;
+unsafe extern "C" fn new_global_ref(env: *mut Env, obj: JObject) -> JObject {
+    assert_valid_env(env);
+    // FIXME: Currently we don't inform the garbage collector that they're pinned
+    // because we ignore the gc.
+
+    tracing::warn!("new_global_ref called, but is not implemented properly");
+
+    obj
+}
+
+pub type DeleteGlobalRefFn = unsafe extern "C" fn(env: *mut Env, obj: JObject);
+unsafe extern "C" fn delete_global_ref(env: *mut Env, obj: JObject) {
+    assert_valid_env(env);
 }
