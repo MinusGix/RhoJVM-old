@@ -9,7 +9,7 @@ public final class Integer extends Number implements Comparable<Integer> {
 
     public static final int BYTES = 4;
 
-    public static final Class<Integer> TYPE = (Class<Integer>) Class.getPrimitive('I');
+    public static final Class<Integer> TYPE = (Class<Integer>) Class.getPrimitiveClass("I");
 
     private final int value;
 

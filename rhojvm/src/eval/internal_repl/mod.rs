@@ -94,7 +94,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_Object_getClass" => into_opaque2ret(object::object_get_class),
             b"Java_java_lang_Object_hashCode" => into_opaque2ret(object::object_hashcode),
             // Class
-            b"Java_java_lang_Class_getPrimitive" => into_opaque3ret(class::class_get_primitive),
+            b"Java_java_lang_Class_getPrimitiveClass" => {
+                into_opaque3ret(class::class_get_primitive)
+            }
             b"Java_java_lang_Class_getClassForNameWithClassLoader" => {
                 into_opaque5ret(class::class_get_class_for_name_with_class_loader)
             }

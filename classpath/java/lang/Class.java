@@ -26,7 +26,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
     private Class() {}
 
     // Get the class for a primitive class-type, such as Float
-    static native Class getPrimitive(char name);
+    static native Class getPrimitiveClass(String name);
 
     public static Class forName(String name) throws ClassNotFoundException {
         return Class.getClassForName(name);

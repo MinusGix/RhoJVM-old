@@ -16,38 +16,50 @@ use crate::{
     initialize_class,
     jni::{JBoolean, JChar, JObject, JString},
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{self, construct_string, find_field_with_name, to_utf16_arr, Env},
+    util::{
+        self, construct_string, find_field_with_name, get_string_contents_as_rust_string,
+        to_utf16_arr, Env,
+    },
     GeneralError,
 };
 
 pub(crate) extern "C" fn class_get_primitive(
     env: *mut Env<'_>,
     _this: JObject,
-    name: JChar,
+    name: JString,
 ) -> JObject {
     assert!(!env.is_null(), "Env was null when passed into java/lang/Class getPrimitive, which is indicative of an internal bug.");
 
     let env = unsafe { &mut *env };
 
+    let name = unsafe { env.get_jobject_as_gcref(name) }.unwrap();
+    let name = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        name,
+    )
+    .unwrap();
+
     // Note: This assumes that the jchar encoding can be directly compared to the ascii bytes for
     // these basic characters
-    let class_name: &[u8] = if name == u16::from(b'B') {
+    let class_name: &[u8] = if name == "B" || name == "byte" {
         b"java/lang/Byte"
-    } else if name == u16::from(b'C') {
+    } else if name == "C" || name == "char" {
         b"java/lang/Character"
-    } else if name == u16::from(b'D') {
+    } else if name == "D" || name == "double" {
         b"java/lang/Double"
-    } else if name == u16::from(b'F') {
+    } else if name == "F" || name == "float" {
         b"java/lang/Float"
-    } else if name == u16::from(b'I') {
+    } else if name == "I" || name == "int" {
         b"java/lang/Integer"
-    } else if name == u16::from(b'J') {
+    } else if name == "J" || name == "long" {
         b"java/lang/Long"
-    } else if name == u16::from(b'S') {
+    } else if name == "S" || name == "short" {
         b"java/lang/Short"
-    } else if name == u16::from(b'Z') {
+    } else if name == "Z" || name == "bool" {
         b"java/lang/Bool"
-    } else if name == u16::from(b'V') {
+    } else if name == "V" || name == "void" {
         b"java/lang/Void"
     } else {
         panic!("Unknown name ({}) passed into Class#getPrimitive", name);

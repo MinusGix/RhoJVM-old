@@ -16,7 +16,7 @@ public final class Float extends Number {
     public static final int SIZE = 32;
     public static final int BYTES = 4;
 
-    public static final Class<Float> TYPE = (Class<Float>) Class.getPrimitive('F');
+    public static final Class<Float> TYPE = (Class<Float>) Class.getPrimitiveClass("F");
     
     private static final int EXPONENT_BIT_MASK = 0x7F800000;
     private static final int SIGNIFICAND_BIT_MASK = 0x007FFFFF;

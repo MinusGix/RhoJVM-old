@@ -17,7 +17,7 @@ public final class Double extends Number {
     public static final int SIZE = 64;
     public static final int BYTES = 8;
 
-    public static final Class<Double> TYPE = (Class<Double>) Class.getPrimitive('D');
+    public static final Class<Double> TYPE = (Class<Double>) Class.getPrimitiveClass("D");
     
     private static final long EXPONENT_BIT_MASK = 0x7FF0000000000000L;
     private static final long SIGNIFICAND_BIT_MASK = 0x000FFFFFFFFFFFFFL;
