@@ -269,9 +269,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public boolean isPrimitive() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native boolean isPrimitive();
 
     public boolean isSynthetic() {
         throw new UnsupportedOperationException("TODO: Implement this");

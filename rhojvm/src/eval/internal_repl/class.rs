@@ -33,6 +33,17 @@ const LONG_NAME: &[u8] = b"java/lang/Long";
 const SHORT_NAME: &[u8] = b"java/lang/Short";
 const BOOL_NAME: &[u8] = b"java/lang/Bool";
 const VOID_NAME: &[u8] = b"java/lang/Void";
+const PRIMITIVE_NAMES: &[&[u8]] = &[
+    BYTE_NAME,
+    CHARACTER_NAME,
+    DOUBLE_NAME,
+    FLOAT_NAME,
+    INTEGER_NAME,
+    LONG_NAME,
+    SHORT_NAME,
+    BOOL_NAME,
+    VOID_NAME,
+];
 
 pub(crate) extern "C" fn class_get_primitive(
     env: *mut Env<'_>,
@@ -670,6 +681,36 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
     };
 
     unsafe { env.get_local_jobject_for(package_ref.into_generic()) }
+}
+
+pub(crate) extern "C" fn class_is_primitive(env: *mut Env<'_>, this: JObject) -> JBoolean {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("Class new instance's this ref was null");
+    // The id held inside
+    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        let of = this.of;
+        let of = env.state.gc.deref(of).unwrap().id;
+        of
+    } else {
+        // This should be caught by method calling
+        // Though it would be good to not panic
+        panic!();
+    };
+
+    // TODO: We could cache their ids somewhere that is easy to access since they're pretty common.
+    for primitive_name in PRIMITIVE_NAMES {
+        let primitive_id = env.class_names.gcid_from_bytes(primitive_name);
+        if primitive_id == this_id {
+            return u8::from(true);
+        }
+    }
+
+    u8::from(false)
 }
 
 pub(crate) extern "C" fn class_is_array(env: *mut Env<'_>, this: JObject) -> JBoolean {
