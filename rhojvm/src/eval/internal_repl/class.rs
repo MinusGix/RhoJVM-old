@@ -73,13 +73,13 @@ pub(crate) extern "C" fn class_get_primitive(
         DOUBLE_NAME
     } else if name == "F" || name == "float" {
         FLOAT_NAME
-    } else if name == "I" || name == "int" {
+    } else if name == "I" || name == "int" || name == "integer" {
         INTEGER_NAME
     } else if name == "J" || name == "long" {
         LONG_NAME
     } else if name == "S" || name == "short" {
         SHORT_NAME
-    } else if name == "Z" || name == "bool" {
+    } else if name == "Z" || name == "bool" || name == "boolean" {
         BOOL_NAME
     } else if name == "V" || name == "void" {
         VOID_NAME
