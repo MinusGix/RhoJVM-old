@@ -12,6 +12,7 @@ use rhojvm::{
     initialize_class,
     jni::native_interface::NativeInterface,
     rv::RuntimeValue,
+    string_intern::StringInterner,
     util::{get_string_contents_as_rust_string, Env},
     verify_from_entrypoint, GeneralError, State, StateConfig, ThreadData,
 };
@@ -329,6 +330,7 @@ fn make_env(
         methods,
         state,
         tdata: main_thread_data,
+        string_interner: StringInterner::default(),
     };
     // We pin this, because the env ptr is expected to stay the same
     Box::pin(env)

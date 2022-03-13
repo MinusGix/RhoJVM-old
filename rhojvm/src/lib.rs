@@ -70,6 +70,7 @@ pub mod jni;
 pub mod memblock;
 pub mod method;
 pub mod rv;
+pub mod string_intern;
 pub mod util;
 
 pub const ENV_TRACING_LEVEL: &str = "RHO_LOG_LEVEL";

@@ -689,10 +689,7 @@ public final class String implements java.io.Serializable, Comparable<String>, C
         return new Formatter(locale).format(fmt, args).toString();
     }
 
-    public String intern() {
-        // This probably just searches the heap? ehh
-        throw new UnsupportedOperationException("TODO: implement intern method");
-    }
+    public native String intern();
     
     // TODO: regionMatches
     // TODO: StringBuffer/StringBuilder constructors?

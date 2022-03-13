@@ -8,6 +8,7 @@ use crate::{
 mod class;
 mod object;
 mod primitive;
+pub mod string;
 mod system;
 mod system_class_loader;
 mod unsafe_;
@@ -156,6 +157,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_sun_misc_Unsafe_getAndAddInt" => {
                 into_opaque5ret(unsafe_::unsafe_get_and_add_int)
             }
+
+            // String
+            b"Java_java_lang_String_intern" => into_opaque2ret(string::string_intern),
 
             // UnsupportedOperationException
             b"Java_java_lang_UnsupportedOperationException_checkAbort" => {

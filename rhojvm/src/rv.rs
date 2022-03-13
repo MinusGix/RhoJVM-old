@@ -10,7 +10,7 @@ use rhojvm_base::{
 
 use crate::{class_instance::ReferenceInstance, gc::GcRef};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum RuntimeValuePrimitive {
     /// Long
     I64(i64),

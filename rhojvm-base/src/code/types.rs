@@ -18,7 +18,7 @@ use super::method::{DescriptorType, DescriptorTypeBasic};
 
 // TODO: The character would be stored in java's modified utf8, so parsing that would be useful
 // The classfile lib already does this.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(transparent)]
 pub struct JavaChar(pub u16);
 impl JavaChar {

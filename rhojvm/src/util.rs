@@ -25,6 +25,7 @@ use crate::{
     jni::{native_interface::NativeInterface, JObject},
     resolve_derive,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    string_intern::StringInterner,
     BegunStatus, GeneralError, State, ThreadData,
 };
 
@@ -49,6 +50,7 @@ pub struct Env<'i> {
     pub methods: Methods,
     pub state: State,
     pub tdata: ThreadData,
+    pub string_interner: StringInterner,
 }
 impl<'i> Env<'i> {
     pub(crate) fn get_empty_string(
