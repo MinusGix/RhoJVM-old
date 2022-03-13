@@ -9,7 +9,7 @@ use crate::{
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::Env,
+    util::{make_class_form_of, Env},
     GeneralError,
 };
 
@@ -615,9 +615,45 @@ extern "C" fn define_class(
     unimpl("DefineClass")
 }
 
-pub type FindClassFn = unsafe extern "C" fn(env: *mut Env, name: *const JChar) -> JClass;
-extern "C" fn find_class(env: *mut Env, name: *const JChar) -> JClass {
-    unimpl("FindClass")
+pub type FindClassFn = unsafe extern "C" fn(env: *mut Env, name: *const c_char) -> JClass;
+/// This is defined to be in the format that we expect
+extern "C" fn find_class(env: *mut Env, name: *const c_char) -> JClass {
+    assert_valid_env(env);
+    assert_non_aliasing(env, name);
+
+    let env = unsafe { &mut *env };
+
+    assert!(
+        !name.is_null(),
+        "FindClass method was passed in a null name ptr",
+    );
+
+    // Safety: We know it is not null, but all we can really do is trust the caller
+    // For whether it is valid data or not.
+    let name = unsafe { CStr::from_ptr(name) };
+
+    // TODO: We currently don't use any other class loaders
+
+    let name = name.to_bytes();
+
+    let class_id = env.class_names.gcid_from_bytes(name);
+
+    // TODO: Use proper from class or use different method of creating it.
+    let static_form = make_class_form_of(env, class_id, class_id);
+    match static_form {
+        // TODO: This might throw too many kinds of exceptions?
+        Ok(v) => {
+            if let Some(value) = env.state.extract_value(v) {
+                unsafe { env.get_local_jobject_for(value.into_generic()) }
+            } else {
+                JClass::null()
+            }
+        }
+        Err(err) => {
+            tracing::warn!("FindClass error: {:?}", err);
+            JClass::null()
+        }
+    }
 }
 
 pub type GetSuperclassFn = unsafe extern "C" fn(env: *mut Env, class: JClass) -> JClass;
@@ -864,18 +900,16 @@ unsafe extern "C" fn get_field_id(
     let class = env
         .get_jobject_as_gcref(class)
         .expect("GetFieldId's class was null");
-    // The class id of the class we were given
-    let class_id = match env.state.gc.deref(class) {
-        Some(class_id) => match class_id {
-            Instance::StaticClass(x) => x.id,
-            Instance::Reference(x) => {
-                // TODO: is is this actually fine? Maybe you're allowed to pass a reference to a
-                // Class<T> class?
-                tracing::warn!("Native method gave non static class reference to GetFieldId");
-                x.instanceof()
-            }
-        },
-        None => todo!(),
+    // The class id of the class we were given\
+    let class_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(class).unwrap()
+    {
+        let of = this.of;
+        let of = env.state.gc.deref(of).unwrap().id;
+        of
+    } else {
+        // TODO: Don't panic
+        panic!();
     };
 
     // Safety of both of these:
@@ -887,6 +921,13 @@ unsafe extern "C" fn get_field_id(
     // TODO: Checked cstr constructor
     let name = CStr::from_ptr(name);
     let signature = CStr::from_ptr(signature);
+
+    println!(
+        "Target Class: {:?}",
+        env.class_names.name_from_gcid(class_id)
+    );
+    println!("Name: {:?}", name);
+    println!("Signature: {:?}", signature);
 
     let name_bytes = name.to_bytes();
     let signature_bytes = signature.to_bytes();

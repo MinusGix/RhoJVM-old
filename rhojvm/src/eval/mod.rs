@@ -24,7 +24,7 @@ use crate::{
     jni::{self, JBoolean, JByte, JChar, JDouble, JFloat, JInt, JLong, JObject, JShort},
     method::NativeMethod,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::Env,
+    util::{make_class_form_of, Env},
     GeneralError, State,
 };
 
@@ -261,39 +261,37 @@ impl Frame {
     }
 }
 
-// FIXME: Class ref should probably give the function the Class<T> instance?
 /// Helper function to get the class ref value for static/nonstatic methods
 /// For native functions, which take a pointer to a gcref
 fn get_class_ref(
-    state: &mut State,
-    frame: &mut Frame,
+    env: &mut Env,
+    frame: &Frame,
     class_id: ClassId,
-    method: &Method,
+    is_static: bool,
 ) -> Result<ValueException<GcRef<Instance>>, GeneralError> {
-    Ok(
-        if method.access_flags().contains(MethodAccessFlags::STATIC) {
-            ValueException::Value(
-                state
-                    .find_static_class_instance(class_id)
-                    .ok_or(EvalError::MissingStaticClassRef(class_id))?,
-            )
+    Ok(if is_static {
+        // TODO: The from class id is obviously incorrect
+        let static_form = make_class_form_of(env, class_id, class_id)?;
+        match static_form {
+            ValueException::Value(static_form) => ValueException::Value(static_form.into_generic()),
+            ValueException::Exception(exc) => ValueException::Exception(exc),
+        }
+    } else {
+        // The first local parameter is the this ptr in non-static methods
+        let refer = frame
+            .locals
+            .get(0)
+            .ok_or(EvalError::ExpectedLocalVariable(0))?
+            .as_value()
+            .ok_or(EvalError::ExpectedLocalVariableWithValue(0))?
+            .into_reference()
+            .ok_or(EvalError::ExpectedLocalVariableReference(0))?;
+        if let Some(refer) = refer {
+            ValueException::Value(refer.into_generic())
         } else {
-            // The first local parameter is the this ptr in non-static methods
-            let refer = frame
-                .locals
-                .get(0)
-                .ok_or(EvalError::ExpectedLocalVariable(0))?
-                .as_value()
-                .ok_or(EvalError::ExpectedLocalVariableWithValue(0))?
-                .into_reference()
-                .ok_or(EvalError::ExpectedLocalVariableReference(0))?;
-            if let Some(refer) = refer {
-                ValueException::Value(refer.into_generic())
-            } else {
-                todo!("Null pointer exception?")
-            }
-        },
-    )
+            todo!("Null pointer exception?")
+        }
+    })
 }
 
 macro_rules! convert_rv {
@@ -345,12 +343,13 @@ macro_rules! convert_rv {
 macro_rules! impl_call_native_method {
     ($env:ident, $frame:ident, $class_id:ident, $method:ident, $native_func:ident; ($($pname:ident: $typ:ident),*)) => {
         let return_type: Option<DescriptorType> = $method.descriptor().return_type().cloned();
-        let class_ref = match get_class_ref(&mut $env.state, &mut $frame, $class_id, $method)? {
+        let is_static = $method.access_flags().contains(MethodAccessFlags::STATIC);
+        let class_ref = match get_class_ref($env, &$frame, $class_id, is_static)? {
             ValueException::Value(class_ref) => class_ref,
             ValueException::Exception(exc) => return Ok(EvalMethodValue::Exception(exc)),
         };
 
-        let param_base_index = if $method.access_flags().contains(MethodAccessFlags::STATIC) {
+        let param_base_index = if is_static {
             0
         } else {
             1

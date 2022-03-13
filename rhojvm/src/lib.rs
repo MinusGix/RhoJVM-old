@@ -414,12 +414,15 @@ impl State {
     /// Searches the gc-heap for the Static Class for this specific class
     /// This shouldn't really be used unless needed.
     #[must_use]
-    pub fn find_static_class_instance(&self, class_id: ClassId) -> Option<GcRef<Instance>> {
+    pub fn find_static_class_instance(
+        &self,
+        class_id: ClassId,
+    ) -> Option<GcRef<StaticClassInstance>> {
         for (object_ref, object) in self.gc.iter_ref() {
             let instance = object.value();
             if let Instance::StaticClass(instance) = instance {
                 if instance.id == class_id {
-                    return Some(object_ref);
+                    return Some(object_ref.unchecked_as());
                 }
             }
         }
