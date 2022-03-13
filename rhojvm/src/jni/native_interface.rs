@@ -62,7 +62,7 @@ pub struct NativeInterface {
 
     pub new_global_ref: NewGlobalRefFn,
     pub delete_global_ref: DeleteGlobalRefFn,
-    pub delete_local_ref: MethodNoArguments,
+    pub delete_local_ref: DeleteLocalRefFn,
     pub is_same_object: MethodNoArguments,
     pub new_local_ref: MethodNoArguments,
     pub ensure_local_capacity: EnsureLocalCapacityFn,
@@ -332,7 +332,7 @@ impl NativeInterface {
             pop_local_frame: unimpl_none_name!("pop_local_frame"),
             new_global_ref,
             delete_global_ref,
-            delete_local_ref: unimpl_none_name!("delete_local_ref"),
+            delete_local_ref,
             is_same_object: unimpl_none_name!("is_same_object"),
             new_local_ref: unimpl_none_name!("new_local_ref"),
             ensure_local_capacity,
@@ -1216,6 +1216,12 @@ unsafe extern "C" fn get_byte_array_region(
     } else {
         panic!("Instance was not a primitive array")
     }
+}
+
+pub type DeleteLocalRefFn = unsafe extern "C" fn(env: *mut Env, obj: JObject);
+unsafe extern "C" fn delete_local_ref(env: *mut Env, obj: JObject) {
+    assert_valid_env(env);
+    // TODO: Implement this.
 }
 
 pub type EnsureLocalCapacityFn = unsafe extern "C" fn(env: *mut Env, capacity: JInt) -> JInt;
