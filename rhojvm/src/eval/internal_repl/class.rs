@@ -660,3 +660,27 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
 
     unsafe { env.get_local_jobject_for(package_ref.into_generic()) }
 }
+
+pub(crate) extern "C" fn class_is_array(env: *mut Env<'_>, this: JObject) -> JBoolean {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("Class new instance's this ref was null");
+    // The id held inside
+    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        let of = this.of;
+        let of = env.state.gc.deref(of).unwrap().id;
+        of
+    } else {
+        // This should be caught by method calling
+        // Though it would be good to not panic
+        panic!();
+    };
+
+    let (_, info) = env.class_names.name_from_gcid(this_id).unwrap();
+
+    u8::from(info.is_array())
+}

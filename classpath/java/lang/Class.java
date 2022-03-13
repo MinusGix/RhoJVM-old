@@ -241,9 +241,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public boolean isArray() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native boolean isArray();
 
     public boolean isAssignableFrom(Class<?> cls) {
         throw new UnsupportedOperationException("TODO: Implement this");
