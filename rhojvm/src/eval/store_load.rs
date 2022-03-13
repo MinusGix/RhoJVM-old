@@ -752,8 +752,19 @@ impl RunInst for Dup2 {
     }
 }
 impl RunInst for DupX1 {
-    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
-        todo!()
+    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+        let value1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let value2 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+
+        // verifier assures that these aren't category 2 types
+        debug_assert!(!value1.is_category_2());
+        debug_assert!(!value2.is_category_2());
+
+        frame.stack.push(value1)?;
+        frame.stack.push(value2)?;
+        frame.stack.push(value1)?;
+
+        Ok(RunInstValue::Continue)
     }
 }
 impl RunInst for DupX2 {
