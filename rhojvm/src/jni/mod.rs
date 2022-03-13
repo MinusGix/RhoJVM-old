@@ -12,7 +12,7 @@ use rhojvm_base::{
         method::{DescriptorType, DescriptorTypeBasic},
         types::JavaChar,
     },
-    id::ClassId,
+    id::{ClassId, ExactMethodId, MethodIndex},
 };
 use usize_cast::{FromUsize, IntoUsize};
 
@@ -138,9 +138,88 @@ impl JFieldId {
     }
 }
 
+// TODO: This only supports ExactMethodIds
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct JMethodId(*const ());
+impl JMethodId {
+    #[must_use]
+    pub fn null() -> JMethodId {
+        JMethodId(std::ptr::null())
+    }
+
+    pub(crate) fn unchecked_from_i64(id: i64) -> JMethodId {
+        let id = id as u64;
+        let id = id.into_usize();
+        let id = id as *const ();
+        JMethodId(id)
+    }
+
+    /// This is primarily intended for java apis where we have to return some unique id for a method
+    /// as a long.
+    pub(crate) fn as_i64(self) -> i64 {
+        // This relies on system ptrs being castable to usize and then those being castable to u64
+        // -> i64
+        u64::from_usize(self.0 as usize) as i64
+    }
+
+    /// # Safety
+    /// It must be safe to forge pointers and expect to get the original value back.
+    pub(crate) unsafe fn new_unchecked(class_id: ClassId, method_index: MethodIndex) -> JMethodId {
+        // FIXME: This means that we don't support 32-bit (or, in some world, 16bit) devices at all
+        // It would be good to have some methodid that won't have these issues
+        const_assert!(std::mem::size_of::<*const ()>() == 8);
+        let class_id_v = class_id.get();
+        // These are incremented by 1 so that null is a value that can be represented as a field id
+        let class_id_v: u64 = (class_id_v + 1).into();
+        let field_index_v: u64 = (method_index + 1).into();
+
+        // [class_id + 1][field_index + 1][0000]
+        let method_id = (class_id_v << 32) | (field_index_v << 16);
+        let method_id = method_id.into_usize();
+
+        let method_id = method_id as *const ();
+
+        let method_id = JMethodId(method_id);
+
+        debug_assert_eq!(method_id.decompose(), Some((class_id, method_index)));
+
+        method_id
+    }
+
+    /// # Safety
+    /// This should be a valid [`JMethodId`] handed out by `new_unchecked`
+    /// It must be safe to forge pointers and expect to get the original integer back
+    pub(crate) unsafe fn into_method_id(self) -> Option<ExactMethodId> {
+        if let Some((class_id, field_index)) = self.decompose() {
+            Some(ExactMethodId::unchecked_compose(class_id, field_index))
+        } else {
+            None
+        }
+    }
+
+    /// # Safety
+    /// This should be a valid [`JMethodId`] handed out by `new_unchecked`
+    /// It must be safe to forge pointers and expect to get the original integer back
+    pub(crate) unsafe fn decompose(self) -> Option<(ClassId, MethodIndex)> {
+        let method_id = self.0;
+        if method_id.is_null() {
+            return None;
+        }
+
+        let method_id = method_id as usize;
+        #[allow(clippy::cast_possible_truncation)]
+        let class_id = ((method_id & 0xFFFF_FFFF_0000_0000) >> 32) as u32;
+        let class_id = class_id - 1;
+        #[allow(clippy::cast_possible_truncation)]
+        let method_index = ((method_id & 0x0000_0000_FFFF_0000) >> 16) as u16;
+        let method_index = method_index - 1;
+
+        let class_id = ClassId::new_unchecked(class_id);
+
+        Some((class_id, method_index))
+    }
+}
 
 #[repr(C)]
 pub union JValue {
