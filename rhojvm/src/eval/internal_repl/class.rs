@@ -31,7 +31,7 @@ const FLOAT_NAME: &[u8] = b"java/lang/Float";
 const INTEGER_NAME: &[u8] = b"java/lang/Integer";
 const LONG_NAME: &[u8] = b"java/lang/Long";
 const SHORT_NAME: &[u8] = b"java/lang/Short";
-const BOOL_NAME: &[u8] = b"java/lang/Bool";
+const BOOL_NAME: &[u8] = b"java/lang/Boolean";
 const VOID_NAME: &[u8] = b"java/lang/Void";
 const PRIMITIVE_NAMES: &[&[u8]] = &[
     BYTE_NAME,
