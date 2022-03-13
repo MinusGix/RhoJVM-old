@@ -304,6 +304,10 @@ impl JValue {
 #[repr(transparent)]
 pub struct JObject(pub *const ());
 impl JObject {
+    pub(crate) fn new_unchecked(ptr: *const ()) -> JObject {
+        JObject(ptr)
+    }
+
     #[must_use]
     pub fn null() -> JObject {
         JObject(std::ptr::null())

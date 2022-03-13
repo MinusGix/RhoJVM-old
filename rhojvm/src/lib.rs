@@ -17,6 +17,12 @@
 #![allow(clippy::unnecessary_wraps)]
 // Not really that useful
 #![allow(clippy::redundant_else)]
+// Unfortunately, we have to be on nightly to use VaList, thougyh it looks
+// like there was some movement recently about getting this stabilized on
+// some targets, rather than stabilizing for many targets at once.
+// TODO: Provide an option to disable using this feature, which would disable
+// the jni functions which rely upon it
+#![feature(c_variadic)]
 
 use std::{
     collections::HashMap, num::NonZeroUsize, string::FromUtf16Error, sync::Arc, thread::ThreadId,

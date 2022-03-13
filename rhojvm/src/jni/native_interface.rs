@@ -2,15 +2,19 @@ use std::{ffi::CStr, os::raw::c_char};
 
 use classfile_parser::method_info::MethodAccessFlags;
 use rhojvm_base::{
-    code::{method::MethodDescriptor, types::JavaChar},
+    code::{
+        method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
+        types::JavaChar,
+    },
     id::ClassId,
     util::convert_classfile_text,
 };
+use smallvec::SmallVec;
 use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{
     class_instance::{FieldIndex, Instance, ReferenceInstance},
-    eval::{EvalError, ValueException},
+    eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
@@ -168,7 +172,7 @@ pub struct NativeInterface {
     pub get_static_method_id: GetStaticMethodIdFn,
 
     pub call_static_object_method: MethodNoArguments,
-    pub call_static_object_method_v: MethodNoArguments,
+    pub call_static_object_method_v: CallStaticObjectMethodVFn,
     pub call_static_object_method_a: MethodNoArguments,
     pub call_static_boolean_method: MethodNoArguments,
     pub call_static_boolean_method_v: MethodNoArguments,
@@ -429,7 +433,7 @@ impl NativeInterface {
             set_double_field: unimpl_none_name!("set_double_field"),
             get_static_method_id,
             call_static_object_method: unimpl_none_name!("call_static_object_method"),
-            call_static_object_method_v: unimpl_none_name!("call_static_object_method_v"),
+            call_static_object_method_v,
             call_static_object_method_a: unimpl_none_name!("call_static_object_method_a"),
             call_static_boolean_method: unimpl_none_name!("call_static_boolean_method"),
             call_static_boolean_method_v: unimpl_none_name!("call_static_boolean_method_v"),
@@ -1388,4 +1392,93 @@ unsafe extern "C" fn get_static_method_id(
     let (class_id, method_index) = method_id.decompose();
 
     JMethodId::new_unchecked(class_id, method_index)
+}
+
+pub type CallStaticObjectMethodVFn = unsafe extern "C" fn(
+    env: *mut Env,
+    class: JClass,
+    method_id: JMethodId,
+    args: std::ffi::VaList,
+) -> JObject;
+unsafe extern "C" fn call_static_object_method_v(
+    env: *mut Env,
+    _class: JClass,
+    method_id: JMethodId,
+    mut args: std::ffi::VaList,
+) -> JObject {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    let method_id = method_id.into_method_id().unwrap();
+    let method = env.methods.get(&method_id).unwrap();
+    // Have to allocate due to needing env mutably in loop
+    let desc_parameters: SmallVec<[_; 8]> =
+        method.descriptor().parameters().iter().copied().collect();
+    let mut locals = Locals::default();
+    for param in desc_parameters {
+        let value: RuntimeValue = match param {
+            DescriptorType::Basic(basic) => match basic {
+                DescriptorTypeBasic::Byte => RuntimeValuePrimitive::I8(args.arg::<JByte>()).into(),
+                DescriptorTypeBasic::Char => {
+                    RuntimeValuePrimitive::Char(JavaChar(args.arg::<JChar>())).into()
+                }
+                DescriptorTypeBasic::Double => {
+                    RuntimeValuePrimitive::F64(args.arg::<JDouble>()).into()
+                }
+                // It seems like C variadics promote f32 to f64, so we have to get the f64 then
+                // cast down
+                DescriptorTypeBasic::Float =>
+                {
+                    #[allow(clippy::cast_possible_truncation)]
+                    RuntimeValuePrimitive::F32(args.arg::<JDouble>() as JFloat).into()
+                }
+                DescriptorTypeBasic::Int => RuntimeValuePrimitive::I32(args.arg::<JInt>()).into(),
+                DescriptorTypeBasic::Long => RuntimeValuePrimitive::I64(args.arg::<JLong>()).into(),
+                DescriptorTypeBasic::Short => {
+                    RuntimeValuePrimitive::I16(args.arg::<JShort>()).into()
+                }
+                DescriptorTypeBasic::Boolean => {
+                    RuntimeValuePrimitive::Bool(args.arg::<JBoolean>() != 0).into()
+                }
+                DescriptorTypeBasic::Class(_) => {
+                    // Requires JObject to be transparent, which it is
+                    let arg = args.arg::<*const ()>();
+                    let arg = JObject::new_unchecked(arg);
+                    if let Some(arg) = env.get_jobject_as_gcref(arg) {
+                        assert!(
+                            env.state.gc.deref(arg).is_some(),
+                            "Invalid GcRef ({:?}) gotten from variadic list",
+                            arg
+                        );
+                        // TODO: Check that the type is valid
+                        RuntimeValue::Reference(arg.unchecked_as())
+                    } else {
+                        RuntimeValue::NullReference
+                    }
+                }
+            },
+            DescriptorType::Array { level, component } => todo!(),
+        };
+
+        locals.push_transform(value);
+    }
+
+    let frame = Frame::new_locals(locals);
+
+    match eval_method(env, method_id.into(), frame).unwrap() {
+        EvalMethodValue::ReturnVoid => {
+            panic!("Static method which was intended to return an object returned void")
+        }
+        EvalMethodValue::Return(value) => {
+            if let Some(value) = value.into_reference().expect("Returned non referenced") {
+                env.get_local_jobject_for(value.into_generic())
+            } else {
+                JObject::null()
+            }
+        }
+        EvalMethodValue::Exception(exc) => {
+            env.state.fill_native_exception(exc);
+            JObject::null()
+        }
+    }
 }
