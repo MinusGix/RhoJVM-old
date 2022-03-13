@@ -13,7 +13,9 @@ use smallvec::SmallVec;
 use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{
-    class_instance::{FieldIndex, Instance, ReferenceInstance},
+    class_instance::{
+        ClassInstance, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance,
+    },
     eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
@@ -226,7 +228,7 @@ pub struct NativeInterface {
 
     pub new_string: NewStringFn,
 
-    pub get_string_length: MethodNoArguments,
+    pub get_string_length: GetStringLengthFn,
     pub get_string_chars: MethodNoArguments,
     pub release_string_chars: MethodNoArguments,
 
@@ -482,7 +484,7 @@ impl NativeInterface {
             set_static_float_field: unimpl_none_name!("set_static_float_field"),
             set_static_double_field: unimpl_none_name!("set_static_double_field"),
             new_string,
-            get_string_length: unimpl_none_name!("get_string_length"),
+            get_string_length,
             get_string_chars: unimpl_none_name!("get_string_chars"),
             release_string_chars: unimpl_none_name!("release_string_chars"),
             new_string_utf,
@@ -1317,6 +1319,33 @@ unsafe extern "C" fn new_string_utf(env: *mut Env, chars: *const c_char) -> JStr
     } else {
         // Exception
         JString::null()
+    }
+}
+
+pub type GetStringLengthFn = unsafe extern "C" fn(env: *mut Env, string: JString) -> JSize;
+unsafe extern "C" fn get_string_length(env: *mut Env, string: JString) -> JSize {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    if let Some(string) = env.get_jobject_as_gcref(string) {
+        let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
+        let string_data_field_id = env
+            .state
+            .get_string_data_field(&env.class_files, string_id)
+            .unwrap();
+        let string = string.unchecked_as::<ClassInstance>();
+        let string_inst = env.state.gc.deref(string).unwrap();
+        let field = string_inst.fields.get(string_data_field_id).unwrap();
+        let data = field.value().into_reference().unwrap();
+        if let Some(data) = data {
+            let data = data.unchecked_as::<PrimitiveArrayInstance>();
+            let data = env.state.gc.deref(data).unwrap();
+            data.len()
+        } else {
+            todo!("NPE");
+        }
+    } else {
+        todo!("NPE?");
     }
 }
 
