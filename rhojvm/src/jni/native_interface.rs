@@ -3,7 +3,7 @@ use std::{ffi::CStr, os::raw::c_char};
 use classfile_parser::method_info::MethodAccessFlags;
 use rhojvm_base::{
     code::{
-        method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
+        method::{DescriptorType, DescriptorTypeBasic, Method, MethodDescriptor},
         types::JavaChar,
     },
     id::ClassId,
@@ -84,7 +84,7 @@ pub struct NativeInterface {
     pub get_object_class: MethodNoArguments,
     pub is_instance_of: MethodNoArguments,
 
-    pub get_method_id: MethodNoArguments,
+    pub get_method_id: GetMethodIdFn,
 
     pub call_object_method: MethodNoArguments,
     pub call_object_method_v: MethodNoArguments,
@@ -351,7 +351,7 @@ impl NativeInterface {
             new_object_a: unimpl_none_name!("new_object_a"),
             get_object_class: unimpl_none_name!("get_object_class"),
             is_instance_of: unimpl_none_name!("is_instance_of"),
-            get_method_id: unimpl_none_name!("get_method_id"),
+            get_method_id,
             call_object_method: unimpl_none_name!("call_object_method"),
             call_object_method_v: unimpl_none_name!("call_object_method_v"),
             call_object_method_a: unimpl_none_name!("call_object_method_a"),
@@ -1320,6 +1320,30 @@ unsafe extern "C" fn new_string_utf(env: *mut Env, chars: *const c_char) -> JStr
     }
 }
 
+pub type GetMethodIdFn = unsafe extern "C" fn(
+    env: *mut Env,
+    this: JClass,
+    name: *const c_char,
+    signature: *const c_char,
+) -> JMethodId;
+unsafe extern "C" fn get_method_id(
+    env: *mut Env,
+    this: JClass,
+    name: *const c_char,
+    signature: *const c_char,
+) -> JMethodId {
+    // FIXME: This currently does not support special methods like array clone!
+    get_jmethod_id(env, this, name, signature, |method| {
+        #[allow(clippy::manual_assert)]
+        if method.access_flags().contains(MethodAccessFlags::STATIC) {
+            // TODO: Throw no such method error
+            panic!("Found method but it was static");
+        } else {
+            None
+        }
+    })
+}
+
 pub type GetStaticMethodIdFn = unsafe extern "C" fn(
     env: *mut Env,
     this: JClass,
@@ -1332,12 +1356,27 @@ unsafe extern "C" fn get_static_method_id(
     name: *const c_char,
     signature: *const c_char,
 ) -> JMethodId {
+    get_jmethod_id(env, this, name, signature, |method| {
+        #[allow(clippy::manual_assert)]
+        if method.access_flags().contains(MethodAccessFlags::STATIC) {
+            None
+        } else {
+            // TODO: Throw no such method error
+            panic!("Found method but it wasn't static");
+        }
+    })
+}
+
+unsafe fn get_jmethod_id(
+    env: *mut Env,
+    this: JClass,
+    name: *const c_char,
+    signature: *const c_char,
+    validate: impl FnOnce(&Method) -> Option<JMethodId>,
+) -> JMethodId {
     assert_valid_env(env);
-    assert!(!name.is_null(), "GetStaticMethodId's name was null");
-    assert!(
-        !signature.is_null(),
-        "GetStaticMethodId's signature was null",
-    );
+    assert!(!name.is_null(), "get method id's name was null");
+    assert!(!signature.is_null(), "get method id's signature was null",);
     assert_non_aliasing(env, name);
     assert_non_aliasing(env, signature);
     // name and signature can alias if they wish
@@ -1383,15 +1422,13 @@ unsafe extern "C" fn get_static_method_id(
         .unwrap();
 
     let method = env.methods.get(&method_id).unwrap();
-    #[allow(clippy::manual_assert)]
-    if !method.access_flags().contains(MethodAccessFlags::STATIC) {
-        // TODO: Throw no such method error
-        panic!("Found method but it wasn't static");
+    if let Some(method_id) = validate(method) {
+        method_id
+    } else {
+        let (class_id, method_index) = method_id.decompose();
+
+        JMethodId::new_unchecked(class_id, method_index)
     }
-
-    let (class_id, method_index) = method_id.decompose();
-
-    JMethodId::new_unchecked(class_id, method_index)
 }
 
 pub type CallStaticObjectMethodVFn = unsafe extern "C" fn(
