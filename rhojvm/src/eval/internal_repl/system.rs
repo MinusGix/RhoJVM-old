@@ -92,6 +92,8 @@ pub(crate) extern "C" fn system_set_properties(env: *mut Env<'_>, _this: JObject
 struct Properties {
     file_sep: &'static str,
     line_sep: &'static str,
+    /// Separate paths in a list
+    path_sep: &'static str,
     file_encoding: &'static str,
     os_name: Cow<'static, str>,
     os_arch: &'static str,
@@ -145,6 +147,7 @@ impl Properties {
         Properties {
             file_sep: "\\",
             line_sep: "\n",
+            path_sep: ";",
             file_encoding: "UTF-8",
             os_name: Cow::Borrowed("Windows"),
             os_arch: Properties::os_arch(),
@@ -155,6 +158,7 @@ impl Properties {
         Properties {
             file_sep: "/",
             line_sep: "\n",
+            path_sep: ":",
             file_encoding: "UTF-8",
             os_name: sys
                 .long_os_version()
@@ -166,12 +170,14 @@ impl Properties {
 impl IntoIterator for Properties {
     type Item = (&'static str, Cow<'static, str>);
 
-    type IntoIter = std::array::IntoIter<Self::Item, 5>;
+    type IntoIter = std::array::IntoIter<Self::Item, 6>;
 
     fn into_iter(self) -> Self::IntoIter {
+        // TODO: Could we provide a compile error if we don't use all the fields?
         [
             ("file.separator", Cow::Borrowed(self.file_sep)),
             ("line.separator", Cow::Borrowed(self.line_sep)),
+            ("path.separator", Cow::Borrowed(self.path_sep)),
             ("file.encoding", Cow::Borrowed(self.file_encoding)),
             ("os.name", self.os_name),
             ("os.arch", Cow::Borrowed(self.os_arch)),
