@@ -5,7 +5,7 @@ use rhojvm_base::code::{
 use usize_cast::IntoUsize;
 
 use crate::{
-    class_instance::{Instance, PrimitiveArrayInstance, ReferenceInstance},
+    class_instance::{Instance, PrimitiveArrayInstance, ReferenceArrayInstance, ReferenceInstance},
     eval::{eval_method, Frame, Locals, ValueException},
     gc::GcRef,
     jni::{JInt, JObject},
@@ -214,7 +214,16 @@ pub(crate) extern "C" fn system_arraycopy(
                     count,
                 );
             }
-            (ReferenceInstance::ReferenceArray(_), ReferenceInstance::ReferenceArray(_)) => todo!(),
+            (ReferenceInstance::ReferenceArray(_), ReferenceInstance::ReferenceArray(_)) => {
+                system_arraycopy_references(
+                    env,
+                    source_ref.unchecked_as::<ReferenceArrayInstance>(),
+                    source_start,
+                    destination_ref.unchecked_as::<ReferenceArrayInstance>(),
+                    destination_start,
+                    count,
+                );
+            }
             (ReferenceInstance::PrimitiveArray(_), _)
             | (_, ReferenceInstance::PrimitiveArray(_)) => todo!("Wrong types"),
             (ReferenceInstance::ReferenceArray(_), _)
@@ -222,6 +231,92 @@ pub(crate) extern "C" fn system_arraycopy(
             _ => panic!("Throw exception, this should be an array"),
         },
     };
+}
+
+fn system_arraycopy_references(
+    env: &mut Env,
+    source_ref: GcRef<ReferenceArrayInstance>,
+    source_start: i32,
+    destination_ref: GcRef<ReferenceArrayInstance>,
+    destination_start: i32,
+    count: i32,
+) {
+    if source_start < 0 || destination_start < 0 {
+        todo!("One of the starts was negative");
+    } else if count < 0 {
+        todo!("Count was an negative");
+    }
+
+    let source_start = source_start.unsigned_abs().into_usize();
+    let destination_start = destination_start.unsigned_abs().into_usize();
+    let count = count.unsigned_abs().into_usize();
+
+    // TODO: We should only need to clone if source == destination!
+    let source = env.state.gc.deref(source_ref).unwrap().clone();
+
+    let destination = env.state.gc.deref_mut(destination_ref).unwrap();
+    let source_id = source.element_type;
+    let dest_id = destination.element_type;
+
+    let is_castable = source_id == dest_id
+        || env
+            .classes
+            .is_super_class(
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.packages,
+                source_id,
+                dest_id,
+            )
+            .unwrap()
+        || env
+            .classes
+            .implements_interface(
+                &mut env.class_names,
+                &mut env.class_files,
+                source_id,
+                dest_id,
+            )
+            .unwrap()
+        || env
+            .classes
+            .is_castable_array(
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.packages,
+                source_id,
+                dest_id,
+            )
+            .unwrap();
+
+    if !is_castable {
+        todo!("Error about incompatible types")
+    }
+
+    // TODO: overflow checks
+    let source_end = source_start + count;
+    let destination_end = destination_start + count;
+
+    let source_slice = if let Some(source_slice) = source.elements.get(source_start..source_end) {
+        source_slice
+    } else {
+        todo!("Exception about source start exceeding length");
+    };
+
+    let destination_slice = if let Some(destination_slice) = destination
+        .elements
+        .get_mut(destination_start..destination_end)
+    {
+        destination_slice
+    } else {
+        todo!("Exception about destination start exceeding length");
+    };
+
+    assert_eq!(source_slice.len(), destination_slice.len());
+
+    for (dest, src) in destination_slice.iter_mut().zip(source_slice.iter()) {
+        *dest = *src;
+    }
 }
 
 fn system_arraycopy_primitive(
