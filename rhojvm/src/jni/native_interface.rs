@@ -1,6 +1,10 @@
 use std::{ffi::CStr, os::raw::c_char};
 
-use rhojvm_base::{code::method::MethodDescriptor, id::ClassId};
+use rhojvm_base::{
+    code::{method::MethodDescriptor, types::JavaChar},
+    id::ClassId,
+    util::convert_classfile_text,
+};
 use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{
@@ -9,13 +13,13 @@ use crate::{
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{make_class_form_of, Env},
+    util::{construct_string, make_class_form_of, Env},
     GeneralError,
 };
 
 use super::{
     JArray, JBoolean, JByte, JByteArray, JChar, JClass, JDouble, JFieldId, JFloat, JInt, JLong,
-    JObject, JShort, JSize, JThrowable, MethodNoArguments, Status,
+    JObject, JShort, JSize, JString, JThrowable, MethodNoArguments, Status,
 };
 
 macro_rules! unimpl_none_name {
@@ -215,13 +219,13 @@ pub struct NativeInterface {
     pub set_static_float_field: MethodNoArguments,
     pub set_static_double_field: MethodNoArguments,
 
-    pub new_string: MethodNoArguments,
+    pub new_string: NewStringFn,
 
     pub get_string_length: MethodNoArguments,
     pub get_string_chars: MethodNoArguments,
     pub release_string_chars: MethodNoArguments,
 
-    pub new_string_utf: MethodNoArguments,
+    pub new_string_utf: NewStringUtfFn,
     pub get_string_utf_length: MethodNoArguments,
     pub get_string_utf_chars: MethodNoArguments,
     pub release_string_utf_chars: MethodNoArguments,
@@ -472,11 +476,11 @@ impl NativeInterface {
             set_static_long_field: unimpl_none_name!("set_static_long_field"),
             set_static_float_field: unimpl_none_name!("set_static_float_field"),
             set_static_double_field: unimpl_none_name!("set_static_double_field"),
-            new_string: unimpl_none_name!("new_string"),
+            new_string,
             get_string_length: unimpl_none_name!("get_string_length"),
             get_string_chars: unimpl_none_name!("get_string_chars"),
             release_string_chars: unimpl_none_name!("release_string_chars"),
-            new_string_utf: unimpl_none_name!("new_string_utf"),
+            new_string_utf,
             get_string_utf_length: unimpl_none_name!("get_string_utf_length"),
             get_string_utf_chars: unimpl_none_name!("get_string_utf_chars"),
             release_string_utf_chars: unimpl_none_name!("release_string_utf_chars"),
@@ -1248,4 +1252,65 @@ unsafe extern "C" fn new_global_ref(env: *mut Env, obj: JObject) -> JObject {
 pub type DeleteGlobalRefFn = unsafe extern "C" fn(env: *mut Env, obj: JObject);
 unsafe extern "C" fn delete_global_ref(env: *mut Env, obj: JObject) {
     assert_valid_env(env);
+}
+
+pub type NewStringFn =
+    unsafe extern "C" fn(env: *mut Env, chars: *const JChar, len: JSize) -> JString;
+unsafe extern "C" fn new_string(env: *mut Env, chars: *const JChar, len: JSize) -> JString {
+    assert_valid_env(env);
+    assert!(!chars.is_null(), "New String chars ptr was null");
+
+    if len < 0 {
+        // The docs don't say what to do if this is negative
+        tracing::error!("Negative length string");
+        return JString::null();
+    }
+    let len = len.unsigned_abs().into_usize();
+
+    assert_non_aliasing(env, chars);
+
+    let env = &mut *env;
+
+    let mut content = Vec::with_capacity(len);
+    for i in 0..len {
+        let char_at = chars.add(i);
+        let char_at = *char_at;
+        let char_at = JavaChar(char_at);
+        content.push(RuntimeValuePrimitive::Char(char_at));
+    }
+
+    let text = construct_string(env, content).unwrap();
+    if let Some(text) = env.state.extract_value(text) {
+        env.get_local_jobject_for(text.into_generic())
+    } else {
+        // Exception
+        JString::null()
+    }
+}
+
+pub type NewStringUtfFn = unsafe extern "C" fn(env: *mut Env, chars: *const c_char) -> JString;
+unsafe extern "C" fn new_string_utf(env: *mut Env, chars: *const c_char) -> JString {
+    assert_valid_env(env);
+    assert!(!chars.is_null(), "New String chars ptr was null");
+    assert_non_aliasing(env, chars);
+
+    let env = &mut *env;
+
+    let chars = CStr::from_ptr(chars);
+    let chars = chars.to_bytes();
+    // TODO: Convert directly to utf16
+    // The text is in 'modified utf8 encoding' aka cesu8
+    let chars = convert_classfile_text(chars);
+    let content = chars
+        .encode_utf16()
+        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+        .collect();
+
+    let text = construct_string(env, content).unwrap();
+    if let Some(text) = env.state.extract_value(text) {
+        env.get_local_jobject_for(text.into_generic())
+    } else {
+        // Exception
+        JString::null()
+    }
 }
