@@ -1,6 +1,7 @@
 use classfile_parser::{field_info::FieldAccessFlags, ClassAccessFlags};
 use either::Either;
 use rhojvm_base::{
+    class::{ArrayComponentType, ClassVariant},
     code::{
         method::{DescriptorTypeBasic, MethodDescriptor},
         types::JavaChar,
@@ -14,14 +15,24 @@ use crate::{
     eval::{eval_method, instances::make_fields, EvalMethodValue, Frame, Locals, ValueException},
     gc::GcRef,
     initialize_class,
-    jni::{JBoolean, JChar, JObject, JString},
+    jni::{JBoolean, JChar, JClass, JObject, JString},
     rv::{RuntimeValue, RuntimeValuePrimitive},
     util::{
         self, construct_string, find_field_with_name, get_string_contents_as_rust_string,
-        to_utf16_arr, Env,
+        make_class_form_of, to_utf16_arr, Env,
     },
     GeneralError,
 };
+
+const BYTE_NAME: &[u8] = b"java/lang/Byte";
+const CHARACTER_NAME: &[u8] = b"java/lang/Character";
+const DOUBLE_NAME: &[u8] = b"java/lang/Double";
+const FLOAT_NAME: &[u8] = b"java/lang/Float";
+const INTEGER_NAME: &[u8] = b"java/lang/Integer";
+const LONG_NAME: &[u8] = b"java/lang/Long";
+const SHORT_NAME: &[u8] = b"java/lang/Short";
+const BOOL_NAME: &[u8] = b"java/lang/Bool";
+const VOID_NAME: &[u8] = b"java/lang/Void";
 
 pub(crate) extern "C" fn class_get_primitive(
     env: *mut Env<'_>,
@@ -44,23 +55,23 @@ pub(crate) extern "C" fn class_get_primitive(
     // Note: This assumes that the jchar encoding can be directly compared to the ascii bytes for
     // these basic characters
     let class_name: &[u8] = if name == "B" || name == "byte" {
-        b"java/lang/Byte"
+        BYTE_NAME
     } else if name == "C" || name == "char" {
-        b"java/lang/Character"
+        CHARACTER_NAME
     } else if name == "D" || name == "double" {
-        b"java/lang/Double"
+        DOUBLE_NAME
     } else if name == "F" || name == "float" {
-        b"java/lang/Float"
+        FLOAT_NAME
     } else if name == "I" || name == "int" {
-        b"java/lang/Integer"
+        INTEGER_NAME
     } else if name == "J" || name == "long" {
-        b"java/lang/Long"
+        LONG_NAME
     } else if name == "S" || name == "short" {
-        b"java/lang/Short"
+        SHORT_NAME
     } else if name == "Z" || name == "bool" {
-        b"java/lang/Bool"
+        BOOL_NAME
     } else if name == "V" || name == "void" {
-        b"java/lang/Void"
+        VOID_NAME
     } else {
         panic!("Unknown name ({}) passed into Class#getPrimitive", name);
     };
@@ -683,4 +694,48 @@ pub(crate) extern "C" fn class_is_array(env: *mut Env<'_>, this: JObject) -> JBo
     let (_, info) = env.class_names.name_from_gcid(this_id).unwrap();
 
     u8::from(info.is_array())
+}
+
+pub(crate) extern "C" fn class_get_component_type(env: *mut Env<'_>, this: JObject) -> JClass {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("Class new instance's this ref was null");
+    // The id held inside
+    if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        let this_id = this.of;
+        let this_id = env.state.gc.deref(this_id).unwrap().id;
+
+        let component_id = match env.classes.get(&this_id).unwrap() {
+            ClassVariant::Array(array) => match array.component_type() {
+                ArrayComponentType::Boolean => env.class_names.gcid_from_bytes(BOOL_NAME),
+                ArrayComponentType::Char => env.class_names.gcid_from_bytes(CHARACTER_NAME),
+                ArrayComponentType::Byte => env.class_names.gcid_from_bytes(BYTE_NAME),
+                ArrayComponentType::Short => env.class_names.gcid_from_bytes(SHORT_NAME),
+                ArrayComponentType::Int => env.class_names.gcid_from_bytes(INTEGER_NAME),
+                ArrayComponentType::Long => env.class_names.gcid_from_bytes(LONG_NAME),
+                ArrayComponentType::Float => env.class_names.gcid_from_bytes(FLOAT_NAME),
+                ArrayComponentType::Double => env.class_names.gcid_from_bytes(DOUBLE_NAME),
+                ArrayComponentType::Class(id) => id,
+            },
+            // It wasn't an array
+            ClassVariant::Class(_) => return JClass::null(),
+        };
+
+        // TODO: this usage is incorrect
+        let form = make_class_form_of(env, component_id, component_id).unwrap();
+        if let Some(form) = env.state.extract_value(form) {
+            unsafe { env.get_local_jobject_for(form.into_generic()) }
+        } else {
+            // There was an exception
+            JClass::null()
+        }
+    } else {
+        // This should be caught by method calling
+        // Though it would be good to not panic
+        panic!();
+    }
 }

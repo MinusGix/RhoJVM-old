@@ -88,9 +88,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         return SystemClassLoader.systemLoader;
     }
 
-    public Class<?> getComponentType() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native Class<?> getComponentType();
 
     public Constructor<T> getConstructor(Class<?>... parameterTypes) {
         throw new UnsupportedOperationException("TODO: Implement this");
