@@ -1,5 +1,6 @@
 use std::{ffi::CStr, os::raw::c_char};
 
+use classfile_parser::method_info::MethodAccessFlags;
 use rhojvm_base::{
     code::{method::MethodDescriptor, types::JavaChar},
     id::ClassId,
@@ -19,7 +20,7 @@ use crate::{
 
 use super::{
     JArray, JBoolean, JByte, JByteArray, JChar, JClass, JDouble, JFieldId, JFloat, JInt, JLong,
-    JObject, JShort, JSize, JString, JThrowable, MethodNoArguments, Status,
+    JMethodId, JObject, JShort, JSize, JString, JThrowable, MethodNoArguments, Status,
 };
 
 macro_rules! unimpl_none_name {
@@ -164,7 +165,7 @@ pub struct NativeInterface {
     pub set_float_field: MethodNoArguments,
     pub set_double_field: MethodNoArguments,
 
-    pub get_static_method_id: MethodNoArguments,
+    pub get_static_method_id: GetStaticMethodIdFn,
 
     pub call_static_object_method: MethodNoArguments,
     pub call_static_object_method_v: MethodNoArguments,
@@ -426,7 +427,7 @@ impl NativeInterface {
             set_long_field: unimpl_none_name!("set_long_field"),
             set_float_field: unimpl_none_name!("set_float_field"),
             set_double_field: unimpl_none_name!("set_double_field"),
-            get_static_method_id: unimpl_none_name!("get_static_method_id"),
+            get_static_method_id,
             call_static_object_method: unimpl_none_name!("call_static_object_method"),
             call_static_object_method_v: unimpl_none_name!("call_static_object_method_v"),
             call_static_object_method_a: unimpl_none_name!("call_static_object_method_a"),
@@ -1313,4 +1314,78 @@ unsafe extern "C" fn new_string_utf(env: *mut Env, chars: *const c_char) -> JStr
         // Exception
         JString::null()
     }
+}
+
+pub type GetStaticMethodIdFn = unsafe extern "C" fn(
+    env: *mut Env,
+    this: JClass,
+    name: *const c_char,
+    signature: *const c_char,
+) -> JMethodId;
+unsafe extern "C" fn get_static_method_id(
+    env: *mut Env,
+    this: JClass,
+    name: *const c_char,
+    signature: *const c_char,
+) -> JMethodId {
+    assert_valid_env(env);
+    assert!(!name.is_null(), "GetStaticMethodId's name was null");
+    assert!(
+        !signature.is_null(),
+        "GetStaticMethodId's signature was null",
+    );
+    assert_non_aliasing(env, name);
+    assert_non_aliasing(env, signature);
+    // name and signature can alias if they wish
+
+    let env = &mut *env;
+
+    // Get the class id for the class that Class<T> holds
+    let this = env.get_jobject_as_gcref(this);
+    let this = this.expect("GetStaticMethod's class was null");
+    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        let of = this.of;
+        let of = env.state.gc.deref(of).unwrap().id;
+        of
+    } else {
+        // This should be caught by method calling
+        // Though it would be good to not panic
+        panic!();
+    };
+
+    // Get CStr then just immediately convert to a slice of bytes because they're cesu8
+    // and so we can use that directly
+    let name = CStr::from_ptr(name);
+    let name = name.to_bytes();
+    let signature = CStr::from_ptr(signature);
+    let signature = signature.to_bytes();
+
+    let desc = MethodDescriptor::from_text(signature, &mut env.class_names).unwrap();
+
+    // TODO: Throw no such method error
+    // TODO: Can you have a static and instance method with the same name and would this be
+    // confused by that?
+    let method_id = env
+        .methods
+        .load_method_from_desc(
+            &mut env.class_names,
+            &mut env.class_files,
+            this_id,
+            name,
+            &desc,
+        )
+        .unwrap();
+
+    let method = env.methods.get(&method_id).unwrap();
+    #[allow(clippy::manual_assert)]
+    if !method.access_flags().contains(MethodAccessFlags::STATIC) {
+        // TODO: Throw no such method error
+        panic!("Found method but it wasn't static");
+    }
+
+    let (class_id, method_index) = method_id.decompose();
+
+    JMethodId::new_unchecked(class_id, method_index)
 }
