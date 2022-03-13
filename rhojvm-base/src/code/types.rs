@@ -9,7 +9,7 @@ use classfile_parser::{constant_info::ConstantInfo, constant_pool::ConstantPoolI
 use crate::{
     class::ClassFileData,
     data::class_names::ClassNames,
-    id::{ClassId, MethodId},
+    id::{ClassId, ExactMethodId},
     util::{MemorySizeU16, StaticMemorySizeU16},
     StepError,
 };
@@ -520,7 +520,7 @@ pub trait HasStackInfo {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        method_id: MethodId,
+        method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError>;
 }

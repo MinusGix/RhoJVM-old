@@ -438,7 +438,7 @@ fn execute_class_name(
 
         pre_execute(env);
 
-        match eval_method(env, main_method_id, frame) {
+        match eval_method(env, main_method_id.into(), frame) {
             Ok(res) => match res {
                 EvalMethodValue::ReturnVoid => (),
                 EvalMethodValue::Return(v) => {
@@ -482,7 +482,7 @@ fn to_string_for(
 
     let text = eval_method(
         env,
-        to_string_id,
+        to_string_id.into(),
         Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(
             val.into_generic(),
         )])),

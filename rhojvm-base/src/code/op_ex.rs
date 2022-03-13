@@ -31,7 +31,7 @@ use crate::class::ClassFileData;
 use crate::code::method::MethodDescriptor;
 use crate::code::types::StackInfoError;
 use crate::data::class_names::ClassNames;
-use crate::id::{ClassId, MethodId};
+use crate::id::{ClassId, ExactMethodId};
 use crate::{LoadMethodError, StepError};
 
 #[derive(Debug)]
@@ -130,7 +130,7 @@ impl HasStackInfo for ANewArray {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _: MethodId,
+        _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let elem_class =
@@ -193,7 +193,7 @@ impl HasStackInfo for MultiANewArray {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _: MethodId,
+        _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let array_class =
@@ -293,7 +293,7 @@ impl HasStackInfo for CheckCast {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _: MethodId,
+        _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let class =
@@ -565,7 +565,7 @@ impl HasStackInfo for InvokeSpecial {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
@@ -611,7 +611,7 @@ impl HasStackInfo for InvokeInterface {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
@@ -643,7 +643,7 @@ impl HasStackInfo for InvokeDynamic {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
@@ -670,7 +670,7 @@ impl HasStackInfo for InvokeStatic {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
@@ -695,7 +695,7 @@ impl HasStackInfo for InvokeVirtual {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
@@ -778,7 +778,7 @@ impl HasStackInfo for GetField {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
@@ -818,7 +818,7 @@ impl HasStackInfo for PutStaticField {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
@@ -862,7 +862,7 @@ impl HasStackInfo for PutField {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
@@ -948,7 +948,7 @@ impl HasStackInfo for GetStatic {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let index = self.index;
@@ -1026,7 +1026,7 @@ impl HasStackInfo for LoadConstant {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _: MethodId,
+        _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let typ = load_constant_info(class_names, class_file, self.index)?;
@@ -1040,7 +1040,7 @@ impl HasStackInfo for LoadConstantWide {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _: MethodId,
+        _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let typ = load_constant_info(class_names, class_file, self.index)?;
@@ -1083,7 +1083,7 @@ impl HasStackInfo for LoadConstant2Wide {
         &self,
         _: &mut ClassNames,
         class_file: &ClassFileData,
-        _: MethodId,
+        _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let value =
@@ -1141,7 +1141,7 @@ impl HasStackInfo for New {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        _: MethodId,
+        _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let class =
@@ -1205,7 +1205,7 @@ impl HasStackInfo for Pop2 {
         &self,
         _: &mut ClassNames,
         _: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let first = stack_sizes[0].ok_or(StackInfoError::NeededStackSizeAt(0))?;
@@ -1277,7 +1277,7 @@ impl HasStackInfo for Dup2 {
         &self,
         _: &mut ClassNames,
         _: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let first = stack_sizes[0].ok_or(StackInfoError::NeededStackSizeAt(0))?;
@@ -1350,7 +1350,7 @@ impl HasStackInfo for DupX2 {
         &self,
         _: &mut ClassNames,
         _: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let first = stack_sizes[0].ok_or(StackInfoError::NeededStackSizeAt(0))?;
@@ -1437,7 +1437,7 @@ impl HasStackInfo for Dup2X1 {
         &self,
         _: &mut ClassNames,
         _: &ClassFileData,
-        _method_id: MethodId,
+        _method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let first = stack_sizes[0].ok_or(StackInfoError::NeededStackSizeAt(0))?;
@@ -1553,7 +1553,7 @@ impl HasStackInfo for Dup2X2 {
         &self,
         _: &mut ClassNames,
         _: &ClassFileData,
-        _: MethodId,
+        _: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
         let first = stack_sizes[0].ok_or(StackInfoError::NeededStackSizeAt(0))?;

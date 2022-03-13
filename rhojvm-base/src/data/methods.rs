@@ -15,7 +15,7 @@ use crate::{
         CodeInfo,
     },
     data::classes::does_extend_class,
-    id::{ClassId, MethodId, MethodIndex, PackageId},
+    id::{ClassId, ExactMethodId, MethodId, MethodIndex, PackageId},
     package::Packages,
     util::{self, Cesu8String},
     StepError,
@@ -31,7 +31,7 @@ use super::{
 #[non_exhaustive]
 pub enum LoadMethodError {
     /// There was no method at that id
-    NonexistentMethod { id: MethodId },
+    NonexistentMethod { id: ExactMethodId },
     /// There was no method with that name
     NonexistentMethodName {
         class_id: ClassId,
@@ -97,7 +97,7 @@ pub enum VerifyMethodError {
 
 #[derive(Debug, Default, Clone)]
 pub struct Methods {
-    map: HashMap<MethodId, Method>,
+    map: HashMap<ExactMethodId, Method>,
 }
 impl Methods {
     #[must_use]
@@ -118,21 +118,21 @@ impl Methods {
     }
 
     #[must_use]
-    pub fn contains_key(&self, key: &MethodId) -> bool {
+    pub fn contains_key(&self, key: &ExactMethodId) -> bool {
         self.map.contains_key(key)
     }
 
     #[must_use]
-    pub fn get(&self, key: &MethodId) -> Option<&Method> {
+    pub fn get(&self, key: &ExactMethodId) -> Option<&Method> {
         self.map.get(key)
     }
 
     #[must_use]
-    pub fn get_mut(&mut self, key: &MethodId) -> Option<&mut Method> {
+    pub fn get_mut(&mut self, key: &ExactMethodId) -> Option<&mut Method> {
         self.map.get_mut(key)
     }
 
-    pub(crate) fn set_at(&mut self, key: MethodId, val: Method) {
+    pub(crate) fn set_at(&mut self, key: ExactMethodId, val: Method) {
         if self.map.insert(key, val).is_some() {
             tracing::warn!("Duplicate setting for Methods with {:?}", key);
             debug_assert!(false);
@@ -146,7 +146,7 @@ impl Methods {
         &mut self,
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
-        method_id: MethodId,
+        method_id: ExactMethodId,
     ) -> Result<(), StepError> {
         if self.contains_key(&method_id) {
             return Ok(());
@@ -167,7 +167,7 @@ impl Methods {
         class_file: &ClassFileData,
         method_index: MethodIndex,
     ) -> Result<(), StepError> {
-        let method_id = MethodId::unchecked_compose(class_file.id(), method_index);
+        let method_id = ExactMethodId::unchecked_compose(class_file.id(), method_index);
         if self.contains_key(&method_id) {
             return Ok(());
         }
@@ -184,7 +184,7 @@ impl Methods {
         class_id: ClassId,
         name: &[u8],
         desc: &MethodDescriptor,
-    ) -> Result<MethodId, StepError> {
+    ) -> Result<ExactMethodId, StepError> {
         class_files.load_by_class_path_id(class_names, class_id)?;
         let class_file = class_files.get(&class_id).unwrap();
 
@@ -210,7 +210,7 @@ impl Methods {
         let class_id = class_file.id();
         let methods_opt_iter = class_file.load_method_info_opt_iter_with_index();
         for (method_index, method_info) in methods_opt_iter {
-            let method_id = MethodId::unchecked_compose(class_id, method_index);
+            let method_id = ExactMethodId::unchecked_compose(class_id, method_index);
             let method = Method::new_from_info(method_id, class_file, class_names, method_info)?;
             self.set_at(method_id, method);
         }
@@ -224,7 +224,7 @@ pub fn direct_load_method_from_index(
     class_file: &ClassFileData,
     method_index: MethodIndex,
 ) -> Result<Method, StepError> {
-    let method_id = MethodId::unchecked_compose(class_file.id(), method_index);
+    let method_id = ExactMethodId::unchecked_compose(class_file.id(), method_index);
     let method = class_file
         .load_method_info_opt_by_index(method_index)
         .map_err(|_| LoadMethodError::NonexistentMethod { id: method_id })?;
@@ -238,7 +238,7 @@ fn method_id_from_desc<'a>(
     class_file: &'a ClassFileData,
     name: &[u8],
     desc: &MethodDescriptor,
-) -> Result<(MethodId, MethodInfoOpt), StepError> {
+) -> Result<(ExactMethodId, MethodInfoOpt), StepError> {
     for (method_index, method_info) in class_file.load_method_info_opt_iter_with_index() {
         let name_index = method_info.name_index;
         let name_text = class_file.get_text_b(name_index);
@@ -257,7 +257,7 @@ fn method_id_from_desc<'a>(
             .is_equal_to_descriptor(class_names, descriptor_text)
             .map_err(LoadMethodError::MethodDescriptorError)?
         {
-            let method_id = MethodId::unchecked_compose(class_file.id(), method_index);
+            let method_id = ExactMethodId::unchecked_compose(class_file.id(), method_index);
 
             return Ok((method_id, method_info));
         }
@@ -451,7 +451,7 @@ pub fn init_method_overrides(
     classes: &mut Classes,
     packages: &mut Packages,
     methods: &mut Methods,
-    method_id: MethodId,
+    method_id: ExactMethodId,
 ) -> Result<(), StepError> {
     methods.load_method_from_id(class_names, class_files, method_id)?;
 
@@ -528,7 +528,7 @@ pub fn verify_code_exceptions(
 ) -> Result<(), StepError> {
     fn get_class(
         class_files: &ClassFiles,
-        method_id: MethodId,
+        method_id: ExactMethodId,
     ) -> Result<&ClassFileData, StepError> {
         let (class_id, _) = method_id.decompose();
         let class_file = class_files

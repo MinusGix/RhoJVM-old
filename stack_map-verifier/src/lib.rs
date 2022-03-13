@@ -27,7 +27,7 @@ use rhojvm_base::data::class_files::ClassFiles;
 use rhojvm_base::data::class_names::ClassNames;
 use rhojvm_base::data::classes::Classes;
 use rhojvm_base::data::methods::Methods;
-use rhojvm_base::id::MethodIndex;
+use rhojvm_base::id::{ExactMethodId, MethodIndex};
 use rhojvm_base::{
     class::ClassFileData,
     code::{
@@ -483,7 +483,7 @@ pub fn verify_type_safe_method_stack_map(
     let _span = tracing::span!(tracing::Level::TRACE, "stackmap verification").entered();
 
     let class_id = class_file.id();
-    let method_id = MethodId::unchecked_compose(class_id, method_index);
+    let method_id = ExactMethodId::unchecked_compose(class_id, method_index);
 
     methods.load_method_from_index(class_names, class_file, method_index)?;
     let method = methods.get_mut(&method_id).unwrap();
@@ -548,7 +548,7 @@ pub fn verify_type_safe_method_stack_map(
             packages: &'p mut Packages,
             class_file: &'cfd ClassFileData,
             conf: StackMapVerificationLogging,
-            method_id: MethodId,
+            method_id: ExactMethodId,
             act_frame: &'af mut Frame,
             inst_types: &'it mut InstTypes,
         }
@@ -990,7 +990,7 @@ fn check_instruction<T: Instruction>(
     packages: &mut Packages,
     class_file: &ClassFileData,
     conf: StackMapVerificationLogging,
-    method_id: MethodId,
+    method_id: ExactMethodId,
     act_frame: &mut Frame,
     inst_types: &mut InstTypes,
     inst: &T,

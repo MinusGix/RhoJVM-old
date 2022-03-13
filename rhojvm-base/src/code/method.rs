@@ -22,7 +22,7 @@ use crate::{
     class::{ArrayComponentType, ClassFileData},
     code::{self},
     data::{class_files::ClassFiles, class_names::ClassNames},
-    id::{ClassId, MethodId},
+    id::{ClassId, ExactMethodId, MethodId},
     util::format_class_as_object_desc,
     BadIdError, LoadCodeError, LoadMethodError, StepError, VerifyMethodError,
 };
@@ -42,7 +42,7 @@ use super::CodeInfo;
 #[derive(Debug, Clone)]
 pub struct Method {
     /// Its own id.
-    pub(crate) id: MethodId,
+    pub(crate) id: ExactMethodId,
     /// Parameters and return type of the methods
     pub(crate) descriptor: MethodDescriptor,
     /// The access flags for the method
@@ -56,7 +56,7 @@ pub struct Method {
 }
 impl Method {
     pub(crate) fn new(
-        id: MethodId,
+        id: ExactMethodId,
         is_init: bool,
         descriptor: MethodDescriptor,
         access_flags: MethodAccessFlags,
@@ -77,7 +77,7 @@ impl Method {
     /// Construct the method with an already known name
     /// NOTE: This should _always_ be the same as the method's actual name.
     pub(crate) fn new_from_info(
-        id: MethodId,
+        id: ExactMethodId,
         class_file: &ClassFileData,
         class_names: &mut ClassNames,
         method: MethodInfoOpt,
@@ -114,7 +114,7 @@ impl Method {
     }
 
     #[must_use]
-    pub fn id(&self) -> MethodId {
+    pub fn id(&self) -> ExactMethodId {
         self.id
     }
 

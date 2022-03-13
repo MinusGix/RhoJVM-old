@@ -423,7 +423,7 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
 
     let locals = Locals::new_with_array([RuntimeValue::Reference(class_ref.into_generic())]);
     let frame = Frame::new_locals(locals);
-    match eval_method(env, method_id, frame).unwrap() {
+    match eval_method(env, method_id.into(), frame).unwrap() {
         EvalMethodValue::ReturnVoid => {}
         EvalMethodValue::Return(_) => tracing::warn!("Constructor returned value?"),
         EvalMethodValue::Exception(_) => {
@@ -649,7 +649,7 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
     ]);
     let frame = Frame::new_locals(locals);
 
-    match eval_method(env, constructor_id, frame) {
+    match eval_method(env, constructor_id.into(), frame) {
         Ok(res) => match res {
             EvalMethodValue::ReturnVoid => {}
             EvalMethodValue::Return(_) => tracing::warn!("Constructor returned value"),

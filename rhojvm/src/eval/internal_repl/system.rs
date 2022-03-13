@@ -85,7 +85,7 @@ pub(crate) extern "C" fn system_set_properties(env: *mut Env<'_>, _this: JObject
             RuntimeValue::Reference(property_name.into_generic()),
             RuntimeValue::Reference(property_value.into_generic()),
         ]));
-        eval_method(env, set_property_id, frame).expect("Failed to set property");
+        eval_method(env, set_property_id.into(), frame).expect("Failed to set property");
     }
 }
 

@@ -170,9 +170,18 @@ pub(crate) fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
         &mut env.packages,
     ) {
         let target_id = target_id?;
-        if let Some(exception) = add_fields_for_class(env, target_id, &filter_fn, &mut fields)? {
-            return Ok(Either::Right(exception));
+        let (_, target_info) = env
+            .class_names
+            .name_from_gcid(target_id)
+            .map_err(StepError::BadId)?;
+        if target_info.has_class_file() {
+            if let Some(exception) = add_fields_for_class(env, target_id, &filter_fn, &mut fields)?
+            {
+                return Ok(Either::Right(exception));
+            }
         }
+        // TODO: This may not be correct
+        // otherwise, if no class file, then no fields for this one
     }
 
     Ok(Either::Left(fields))

@@ -1,5 +1,6 @@
 use classfile_parser::{constant_info::ConstantInfo, method_info::MethodAccessFlags};
 use rhojvm_base::{
+    class::ArrayClass,
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         op::{InvokeDynamic, InvokeInterface, InvokeSpecial, InvokeStatic, InvokeVirtual},
@@ -12,6 +13,7 @@ use rhojvm_base::{
     },
     id::{ClassId, MethodId},
     package::Packages,
+    util::Cesu8String,
     StepError,
 };
 use smallvec::SmallVec;
@@ -257,7 +259,7 @@ impl RunInst for InvokeStatic {
         }
 
         let call_frame = Frame::new_locals(locals);
-        let res = eval_method(env, target_method_id, call_frame)?;
+        let res = eval_method(env, target_method_id.into(), call_frame)?;
 
         match res {
             // TODO: Check that these are valid return types!
@@ -511,7 +513,7 @@ impl RunInst for InvokeSpecial {
 
         // Construct a frame for the function we're calling and invoke it
         let call_frame = Frame::new_locals(locals);
-        let res = eval_method(env, target_method_id, call_frame)?;
+        let res = eval_method(env, target_method_id.into(), call_frame)?;
 
         match res {
             // TODO: Check that these are valid return types!
@@ -536,82 +538,116 @@ pub fn find_virtual_method(
     name: &[u8],
     descriptor: &MethodDescriptor,
 ) -> Result<MethodId, GeneralError> {
+    tracing::info!("Find virtual method");
     // We don't bother checking that the instance class has been initialized, since we assume that
     // the caller got a good `GcRef` to it, which would thus keep the static class instance alive.
     // We also don't bother checking that the base_id exists properly since it would have had to be
     // loaded already.
 
-    // TODO: This is probably too lenient.
-    // TODO: Error if it is an instance initialization method?
-    let mut current_check_id = instance_id;
-    loop {
-        let method_id = methods.load_method_from_desc(
-            class_names,
-            class_files,
-            current_check_id,
-            name,
-            descriptor,
-        );
-        match method_id {
-            Ok(method_id) => return Ok(method_id),
-            Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
-                // Continue to the super class instance
-                // We assume the class is already loaded
-                let super_id = classes
-                    .get(&current_check_id)
-                    .ok_or(GeneralError::MissingLoadedClass(current_check_id))?
-                    .super_id();
-                if let Some(super_id) = super_id {
-                    current_check_id = super_id;
-                    continue;
+    let (_, instance_info) = class_names
+        .name_from_gcid(instance_id)
+        .map_err(StepError::BadId)?;
+    let instance_has_class_file = instance_info.has_class_file();
+    let instance_is_array = instance_info.is_array();
+
+    // This only makes sense to check for things which have a defined class file
+    if instance_has_class_file {
+        // TODO: This is probably too lenient.
+        // TODO: Error if it is an instance initialization method?
+        let mut current_check_id = instance_id;
+        loop {
+            let method_id = methods.load_method_from_desc(
+                class_names,
+                class_files,
+                current_check_id,
+                name,
+                descriptor,
+            );
+            match method_id {
+                Ok(method_id) => return Ok(method_id.into()),
+                Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+                    // Continue to the super class instance
+                    // We assume the class is already loaded
+                    let super_id = classes
+                        .get(&current_check_id)
+                        .ok_or(GeneralError::MissingLoadedClass(current_check_id))?
+                        .super_id();
+                    if let Some(super_id) = super_id {
+                        current_check_id = super_id;
+                        continue;
+                    }
+                    // Break out of the loop since we've checked all the way up the chain
+                    break;
                 }
-                // Break out of the loop since we've checked all the way up the chain
-                break;
+                // TODO: Or should we just log the error and skip past it?
+                Err(err) => return Err(err.into()),
             }
-            // TODO: Or should we just log the error and skip past it?
-            Err(err) => return Err(err.into()),
         }
     }
 
     // TODO: Does this check the superinterfaces of the superinterfaces?
     // TODO: Does this check the superinterfaces of the superclasses?
     // Check the superinterfaces of instance_id
-    let instance_class_file = class_files
-        .get(&instance_id)
-        .ok_or(GeneralError::MissingLoadedClassFile(instance_id))?;
-    let interfaces: SmallVec<[_; 8]> = instance_class_file.interfaces_indices_iter().collect();
-    let interfaces: SmallVec<[_; 8]> =
-        map_interface_index_small_vec_to_ids(class_names, instance_class_file, interfaces)?;
-    for interface_id in interfaces {
-        let method_id =
-            methods.load_method_from_desc(class_names, class_files, interface_id, name, descriptor);
-        match method_id {
-            Ok(method_id) => {
-                // While we got a method that matches, we first need to check that it is not
-                // abstract.
-                let method = methods
-                    .get(&method_id)
-                    .ok_or(GeneralError::MissingLoadedMethod(method_id))?;
-                if method.access_flags().contains(MethodAccessFlags::ABSTRACT) {
+    if instance_has_class_file {
+        let instance_class_file = class_files
+            .get(&instance_id)
+            .ok_or(GeneralError::MissingLoadedClassFile(instance_id))?;
+        let interfaces: SmallVec<[_; 8]> = instance_class_file.interfaces_indices_iter().collect();
+        let interfaces: SmallVec<[_; 8]> =
+            map_interface_index_small_vec_to_ids(class_names, instance_class_file, interfaces)?;
+
+        for interface_id in interfaces {
+            let method_id = methods.load_method_from_desc(
+                class_names,
+                class_files,
+                interface_id,
+                name,
+                descriptor,
+            );
+            match method_id {
+                Ok(method_id) => {
+                    // While we got a method that matches, we first need to check that it is not
+                    // abstract.
+                    let method = methods
+                        .get(&method_id)
+                        .ok_or(GeneralError::MissingLoadedMethod(method_id.into()))?;
+                    if method.access_flags().contains(MethodAccessFlags::ABSTRACT) {
+                        continue;
+                    }
+
+                    return Ok(method_id.into());
+                }
+                Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+                    // Skip past this interface
                     continue;
                 }
-
-                return Ok(method_id);
+                // TODO: Or should we just log the error and skip past it?
+                Err(err) => return Err(err.into()),
             }
-            Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
-                // Skip past this interface
-                continue;
-            }
-            // TODO: Or should we just log the error and skip past it?
-            Err(err) => return Err(err.into()),
         }
-    }
 
-    // TODO: Is this the right ordering? The docs don't explicitly mention when it should call the
-    // base class version..
-    // If we simply look up the chain, then we'd always find the base class version before we bother
-    // checking the interfaces?
-    Ok(methods.load_method_from_desc(class_names, class_files, base_id, name, descriptor)?)
+        // TODO: Is this the right ordering? The docs don't explicitly mention when it should call the
+        // base class version..
+        // If we simply look up the chain, then we'd always find the base class version before we bother
+        // checking the interfaces?
+        Ok(methods
+            .load_method_from_desc(class_names, class_files, base_id, name, descriptor)?
+            .into())
+    } else if instance_is_array {
+        if name == b"clone" {
+            Ok(MethodId::ArrayClone)
+        } else {
+            Err(
+                StepError::LoadMethod(LoadMethodError::NonexistentMethodName {
+                    class_id: instance_id,
+                    name: Cesu8String(name.to_owned()),
+                })
+                .into(),
+            )
+        }
+    } else {
+        panic!("When trying to invoke a virtual function, the instance ({:?}) inherently did not have a class file while also was not an array.", class_names.name_from_gcid(instance_id));
+    }
 }
 
 impl RunInst for InvokeVirtual {
@@ -630,10 +666,16 @@ impl RunInst for InvokeVirtual {
         let index = self.index;
 
         let (class_id, _) = method_id.decompose();
+        tracing::info!(
+            "Executing InvokeVirtual within {:?}",
+            env.class_names.name_from_gcid(class_id)
+        );
+
         let class_file = env
             .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+        tracing::info!("Got class file");
 
         let info = class_file
             .get_t(index)
@@ -679,6 +721,7 @@ impl RunInst for InvokeVirtual {
             MethodDescriptor::from_text(method_descriptor, &mut env.class_names)
                 .map_err(EvalError::InvalidMethodDescriptor)?;
 
+        tracing::info!("Resolving");
         // TODO: Some of these errors should be exceptions
         resolve_derive(
             &mut env.class_names,
@@ -691,6 +734,7 @@ impl RunInst for InvokeVirtual {
             class_id,
         )?;
 
+        tracing::info!("Initializing");
         // TODO: Some of these errors should be exceptions
         initialize_class(env, target_class_id)?;
 

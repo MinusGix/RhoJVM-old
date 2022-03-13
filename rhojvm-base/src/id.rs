@@ -48,11 +48,11 @@ impl PackageId {
 pub type MethodIndex = u16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MethodId {
+pub struct ExactMethodId {
     class_id: ClassId,
     method_index: MethodIndex,
 }
-impl MethodId {
+impl ExactMethodId {
     #[must_use]
     pub fn unchecked_compose(class_id: ClassId, method_index: MethodIndex) -> Self {
         Self {
@@ -64,6 +64,36 @@ impl MethodId {
     #[must_use]
     pub fn decompose(self) -> (ClassId, MethodIndex) {
         (self.class_id, self.method_index)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MethodId {
+    Exact(ExactMethodId),
+    ArrayClone,
+}
+impl MethodId {
+    #[must_use]
+    pub fn unchecked_compose(class_id: ClassId, method_index: MethodIndex) -> Self {
+        MethodId::Exact(ExactMethodId::unchecked_compose(class_id, method_index))
+    }
+
+    #[must_use]
+    pub fn decompose(self) -> Option<(ClassId, MethodIndex)> {
+        self.into_exact().map(ExactMethodId::decompose)
+    }
+
+    #[must_use]
+    pub fn into_exact(self) -> Option<ExactMethodId> {
+        match self {
+            MethodId::Exact(x) => Some(x),
+            MethodId::ArrayClone => None,
+        }
+    }
+}
+impl From<ExactMethodId> for MethodId {
+    fn from(v: ExactMethodId) -> Self {
+        MethodId::Exact(v)
     }
 }
 

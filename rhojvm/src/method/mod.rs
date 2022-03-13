@@ -1,33 +1,33 @@
 use std::collections::HashMap;
 
-use rhojvm_base::id::MethodId;
+use rhojvm_base::id::ExactMethodId;
 
 use crate::jni::OpaqueClassMethod;
 
 #[derive(Clone, Default)]
 pub struct MethodInfo {
-    methods: HashMap<MethodId, MethodData>,
+    methods: HashMap<ExactMethodId, MethodData>,
 }
 impl MethodInfo {
     #[must_use]
-    pub fn get(&self, id: MethodId) -> Option<&MethodData> {
+    pub fn get(&self, id: ExactMethodId) -> Option<&MethodData> {
         self.methods.get(&id)
     }
 
     #[must_use]
-    pub fn get_mut(&mut self, id: MethodId) -> Option<&mut MethodData> {
+    pub fn get_mut(&mut self, id: ExactMethodId) -> Option<&mut MethodData> {
         self.methods.get_mut(&id)
     }
 
     #[must_use]
-    pub fn get_init(&mut self, id: MethodId) -> &MethodData {
+    pub fn get_init(&mut self, id: ExactMethodId) -> &MethodData {
         self.methods
             .entry(id)
             .or_insert_with(|| MethodData::new(id))
     }
 
     #[must_use]
-    pub fn get_mut_init(&mut self, id: MethodId) -> &mut MethodData {
+    pub fn get_mut_init(&mut self, id: ExactMethodId) -> &mut MethodData {
         self.methods
             .entry(id)
             .or_insert_with(|| MethodData::new(id))
@@ -36,7 +36,7 @@ impl MethodInfo {
     /// Initialize [`MethodData`] if it doesn't exist
     /// Then passes it into given function for further modification
     /// It is inserted into `methods` before the function is called
-    pub fn modify_init_with<F: FnOnce(&mut MethodData)>(&mut self, id: MethodId, f: F) {
+    pub fn modify_init_with<F: FnOnce(&mut MethodData)>(&mut self, id: ExactMethodId, f: F) {
         let data = self.get_mut_init(id);
         f(data);
     }
@@ -64,12 +64,12 @@ impl NativeMethod {
 
 #[derive(Clone)]
 pub struct MethodData {
-    id: MethodId,
+    id: ExactMethodId,
     /// A native function that should be called in place of the method body
     pub native_func: Option<NativeMethod>,
 }
 impl MethodData {
-    pub(crate) fn new(id: MethodId) -> MethodData {
+    pub(crate) fn new(id: ExactMethodId) -> MethodData {
         MethodData {
             id,
             native_func: None,
@@ -77,7 +77,7 @@ impl MethodData {
     }
 
     #[must_use]
-    pub fn id(&self) -> MethodId {
+    pub fn id(&self) -> ExactMethodId {
         self.id
     }
 }

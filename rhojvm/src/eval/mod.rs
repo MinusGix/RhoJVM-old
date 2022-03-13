@@ -8,11 +8,11 @@ use classfile_parser::{
 };
 use rhojvm_base::{
     code::{
-        method::{DescriptorType, DescriptorTypeBasic, Method},
+        method::{DescriptorType, DescriptorTypeBasic},
         op::{Inst, Wide, WideInst},
         types::{Instruction, JavaChar, LocalVariableIndex},
     },
-    id::{ClassId, MethodId},
+    id::{ClassId, ExactMethodId, MethodId},
     map_inst,
     util::{convert_classfile_text, MemorySizeU16},
     StepError,
@@ -25,7 +25,7 @@ use crate::{
     method::NativeMethod,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{make_class_form_of, Env},
-    GeneralError, State,
+    GeneralError,
 };
 
 mod control_flow;
@@ -53,7 +53,7 @@ pub enum EvalError {
     MissingMethodClassFile(ClassId),
     /// It was expected that this method should be loaded
     /// Likely because it was given to the function to evaluate
-    MissingMethod(MethodId),
+    MissingMethod(ExactMethodId),
     /// We tried continuing but the instruction at that index was missing, or it was in the middle
     /// of an instruction
     MissingInstruction(InstructionIndex),
@@ -536,8 +536,13 @@ pub enum EvalMethodValue {
 pub fn eval_method(
     env: &mut Env,
     method_id: MethodId,
-    mut frame: Frame,
+    frame: Frame,
 ) -> Result<EvalMethodValue, GeneralError> {
+    let method_id = match method_id {
+        MethodId::Exact(exact) => exact,
+        MethodId::ArrayClone => return eval_array_clone(env, frame),
+    };
+
     let (class_id, _) = method_id.decompose();
 
     let method = env
@@ -866,6 +871,31 @@ pub fn eval_method(
     }
 }
 
+fn eval_array_clone(env: &mut Env, frame: Frame) -> Result<EvalMethodValue, GeneralError> {
+    // Array clones are pretty simple, they just do a shallow clone
+
+    let array = frame
+        .locals
+        .get(0)
+        .ok_or(EvalError::ExpectedLocalVariable(0))?;
+    let array = array
+        .as_value()
+        .ok_or(EvalError::ExpectedLocalVariableWithValue(0))?;
+    let array = array
+        .into_reference()
+        .ok_or(EvalError::ExpectedLocalVariableReference(0))?;
+    if let Some(array) = array {
+        let array_dupe = env
+            .state
+            .gc
+            .shallow_clone(array)
+            .ok_or(EvalError::InvalidGcRef(array.into_generic()))?;
+        Ok(EvalMethodValue::Return(RuntimeValue::Reference(array_dupe)))
+    } else {
+        todo!("NPE");
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RunInstValue {
     /// We returned nothing
@@ -884,7 +914,7 @@ pub enum RunInstValue {
 
 pub struct RunInstArgs<'e, 'i, 'f> {
     pub env: &'e mut Env<'i>,
-    pub method_id: MethodId,
+    pub method_id: ExactMethodId,
     pub frame: &'f mut Frame,
     /// Index into 'bytes' of instructions, which is more commonly used in code
     pub inst_index: InstructionIndex,

@@ -284,7 +284,7 @@ pub(crate) fn make_exception_with_text(
         RuntimeValue::Reference(why.into_generic()),
     ]));
 
-    match eval_method(env, method_id, frame)? {
+    match eval_method(env, method_id.into(), frame)? {
         EvalMethodValue::ReturnVoid => {}
         EvalMethodValue::Return(_) => tracing::warn!("Constructor returned value"),
         EvalMethodValue::Exception(exc) => return Ok(ValueException::Exception(exc)),
@@ -391,7 +391,7 @@ pub(crate) fn construct_string(
     // Evaluate the string constructor
     let string_inst = eval_method(
         env,
-        string_char_array_constructor,
+        string_char_array_constructor.into(),
         Frame::new_locals(Locals::new_with_array([
             RuntimeValue::Reference(string_ref.into_generic()),
             RuntimeValue::Reference(char_arr_ref.into_generic()),

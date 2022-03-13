@@ -50,7 +50,7 @@ use rhojvm_base::{
         classes::{load_super_classes_iter, Classes},
         methods::{init_method_overrides, load_method_descriptor_types, LoadMethodError, Methods},
     },
-    id::{ClassId, MethodId},
+    id::{ClassId, ExactMethodId, MethodId},
     package::Packages,
     StepError,
 };
@@ -261,7 +261,7 @@ pub struct State {
     char_array_id: Option<ClassId>,
 
     string_class_id: Option<ClassId>,
-    string_char_array_constructor: Option<MethodId>,
+    string_char_array_constructor: Option<ExactMethodId>,
 
     pub(crate) empty_string_ref: Option<GcRef<ClassInstance>>,
 
@@ -379,7 +379,7 @@ impl State {
         class_names: &mut ClassNames,
         class_files: &mut ClassFiles,
         methods: &mut Methods,
-    ) -> Result<MethodId, StepError> {
+    ) -> Result<ExactMethodId, StepError> {
         if let Some(constructor) = self.string_char_array_constructor {
             return Ok(constructor);
         }
@@ -645,7 +645,7 @@ pub enum VerificationError {
     },
     /// The method should have had Code but it did not
     NoMethodCode {
-        method_id: MethodId,
+        method_id: ExactMethodId,
     },
 }
 
@@ -684,6 +684,12 @@ pub fn initialize_class(
         initialize_class(env, super_id)?;
     }
 
+    let (_, cn_info) = env
+        .class_names
+        .name_from_gcid(class_id)
+        .map_err(StepError::BadId)?;
+    let is_array = cn_info.is_array();
+
     // TODO: initialize interfaces
 
     // TODO: Handle arrays
@@ -707,30 +713,34 @@ pub fn initialize_class(
 
     // TODO: This could potentially be gc'd, we could just store the id?
     // TODO: Should this be done before or after we set initialized?
-    let clinit_name = b"<clinit>";
-    let clinit_desc = MethodDescriptor::new_empty();
-    match env.methods.load_method_from_desc(
-        &mut env.class_names,
-        &mut env.class_files,
-        class_id,
-        clinit_name,
-        &clinit_desc,
-    ) {
-        Ok(method_id) => {
-            let frame = Frame::default();
-            match eval_method(env, method_id, frame)? {
-                EvalMethodValue::ReturnVoid => (),
-                EvalMethodValue::Return(_) => tracing::warn!("<clinit> method returned a value"),
-                EvalMethodValue::Exception(exc) => {
-                    let info = env.state.classes_info.get_mut_init(class_id);
-                    info.initialized = Status::Done(ValueException::Exception(exc));
-                    return Ok(BegunStatus::Done(ValueException::Exception(exc)));
+    if !is_array {
+        let clinit_name = b"<clinit>";
+        let clinit_desc = MethodDescriptor::new_empty();
+        match env.methods.load_method_from_desc(
+            &mut env.class_names,
+            &mut env.class_files,
+            class_id,
+            clinit_name,
+            &clinit_desc,
+        ) {
+            Ok(method_id) => {
+                let frame = Frame::default();
+                match eval_method(env, method_id.into(), frame)? {
+                    EvalMethodValue::ReturnVoid => (),
+                    EvalMethodValue::Return(_) => {
+                        tracing::warn!("<clinit> method returned a value");
+                    }
+                    EvalMethodValue::Exception(exc) => {
+                        let info = env.state.classes_info.get_mut_init(class_id);
+                        info.initialized = Status::Done(ValueException::Exception(exc));
+                        return Ok(BegunStatus::Done(ValueException::Exception(exc)));
+                    }
                 }
             }
+            // Ignore it, if it doesn't exist
+            Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => (),
+            Err(err) => return Err(err.into()),
         }
-        // Ignore it, if it doesn't exist
-        Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => (),
-        Err(err) => return Err(err.into()),
     }
 
     Ok(BegunStatus::Done(ValueException::Value(instance_ref)))
@@ -791,16 +801,24 @@ fn verify_class(
     // (in the sense that they are parseably-valid, whether or not they point to a real
     // thing in some class file)
 
+    let (_, class_info) = class_names
+        .name_from_gcid(class_id)
+        .map_err(StepError::BadId)?;
+    let has_class_file = class_info.has_class_file();
+
     // Verify Code
-    verify_class_methods(
-        class_names,
-        class_files,
-        classes,
-        packages,
-        methods,
-        state,
-        class_id,
-    )?;
+    // TODO: This is technically not completely an accurate check?
+    if has_class_file {
+        verify_class_methods(
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            state,
+            class_id,
+        )?;
+    }
 
     // TODO: Do we always have to do this?
     // Verify the super class
@@ -1176,7 +1194,7 @@ fn verify_type_safe_method(
     packages: &mut Packages,
     methods: &mut Methods,
     state: &mut State,
-    method_id: MethodId,
+    method_id: ExactMethodId,
 ) -> Result<(), GeneralError> {
     let (class_id, method_index) = method_id.decompose();
     // It is generally cheaper to clone since they tend to load it as well..

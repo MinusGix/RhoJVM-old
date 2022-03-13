@@ -125,7 +125,7 @@ macro_rules! define_stack_info {
                 &self,
                 _: &mut ClassNames,
                 _: &ClassFileData,
-                _: $crate::id::MethodId,
+                _: $crate::id::ExactMethodId,
                 _: StackSizes,
             ) -> Result<Self::Output, $crate::StepError> {
                 Ok(self.clone())
@@ -510,7 +510,7 @@ macro_rules! define_instructions {
             fn stack_info(&self,
                 class_names: &mut ClassNames,
                 class_file: &ClassFileData,
-                method_id: $crate::id::MethodId,
+                method_id: $crate::id::ExactMethodId,
                 stack_sizes: StackSizes
             ) -> Result<WideStackInfosM, $crate::StepError> {
                 Ok(match self {
@@ -3002,7 +3002,7 @@ macro_rules! self_sinfo {
                 &self,
                 _: &mut ClassNames,
                 _: &ClassFileData,
-                _: $crate::id::MethodId,
+                _: $crate::id::ExactMethodId,
                 _: StackSizes,
             ) -> Result<Self::Output, $crate::StepError> {
                 Ok(self.clone())
@@ -3234,7 +3234,7 @@ impl HasStackInfo for Wide {
         &self,
         class_names: &mut ClassNames,
         class_file: &ClassFileData,
-        method_id: crate::id::MethodId,
+        method_id: crate::id::ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<WideStackInfosM, crate::StepError> {
         self.0
