@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     JArray, JBoolean, JByte, JByteArray, JChar, JClass, JDouble, JFieldId, JFloat, JInt, JLong,
-    JObject, JShort, JSize, JThrowable, MethodNoArguments,
+    JObject, JShort, JSize, JThrowable, MethodNoArguments, Status,
 };
 
 macro_rules! unimpl_none_name {
@@ -65,7 +65,7 @@ pub struct NativeInterface {
     pub delete_local_ref: MethodNoArguments,
     pub is_same_object: MethodNoArguments,
     pub new_local_ref: MethodNoArguments,
-    pub ensure_local_capacity: MethodNoArguments,
+    pub ensure_local_capacity: EnsureLocalCapacityFn,
 
     pub alloc_object: MethodNoArguments,
     pub new_object: MethodNoArguments,
@@ -335,7 +335,7 @@ impl NativeInterface {
             delete_local_ref: unimpl_none_name!("delete_local_ref"),
             is_same_object: unimpl_none_name!("is_same_object"),
             new_local_ref: unimpl_none_name!("new_local_ref"),
-            ensure_local_capacity: unimpl_none_name!("ensure_local_capacity"),
+            ensure_local_capacity,
             alloc_object: unimpl_none_name!("alloc_object"),
             new_object: unimpl_none_name!("new_object"),
             new_object_v: unimpl_none_name!("new_object_v"),
@@ -1216,4 +1216,14 @@ unsafe extern "C" fn get_byte_array_region(
     } else {
         panic!("Instance was not a primitive array")
     }
+}
+
+pub type EnsureLocalCapacityFn = unsafe extern "C" fn(env: *mut Env, capacity: JInt) -> JInt;
+unsafe extern "C" fn ensure_local_capacity(env: *mut Env, capacity: JInt) -> JInt {
+    assert_valid_env(env);
+
+    // TODO: We should be more explicit about what assurances we actually provide rather than just
+    // saying that we can allocate how many instances it wants.
+
+    Status::Ok as JInt
 }

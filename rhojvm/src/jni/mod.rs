@@ -41,6 +41,17 @@ pub type JDouble = f64;
 
 pub type JSize = JInt;
 
+#[repr(i32)]
+pub enum Status {
+    Ok = 0,
+    Err = -1,
+    Detached = -2,
+    Version = -3,
+    NoMemory = -4,
+    Exist = -5,
+    InvalidArguments = -6,
+}
+
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct JFieldId(*const ());
