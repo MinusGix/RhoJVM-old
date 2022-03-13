@@ -1,7 +1,10 @@
+use std::borrow::Cow;
+
 use rhojvm_base::code::{
     method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
     types::JavaChar,
 };
+use sysinfo::{RefreshKind, SystemExt};
 use usize_cast::IntoUsize;
 
 use crate::{
@@ -90,22 +93,25 @@ struct Properties {
     file_sep: &'static str,
     line_sep: &'static str,
     file_encoding: &'static str,
-    os_name: &'static str,
+    os_name: Cow<'static, str>,
     os_arch: &'static str,
 }
 impl Properties {
     // TODO: Can we warn/error at compile time if there is unknown data?
     fn get_properties(_env: &mut Env) -> Properties {
+        let rkind = RefreshKind::new().with_cpu();
+        let sys = sysinfo::System::new_with_specifics(rkind);
+
         // TODO: Is line sep correct?
         if cfg!(target_os = "windows") || cfg!(target_family = "windows") {
             Properties::windows_properties()
         } else if cfg!(unix) {
             // FIXME: Provide more detailed names and information
-            // both for Linux and for MacOS
-            Properties::unix_properties()
+            // for MacOS
+            Properties::unix_properties(&sys)
         } else {
             tracing::warn!("No target os/family detected, assuming unix");
-            Properties::unix_properties()
+            Properties::unix_properties(&sys)
         }
     }
 
@@ -140,33 +146,35 @@ impl Properties {
             file_sep: "\\",
             line_sep: "\n",
             file_encoding: "UTF-8",
-            os_name: "windows",
+            os_name: Cow::Borrowed("Windows"),
             os_arch: Properties::os_arch(),
         }
     }
 
-    fn unix_properties() -> Properties {
+    fn unix_properties(sys: &sysinfo::System) -> Properties {
         Properties {
             file_sep: "/",
             line_sep: "\n",
             file_encoding: "UTF-8",
-            os_name: "unix",
+            os_name: sys
+                .long_os_version()
+                .map_or(Cow::Borrowed("Unix"), Cow::Owned),
             os_arch: Properties::os_arch(),
         }
     }
 }
 impl IntoIterator for Properties {
-    type Item = (&'static str, &'static str);
+    type Item = (&'static str, Cow<'static, str>);
 
     type IntoIter = std::array::IntoIter<Self::Item, 5>;
 
     fn into_iter(self) -> Self::IntoIter {
         [
-            ("file.separator", self.file_sep),
-            ("line.separator", self.line_sep),
-            ("file.encoding", self.file_encoding),
+            ("file.separator", Cow::Borrowed(self.file_sep)),
+            ("line.separator", Cow::Borrowed(self.line_sep)),
+            ("file.encoding", Cow::Borrowed(self.file_encoding)),
             ("os.name", self.os_name),
-            ("os.arch", self.os_arch),
+            ("os.arch", Cow::Borrowed(self.os_arch)),
         ]
         .into_iter()
     }

@@ -181,6 +181,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
+name = "core-foundation-sys"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -392,6 +398,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ntapi"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c28774a7fd2fbb4f0babd8237ce554b73af68021b5f695a3cebd6c59bac0980f"
+dependencies = [
+ "winapi",
+]
+
+[[package]]
 name = "num_threads"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -528,6 +543,7 @@ dependencies = [
  "rhojvm-base",
  "smallvec",
  "stack_map-verifier",
+ "sysinfo",
  "tracing",
  "usize_cast",
 ]
@@ -650,6 +666,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07fa4c84a5305909b0eedfcc8d1f2fafdbede645bb700a45ecaafe681a0ac5d6"
+dependencies = [
+ "cfg-if",
+ "core-foundation-sys",
+ "libc",
+ "ntapi",
+ "once_cell",
+ "winapi",
 ]
 
 [[package]]
