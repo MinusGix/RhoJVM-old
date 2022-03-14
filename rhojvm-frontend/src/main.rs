@@ -321,17 +321,17 @@ fn make_env(
 
     // The general environment structure
     // This is also used for passing it directly into native functions
-    let env = Env {
-        interface: Box::leak(Box::new(NativeInterface::new_typical())),
+    let env = Env::new(
+        Box::leak(Box::new(NativeInterface::new_typical())),
         class_names,
         class_files,
         classes,
         packages,
         methods,
         state,
-        tdata: main_thread_data,
-        string_interner: StringInterner::default(),
-    };
+        main_thread_data,
+        StringInterner::default(),
+    );
     // We pin this, because the env ptr is expected to stay the same
     Box::pin(env)
 }
