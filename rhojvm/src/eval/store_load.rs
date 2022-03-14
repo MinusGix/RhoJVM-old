@@ -980,7 +980,7 @@ fn floatstore_index(
     index: LocalVariableIndex,
 ) -> Result<RunInstValue, GeneralError> {
     let object = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
-    if !object.is_long() {
+    if !object.is_float() {
         return Err(EvalError::ExpectedStackValueFloat.into());
     }
 
