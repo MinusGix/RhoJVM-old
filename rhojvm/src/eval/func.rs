@@ -1,6 +1,5 @@
 use classfile_parser::{constant_info::ConstantInfo, method_info::MethodAccessFlags};
 use rhojvm_base::{
-    class::ArrayClass,
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         op::{InvokeDynamic, InvokeInterface, InvokeSpecial, InvokeStatic, InvokeVirtual},
@@ -11,7 +10,7 @@ use rhojvm_base::{
         classes::Classes,
         methods::{LoadMethodError, Methods},
     },
-    id::{ClassId, MethodId},
+    id::{ClassId, ExactMethodId, MethodId},
     package::Packages,
     util::Cesu8String,
     StepError,
@@ -158,6 +157,65 @@ fn grab_runtime_value_from_stack_for_function(
     })
 }
 
+// TODO: We need a general function for resolving a method
+fn find_static_method(
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    methods: &mut Methods,
+    target_id: ClassId,
+    name: &[u8],
+    descriptor: &MethodDescriptor,
+) -> Result<ExactMethodId, GeneralError> {
+    let (_, target_info) = class_names
+        .name_from_gcid(target_id)
+        .map_err(StepError::BadId)?;
+    let target_has_class_file = target_info.has_class_file();
+
+    if target_has_class_file {
+        // TODO: This might be too lenient
+        let mut current_check_id = target_id;
+        loop {
+            let method_id = methods.load_method_from_desc(
+                class_names,
+                class_files,
+                current_check_id,
+                name,
+                descriptor,
+            );
+            match method_id {
+                Ok(method_id) => return Ok(method_id),
+                Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+                    // Continue to the super class instance
+                    // We assume the class is already loaded
+                    let super_id = classes
+                        .get(&current_check_id)
+                        .ok_or(GeneralError::MissingLoadedClass(current_check_id))?
+                        .super_id();
+                    if let Some(super_id) = super_id {
+                        current_check_id = super_id;
+                        continue;
+                    }
+                    // Break out of the loop since we've checked all the way up the chain
+                    break;
+                }
+                // TODO: Or should we just log the error and skip past it?
+                Err(err) => return Err(err.into()),
+            }
+        }
+    } else {
+        panic!("InvokeStatic when entry did not have class file");
+    }
+
+    Err(
+        StepError::LoadMethod(LoadMethodError::NonexistentMethodName {
+            class_id: target_id,
+            name: Cesu8String(name.to_owned()),
+        })
+        .into(),
+    )
+}
+
 impl RunInst for InvokeStatic {
     fn run(
         self,
@@ -235,9 +293,11 @@ impl RunInst for InvokeStatic {
         // TODO: Some of these errors should be exceptions
         initialize_class(env, target_class_id)?;
 
-        let target_method_id = env.methods.load_method_from_desc(
+        let target_method_id = find_static_method(
             &mut env.class_names,
             &mut env.class_files,
+            &mut env.classes,
+            &mut env.methods,
             target_class_id,
             &method_name,
             &method_descriptor,
