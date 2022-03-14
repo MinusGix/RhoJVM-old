@@ -8,6 +8,7 @@ use crate::{
 mod class;
 mod object;
 mod primitive;
+pub mod runtime;
 pub mod string;
 mod system;
 mod system_class_loader;
@@ -120,6 +121,13 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
                 into_opaque3ret(system::system_set_properties)
             }
             b"Java_java_lang_System_arraycopy" => into_opaque7ret(system::system_arraycopy),
+            // Runtime
+            b"Java_java_lang_Runtime_availableProcessors" => {
+                into_opaque2ret(runtime::runtime_available_processors)
+            }
+            b"Java_java_lang_Runtime_freeMemory" => into_opaque2ret(runtime::runtime_free_memory),
+            b"Java_java_lang_Runtime_totalMemory" => into_opaque2ret(runtime::runtime_total_memory),
+            b"Java_java_lang_Runtime_maxMemory" => into_opaque2ret(runtime::runtime_max_memory),
             // Primitive wrappers
             b"Java_java_lang_Float_floatToRawIntBits" => {
                 into_opaque3ret(primitive::float_to_raw_int_bits)
