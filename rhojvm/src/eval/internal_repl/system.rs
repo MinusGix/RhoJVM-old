@@ -100,20 +100,17 @@ struct Properties {
 }
 impl Properties {
     // TODO: Can we warn/error at compile time if there is unknown data?
-    fn get_properties(_env: &mut Env) -> Properties {
-        let rkind = RefreshKind::new().with_cpu();
-        let sys = sysinfo::System::new_with_specifics(rkind);
-
+    fn get_properties(env: &mut Env) -> Properties {
         // TODO: Is line sep correct?
         if cfg!(target_os = "windows") || cfg!(target_family = "windows") {
             Properties::windows_properties()
         } else if cfg!(unix) {
             // FIXME: Provide more detailed names and information
             // for MacOS
-            Properties::unix_properties(&sys)
+            Properties::unix_properties(&env.system_info)
         } else {
             tracing::warn!("No target os/family detected, assuming unix");
-            Properties::unix_properties(&sys)
+            Properties::unix_properties(&env.system_info)
         }
     }
 

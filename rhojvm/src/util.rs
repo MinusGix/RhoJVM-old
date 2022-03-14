@@ -10,6 +10,7 @@ use rhojvm_base::{
     package::Packages,
     util::MemorySize,
 };
+use sysinfo::{RefreshKind, SystemExt};
 
 use crate::{
     class_instance::{
@@ -51,8 +52,36 @@ pub struct Env<'i> {
     pub state: State,
     pub tdata: ThreadData,
     pub string_interner: StringInterner,
+    pub(crate) system_info: sysinfo::System,
 }
 impl<'i> Env<'i> {
+    pub fn new(
+        interface: &'i NativeInterface,
+        class_names: ClassNames,
+        class_files: ClassFiles,
+        classes: Classes,
+        packages: Packages,
+        methods: Methods,
+        state: State,
+        tdata: ThreadData,
+        string_interner: StringInterner,
+    ) -> Env<'i> {
+        Env {
+            interface,
+            class_names,
+            class_files,
+            classes,
+            packages,
+            methods,
+            state,
+            tdata,
+            string_interner,
+            system_info: sysinfo::System::new_with_specifics(
+                RefreshKind::new().with_cpu().with_memory(),
+            ),
+        }
+    }
+
     pub(crate) fn get_empty_string(
         &mut self,
     ) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
