@@ -522,8 +522,8 @@ impl RunInst for FloatAdd {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
-        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
+        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
+        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
         let value = v2 + v1;
 
         frame.stack.push(RuntimeValuePrimitive::F32(value))?;
@@ -535,8 +535,8 @@ impl RunInst for FloatSub {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
-        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
+        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
+        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
         let value = v2 - v1;
 
         frame.stack.push(RuntimeValuePrimitive::F32(value))?;
@@ -548,7 +548,7 @@ impl RunInst for FloatNegate {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let v1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
+        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
         let value = -v1;
 
         frame.stack.push(RuntimeValuePrimitive::F32(value))?;
@@ -560,8 +560,8 @@ impl RunInst for FloatMultiply {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
-        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
+        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
+        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
         let value = v2 * v1;
 
         frame.stack.push(RuntimeValuePrimitive::F32(value))?;
@@ -573,8 +573,8 @@ impl RunInst for FloatDivide {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
-        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
+        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
+        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
         let value = v2 / v1;
 
         frame.stack.push(RuntimeValuePrimitive::F32(value))?;
@@ -586,8 +586,8 @@ impl RunInst for FloatRemainder {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let (v1, v2) = frame.stack.pop2().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
-        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
+        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
+        let v2 = v2.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
         // TODO: is this the correct remainder operator for the JVM?
         let value = v2 % v1;
 
@@ -600,7 +600,7 @@ impl RunInst for FloatToInt {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let v1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
+        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
         #[allow(clippy::cast_possible_truncation)]
         let value = if v1.is_nan() {
             0
@@ -623,7 +623,7 @@ impl RunInst for FloatToLong {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let v1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
+        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
         #[allow(clippy::cast_possible_truncation)]
         let value = if v1.is_nan() {
             0
@@ -646,7 +646,7 @@ impl RunInst for FloatToDouble {
     fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
         let v1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
-        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueDouble)?;
+        let v1 = v1.into_f32().ok_or(EvalError::ExpectedStackValueFloat)?;
         let value = f64::from(v1);
 
         frame.stack.push(RuntimeValuePrimitive::F64(value))?;
