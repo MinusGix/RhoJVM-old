@@ -143,21 +143,21 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_sun_misc_Unsafe_freeMemory" => into_opaque3ret(unsafe_::unsafe_free_memory),
             // Unsafe get
-            b"Java_sun_misc_Unsafe_getByte" => into_opaque3ret(unsafe_::unsafe_get_byte),
-            b"Java_sun_misc_Unsafe_getShort" => into_opaque3ret(unsafe_::unsafe_get_short),
-            b"Java_sun_misc_Unsafe_getChar" => into_opaque3ret(unsafe_::unsafe_get_char),
-            b"Java_sun_misc_Unsafe_getInt" => into_opaque3ret(unsafe_::unsafe_get_int),
-            b"Java_sun_misc_Unsafe_getLong" => into_opaque3ret(unsafe_::unsafe_get_long),
-            b"Java_sun_misc_Unsafe_getFloat" => into_opaque3ret(unsafe_::unsafe_get_float),
-            b"Java_sun_misc_Unsafe_getDouble" => into_opaque3ret(unsafe_::unsafe_get_double),
+            b"Java_sun_misc_Unsafe_getByte" => into_opaque3ret(unsafe_::unsafe_get_byte_ptr),
+            b"Java_sun_misc_Unsafe_getShort" => into_opaque3ret(unsafe_::unsafe_get_short_ptr),
+            b"Java_sun_misc_Unsafe_getChar" => into_opaque3ret(unsafe_::unsafe_get_char_ptr),
+            b"Java_sun_misc_Unsafe_getInt" => into_opaque3ret(unsafe_::unsafe_get_int_ptr),
+            b"Java_sun_misc_Unsafe_getLong" => into_opaque3ret(unsafe_::unsafe_get_long_ptr),
+            b"Java_sun_misc_Unsafe_getFloat" => into_opaque3ret(unsafe_::unsafe_get_float_ptr),
+            b"Java_sun_misc_Unsafe_getDouble" => into_opaque3ret(unsafe_::unsafe_get_double_ptr),
             // Unsafe put
-            b"Java_sun_misc_Unsafe_putByte" => into_opaque4ret(unsafe_::unsafe_put_byte),
-            b"Java_sun_misc_Unsafe_putShort" => into_opaque4ret(unsafe_::unsafe_put_short),
-            b"Java_sun_misc_Unsafe_putChar" => into_opaque4ret(unsafe_::unsafe_put_char),
-            b"Java_sun_misc_Unsafe_putInt" => into_opaque4ret(unsafe_::unsafe_put_int),
-            b"Java_sun_misc_Unsafe_putLong" => into_opaque4ret(unsafe_::unsafe_put_long),
-            b"Java_sun_misc_Unsafe_putFloat" => into_opaque4ret(unsafe_::unsafe_put_float),
-            b"Java_sun_misc_Unsafe_putDouble" => into_opaque4ret(unsafe_::unsafe_put_double),
+            b"Java_sun_misc_Unsafe_putByte" => into_opaque4ret(unsafe_::unsafe_put_byte_ptr),
+            b"Java_sun_misc_Unsafe_putShort" => into_opaque4ret(unsafe_::unsafe_put_short_ptr),
+            b"Java_sun_misc_Unsafe_putChar" => into_opaque4ret(unsafe_::unsafe_put_char_ptr),
+            b"Java_sun_misc_Unsafe_putInt" => into_opaque4ret(unsafe_::unsafe_put_int_ptr),
+            b"Java_sun_misc_Unsafe_putLong" => into_opaque4ret(unsafe_::unsafe_put_long_ptr),
+            b"Java_sun_misc_Unsafe_putFloat" => into_opaque4ret(unsafe_::unsafe_put_float_ptr),
+            b"Java_sun_misc_Unsafe_putDouble" => into_opaque4ret(unsafe_::unsafe_put_double_ptr),
             // Unsafe fields
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_::unsafe_object_field_offset)

@@ -51,7 +51,7 @@ pub(crate) extern "C" fn unsafe_free_memory(env: *mut Env<'_>, _this: JObject, a
     env.state.mem_blocks.deallocate_block(address);
 }
 
-pub(crate) extern "C" fn unsafe_get_byte(
+pub(crate) extern "C" fn unsafe_get_byte_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -66,7 +66,7 @@ pub(crate) extern "C" fn unsafe_get_byte(
     unsafe { env.state.mem_blocks.get_i8_ne(address) }
 }
 
-pub(crate) extern "C" fn unsafe_get_short(
+pub(crate) extern "C" fn unsafe_get_short_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -81,7 +81,7 @@ pub(crate) extern "C" fn unsafe_get_short(
     unsafe { env.state.mem_blocks.get_i16_ne(address) }
 }
 
-pub(crate) extern "C" fn unsafe_get_char(
+pub(crate) extern "C" fn unsafe_get_char_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -96,7 +96,7 @@ pub(crate) extern "C" fn unsafe_get_char(
     unsafe { env.state.mem_blocks.get_u16_ne(address) }
 }
 
-pub(crate) extern "C" fn unsafe_get_int(
+pub(crate) extern "C" fn unsafe_get_int_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -111,7 +111,7 @@ pub(crate) extern "C" fn unsafe_get_int(
     unsafe { env.state.mem_blocks.get_i32_ne(address) }
 }
 
-pub(crate) extern "C" fn unsafe_get_long(
+pub(crate) extern "C" fn unsafe_get_long_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -126,7 +126,7 @@ pub(crate) extern "C" fn unsafe_get_long(
     unsafe { env.state.mem_blocks.get_i64_ne(address) }
 }
 
-pub(crate) extern "C" fn unsafe_get_float(
+pub(crate) extern "C" fn unsafe_get_float_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -141,7 +141,7 @@ pub(crate) extern "C" fn unsafe_get_float(
     unsafe { env.state.mem_blocks.get_f32_ne(address) }
 }
 
-pub(crate) extern "C" fn unsafe_get_double(
+pub(crate) extern "C" fn unsafe_get_double_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -156,7 +156,7 @@ pub(crate) extern "C" fn unsafe_get_double(
     unsafe { env.state.mem_blocks.get_f64_ne(address) }
 }
 
-pub(crate) extern "C" fn unsafe_put_byte(
+pub(crate) extern "C" fn unsafe_put_byte_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -172,7 +172,7 @@ pub(crate) extern "C" fn unsafe_put_byte(
     unsafe { env.state.mem_blocks.set_i8_ne(address, value) };
 }
 
-pub(crate) extern "C" fn unsafe_put_short(
+pub(crate) extern "C" fn unsafe_put_short_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -188,7 +188,7 @@ pub(crate) extern "C" fn unsafe_put_short(
     unsafe { env.state.mem_blocks.set_i16_ne(address, value) };
 }
 
-pub(crate) extern "C" fn unsafe_put_char(
+pub(crate) extern "C" fn unsafe_put_char_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -204,7 +204,7 @@ pub(crate) extern "C" fn unsafe_put_char(
     unsafe { env.state.mem_blocks.set_u16_ne(address, value) };
 }
 
-pub(crate) extern "C" fn unsafe_put_int(
+pub(crate) extern "C" fn unsafe_put_int_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -220,7 +220,7 @@ pub(crate) extern "C" fn unsafe_put_int(
     unsafe { env.state.mem_blocks.set_i32_ne(address, value) };
 }
 
-pub(crate) extern "C" fn unsafe_put_long(
+pub(crate) extern "C" fn unsafe_put_long_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -236,7 +236,7 @@ pub(crate) extern "C" fn unsafe_put_long(
     unsafe { env.state.mem_blocks.set_i64_ne(address, value) };
 }
 
-pub(crate) extern "C" fn unsafe_put_float(
+pub(crate) extern "C" fn unsafe_put_float_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
@@ -252,7 +252,7 @@ pub(crate) extern "C" fn unsafe_put_float(
     unsafe { env.state.mem_blocks.set_f32_ne(address, value) };
 }
 
-pub(crate) extern "C" fn unsafe_put_double(
+pub(crate) extern "C" fn unsafe_put_double_ptr(
     env: *mut Env<'_>,
     _this: JObject,
     address: JAddress,
