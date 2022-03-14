@@ -86,13 +86,10 @@ impl JFieldId {
         // These are incremented by 1 so that null is a value that can be represented as a field id
         let class_id_v: u64 = (class_id_v + 1).into();
         let field_index_v: u64 = (field_index.get() + 1).into();
-        tracing::info!("Class Id: {:X?}", class_id_v);
-        tracing::info!("Field Index {:X?}", field_index_v);
 
         // [class_id + 1][field_index + 1][0000]
         let field_id = (class_id_v << 32) | (field_index_v << 16);
         let field_id = field_id.into_usize();
-        tracing::info!("Field ID: 0x{:X?}", field_id);
 
         let field_id = field_id as *const ();
 
