@@ -6,8 +6,8 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use rhojvm::{
-    class_instance::{ClassInstance, ReferenceArrayInstance, ReferenceInstance},
-    eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
+    class_instance::{ClassInstance, ReferenceArrayInstance},
+    eval::{eval_method, EvalMethodValue, Frame, Locals, ValueException},
     gc::GcRef,
     initialize_class,
     jni::native_interface::NativeInterface,
@@ -460,7 +460,10 @@ fn execute_class_name(
                     }
                 }
             },
-            Err(err) => tracing::error!("There was an error in running the method: {:?}", err),
+            Err(err) => {
+                tracing::error!("There was an error in running the method: {:?}", err);
+                eprintln!("There was an internal error in running code: {:?}", err);
+            }
         }
     }
 }
