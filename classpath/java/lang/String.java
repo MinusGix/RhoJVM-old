@@ -60,6 +60,26 @@ public final class String implements java.io.Serializable, Comparable<String>, C
         this.data = dest;
     }
 
+    public String(int[] codePoints, int offset, int length) {
+        // FIXME: Properly handle this!
+        int actualLength = codePoints.length;
+        if (offset < 0) {
+            throw new StringIndexOutOfBoundsException(offset);
+        } else if (length < 0) {
+            throw new StringIndexOutOfBoundsException(length);
+        } else if (offset > codePoints.length - length) {
+            throw new StringIndexOutOfBoundsException(length + offset);
+        }
+
+        char[] dest = new char[length];
+        for (int i = 0; i < length; i++) {
+            int chr = codePoints[i + offset];
+            dest[i] = (char) chr;
+        }
+
+        this.data = dest;
+    }
+
     public String(byte data[]) throws CharacterCodingException {
         this.data = StringConversion.convertToChars(data, 0, data.length, Charset.defaultCharset());
     }
