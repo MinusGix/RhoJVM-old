@@ -20,7 +20,7 @@ use crate::{
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{construct_string, make_class_form_of, Env},
+    util::{construct_string, get_string_contents, make_class_form_of, Env},
     GeneralError,
 };
 
@@ -301,8 +301,8 @@ pub struct NativeInterface {
     pub get_primitive_array_critical: MethodNoArguments,
     pub release_primitive_array_critical: MethodNoArguments,
 
-    pub get_string_critical: MethodNoArguments,
-    pub release_string_critical: MethodNoArguments,
+    pub get_string_critical: GetStringCriticalFn,
+    pub release_string_critical: ReleaseStringCriticalFn,
 
     pub new_weak_global_ref: MethodNoArguments,
     pub delete_weak_global_ref: MethodNoArguments,
@@ -544,8 +544,8 @@ impl NativeInterface {
             get_string_utf_region: unimpl_none_name!("get_string_utf_region"),
             get_primitive_array_critical: unimpl_none_name!("get_primitive_array_critical"),
             release_primitive_array_critical: unimpl_none_name!("release_primitive_array_critical"),
-            get_string_critical: unimpl_none_name!("get_string_critical"),
-            release_string_critical: unimpl_none_name!("release_string_critical"),
+            get_string_critical,
+            release_string_critical,
             new_weak_global_ref: unimpl_none_name!("new_weak_global_ref"),
             delete_weak_global_ref: unimpl_none_name!("delete_weak_global_ref"),
             exception_check,
@@ -1327,23 +1327,16 @@ unsafe extern "C" fn get_string_length(env: *mut Env, string: JString) -> JSize 
     assert_valid_env(env);
     let env = &mut *env;
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     if let Some(string) = env.get_jobject_as_gcref(string) {
-        let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
-        let string_data_field_id = env
-            .state
-            .get_string_data_field(&env.class_files, string_id)
-            .unwrap();
-        let string = string.unchecked_as::<ClassInstance>();
-        let string_inst = env.state.gc.deref(string).unwrap();
-        let field = string_inst.fields.get(string_data_field_id).unwrap();
-        let data = field.value().into_reference().unwrap();
-        if let Some(data) = data {
-            let data = data.unchecked_as::<PrimitiveArrayInstance>();
-            let data = env.state.gc.deref(data).unwrap();
-            data.len()
-        } else {
-            todo!("NPE");
-        }
+        get_string_contents(
+            &env.class_files,
+            &mut env.class_names,
+            &mut env.state,
+            string,
+        )
+        .unwrap()
+        .len() as i32
     } else {
         todo!("NPE?");
     }
@@ -1546,5 +1539,110 @@ unsafe extern "C" fn call_static_object_method_v(
             env.state.fill_native_exception(exc);
             JObject::null()
         }
+    }
+}
+
+pub type GetStringCriticalFn =
+    unsafe extern "C" fn(env: *mut Env, string: JString, is_copy: *mut JBoolean) -> *const JChar;
+unsafe extern "C" fn get_string_critical(
+    env: *mut Env,
+    string: JString,
+    is_copy: *mut JBoolean,
+) -> *const JChar {
+    assert_valid_env(env);
+    assert_non_aliasing(env, is_copy);
+
+    let env = &mut *env;
+
+    // TODO: Currently we can't directly give a pointer because we've wrapped primitive arrays
+    // in runtimevalueprimitive which is obviously not transparent
+    // However, for getstringcritical, we can - for perf - pass a direct pointer
+    // since it can not issue jni calls while it has the pointer
+    // Though, we'd probably want to still copy by default
+
+    // TODO: We could mark a critical mode on env, which panics if this thread calls any
+    // jni functions? Or at least have it in a debug mode?
+
+    if let Some(string) = env.get_jobject_as_gcref(string) {
+        let data = get_string_contents(
+            &env.class_files,
+            &mut env.class_names,
+            &mut env.state,
+            string,
+        )
+        .unwrap();
+        let len = data.len();
+        let data = data.iter().map(|x| match x {
+            RuntimeValuePrimitive::Char(v) => v.0,
+            _ => unreachable!(),
+        });
+
+        // I didn't see a good way to do this with Box and vec/slices?
+        // Like, I could get Box<[u16]> and get *const u16, but
+        // it would necessarily be valid to use it in from_raw..
+        // which is what I need.
+        // Thus we allocate manually
+        let layout = std::alloc::Layout::array::<JChar>(len).unwrap();
+        let output = std::alloc::alloc_zeroed(layout);
+        assert!(
+            !output.is_null(),
+            "Failed to allocate space string in GetStringCritical",
+        );
+        // Layout should have made this aligned
+        #[allow(clippy::cast_ptr_alignment)]
+        let output = output.cast::<JChar>();
+        for (i, x) in data.enumerate() {
+            let output_dest = output.add(i);
+            *output_dest = x;
+        }
+
+        if !is_copy.is_null() {
+            *is_copy = u8::from(true);
+        }
+
+        // Safety: This won't be deallocated until we get it back later
+        output
+    } else {
+        todo!("NPE");
+    }
+}
+pub type ReleaseStringCriticalFn =
+    unsafe extern "C" fn(env: *mut Env, string: JString, data_ptr: *const JChar);
+unsafe extern "C" fn release_string_critical(
+    env: *mut Env,
+    string: JString,
+    data_ptr: *const JChar,
+) {
+    assert_valid_env(env);
+    assert_non_aliasing(env, data_ptr);
+    assert!(!data_ptr.is_null());
+
+    let env = &mut *env;
+
+    // TODO: We could keep track, at least in debug mode or with safety settings enabled,
+    // whether the pointer is valid and whether it has already been freed
+    // to guard against uaf and invalid ptrs
+
+    // We're assuming that computing the same layout gives the same result
+    if let Some(string) = env.get_jobject_as_gcref(string) {
+        let data = get_string_contents(
+            &env.class_files,
+            &mut env.class_names,
+            &mut env.state,
+            string,
+        )
+        .unwrap();
+        let len = data.len();
+        let data = data.iter().map(|x| match x {
+            RuntimeValuePrimitive::Char(v) => v.0,
+            _ => unreachable!(),
+        });
+
+        let layout = std::alloc::Layout::array::<JChar>(len).unwrap();
+        // It feels a bit iffy to cast it back to a mut pointer so it can be deallocated, but
+        // that's how this api works
+        std::alloc::dealloc(data_ptr as *mut u8, layout);
+    } else {
+        todo!("NPE");
     }
 }
