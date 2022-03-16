@@ -527,21 +527,20 @@ pub(crate) fn make_class_form_of(
         from_class_id,
     )?;
 
-    // TODO: Some of these errors should be exceptions
-    let static_ref = initialize_class(env, of_class_id)?.into_value();
-    let static_ref = match static_ref {
-        ValueException::Value(v) => v,
-        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
-    };
+    // // TODO: Some of these errors should be exceptions
+    // let static_ref = initialize_class(env, of_class_id)?.into_value();
+    // let static_ref = match static_ref {
+    //     ValueException::Value(v) => v,
+    //     ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    // };
 
-    if let Some(form) = env
-        .state
-        .gc
-        .deref(static_ref)
-        .ok_or(EvalError::InvalidGcRef(static_ref.into_generic()))?
-        .form
-    {
-        return Ok(ValueException::Value(form));
+    let mut class_info = env.state.classes_info.get_mut_init(of_class_id);
+    // If it already exists, then return it, so that we don't recreate instances of Class<T>
+    // because they should be the same instance.
+    // We could have some trickery with equals to make them equivalent, but caching it is also
+    // just less work in general.
+    if let Some(form_ref) = class_info.class_ref {
+        return Ok(ValueException::Value(form_ref));
     }
 
     let class_form_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
@@ -591,19 +590,13 @@ pub(crate) fn make_class_form_of(
         fields,
     };
 
-    // TODO: Run constructor?
-    // eval_method(env, method_id, frame)?;
-
-    let static_form = StaticFormInstance::new(inner_class, static_ref);
+    let static_form = StaticFormInstance::new(inner_class, of_class_id, None);
     let static_form_ref = env.state.gc.alloc(static_form);
 
     // Store the created form on the static inst so that it can be reused and cached
-    let static_inst = env
-        .state
-        .gc
-        .deref_mut(static_ref)
-        .ok_or(EvalError::InvalidGcRef(static_ref.into_generic()))?;
-    static_inst.form = Some(static_form_ref);
+    let mut class_info = env.state.classes_info.get_mut_init(of_class_id);
+    debug_assert!(class_info.class_ref.is_none(), "If this is false then we've initialized it in between our check, which could be an issue? Though it also seems completely possible.");
+    class_info.class_ref = Some(static_form_ref);
     Ok(ValueException::Value(static_form_ref))
 }
 

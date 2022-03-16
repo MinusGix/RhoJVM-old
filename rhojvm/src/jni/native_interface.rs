@@ -915,9 +915,7 @@ unsafe extern "C" fn get_field_id(
     let class_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(class).unwrap()
     {
-        let of = this.of;
-        let of = env.state.gc.deref(of).unwrap().id;
-        of
+        this.of_id
     } else {
         // TODO: Don't panic
         panic!();
@@ -1414,9 +1412,7 @@ unsafe fn get_jmethod_id(
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        let of = this.of;
-        let of = env.state.gc.deref(of).unwrap().id;
-        of
+        this.of_id
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic

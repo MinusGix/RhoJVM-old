@@ -233,16 +233,20 @@ impl<'a> TryFrom<&'a mut Instance> for &'a mut ReferenceInstance {
 pub struct StaticFormInstance {
     pub(crate) inner: ClassInstance,
     /// The T in Class<T>
-    pub(crate) of: GcRef<StaticClassInstance>,
+    pub(crate) of_id: ClassId,
+    /// The T in Class<T>
+    pub(crate) of: Option<GcRef<StaticClassInstance>>,
 }
 impl StaticFormInstance {
     #[must_use]
     pub(crate) fn new(
         inner_instance: ClassInstance,
-        of: GcRef<StaticClassInstance>,
+        of_id: ClassId,
+        of: Option<GcRef<StaticClassInstance>>,
     ) -> StaticFormInstance {
         StaticFormInstance {
             inner: inner_instance,
+            of_id,
             of,
         }
     }

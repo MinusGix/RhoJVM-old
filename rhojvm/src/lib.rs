@@ -28,7 +28,9 @@ use std::{
     collections::HashMap, num::NonZeroUsize, string::FromUtf16Error, sync::Arc, thread::ThreadId,
 };
 
-use class_instance::{ClassInstance, FieldId, Instance, StaticClassInstance, ThreadInstance};
+use class_instance::{
+    ClassInstance, FieldId, Instance, StaticClassInstance, StaticFormInstance, ThreadInstance,
+};
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo},
     constant_pool::ConstantPoolIndexRaw,
@@ -235,6 +237,8 @@ pub struct ClassInfo {
     pub created: Status,
     pub verified: Status,
     pub initialized: Status<ValueException<GcRef<StaticClassInstance>>>,
+    /// Cached reference to Class<T> for this class
+    pub class_ref: Option<GcRef<StaticFormInstance>>,
 }
 
 /// State that is per-thread

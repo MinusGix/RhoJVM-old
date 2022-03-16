@@ -183,9 +183,7 @@ pub(crate) extern "C" fn class_get_name(env: *mut Env<'_>, this: JObject) -> JSt
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        let of = this.of;
-        let of = env.state.gc.deref(of).unwrap().id;
-        of
+        this.of_id
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
@@ -257,9 +255,7 @@ pub(crate) extern "C" fn class_get_declared_field(
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        let of = this.of;
-        let of = env.state.gc.deref(of).unwrap().id;
-        of
+        this.of_id
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
@@ -383,9 +379,7 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        let of = this.of;
-        let of = env.state.gc.deref(of).unwrap().id;
-        of
+        this.of_id
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
@@ -468,9 +462,7 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        let of = this.of;
-        let of = env.state.gc.deref(of).unwrap().id;
-        of
+        this.of_id
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
@@ -693,9 +685,7 @@ pub(crate) extern "C" fn class_is_primitive(env: *mut Env<'_>, this: JObject) ->
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        let of = this.of;
-        let of = env.state.gc.deref(of).unwrap().id;
-        of
+        this.of_id
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
@@ -723,9 +713,7 @@ pub(crate) extern "C" fn class_is_array(env: *mut Env<'_>, this: JObject) -> JBo
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        let of = this.of;
-        let of = env.state.gc.deref(of).unwrap().id;
-        of
+        this.of_id
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
@@ -747,8 +735,7 @@ pub(crate) extern "C" fn class_get_component_type(env: *mut Env<'_>, this: JObje
     if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        let this_id = this.of;
-        let this_id = env.state.gc.deref(this_id).unwrap().id;
+        let this_id = this.of_id;
 
         let component_id = match env.classes.get(&this_id).unwrap() {
             ClassVariant::Array(array) => match array.component_type() {
