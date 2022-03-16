@@ -211,7 +211,7 @@ public final class Unsafe {
     public final native int getAndAddInt(Object src, long offset, int delta);
 
     public boolean compareAndSwapInt(Object o, long offset, int old, int newVal) {
-        // FIXME: This is obvious not atomic
+        // FIXME: This is obviously not an actual cas
         int current = this.getInt(o, offset);
         if (current == old) {
             this.putInt(o, offset, newVal);
@@ -222,11 +222,25 @@ public final class Unsafe {
     }
 
     public boolean compareAndSwapLong(Object o, long offset, long old, long newVal) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // FIXME: This is obviously not an actual cas
+        long current = this.getLong(o, offset);
+        if (current == old) {
+            this.putLong(o, offset, newVal);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     public boolean compareAndSwapObject(Object o, long offset, Object old, Object newVal) {
-        throw new UnsupportedOperationException("TODO: Implement this");    
+        // FIXME: This is obviously not an actual cas
+        Object current = this.getObject(o, offset);
+        if (current == old) {
+            this.putObject(o, offset, newVal);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     public void copyMemory(long src, long dst, long count) {
