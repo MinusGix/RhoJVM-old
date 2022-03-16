@@ -11,6 +11,9 @@ JFILE="$JFILES ./java/lang/UnsupportedOperationException.java"
 # java/lang/reflect
 JFILES="$JFILES ./java/lang/reflect/Field.java"
 
+# java/lang/ref
+JFILES="$JFILES ./java/lang/ref/Reference.java"
+
 # java/security
 JFILES="$JFILES ./java/security/AccessController.java"
 
