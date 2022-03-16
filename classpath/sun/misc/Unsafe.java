@@ -164,11 +164,16 @@ public final class Unsafe {
     }
 
     public int arrayBaseOffset(Class arrayClass) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // We do a somewhat amusing thing here, we just return 0 as the base address
+        // So then when they use it on an array, we just assume that the offset they've given is to 
+        // access the index.
+        // However, once we start doing instance compression, we can give them real memory offset 
+        // into our object, to make the accesses very direct.
+        return 0;
     }
 
     public int arrayIndexScale(Class arrayClass) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        return 1;
     }
 
     // Implemented in jvm
