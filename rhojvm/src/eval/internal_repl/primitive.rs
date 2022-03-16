@@ -2,7 +2,7 @@ use rhojvm_base::code::types::JavaChar;
 
 use crate::{
     eval::{internal_repl::JINT_GARBAGE, ValueException},
-    jni::{JDouble, JFloat, JInt, JLong, JObject, JString},
+    jni::{JClass, JDouble, JFloat, JInt, JLong, JObject, JString},
     rv::RuntimeValuePrimitive,
     util::{self, make_exception_with_text, Env},
 };
@@ -21,6 +21,15 @@ pub(crate) extern "C" fn double_to_raw_long_bits(
     value: JDouble,
 ) -> JLong {
     i64::from_be_bytes(value.to_be_bytes())
+}
+
+// int numberOfLeadingZeros(int value);
+pub(crate) extern "C" fn integer_number_of_leading_zeroes(
+    _env: *mut Env<'_>,
+    _this: JClass,
+    value: JInt,
+) -> JInt {
+    value.leading_zeros() as i32
 }
 
 // TODO: Is this correct for hex/binary/octal in java's integer class?

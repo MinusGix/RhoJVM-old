@@ -138,6 +138,8 @@ public final class Integer extends Number implements Comparable<Integer> {
         return defaultValue;
     }
 
+    public native static int numberOfLeadingZeros(int value);
+
     public static int signum(int value) {
         if (value == 0) {
             return 0;
