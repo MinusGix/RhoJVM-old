@@ -750,8 +750,22 @@ impl RunInst for Dup {
     }
 }
 impl RunInst for Dup2 {
-    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
-        todo!()
+    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+        let value1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        if value1.is_category_2() {
+            // Only one category 2 type is popped
+            frame.stack.push(value1)?;
+            frame.stack.push(value1)?;
+        } else {
+            let value2 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+            assert!(!value2.is_category_2());
+            frame.stack.push(value2)?;
+            frame.stack.push(value1)?;
+            frame.stack.push(value2)?;
+            frame.stack.push(value1)?;
+        }
+
+        Ok(RunInstValue::Continue)
     }
 }
 impl RunInst for DupX1 {
