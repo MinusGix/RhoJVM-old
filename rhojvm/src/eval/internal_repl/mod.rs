@@ -165,9 +165,11 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             // Unsafe get field
             b"Java_sun_misc_Unsafe_getObjectField" => into_opaque4ret(unsafe_::unsafe_get_object),
             b"Java_sun_misc_Unsafe_getIntField" => into_opaque4ret(unsafe_::unsafe_get_int),
+            b"Java_sun_misc_Unsafe_getLongField" => into_opaque4ret(unsafe_::unsafe_get_long),
             // Unsafe put field
             b"Java_sun_misc_Unsafe_putObjectField" => into_opaque5ret(unsafe_::unsafe_put_object),
             b"Java_sun_misc_Unsafe_putIntField" => into_opaque5ret(unsafe_::unsafe_put_int),
+            b"Java_sun_misc_Unsafe_putLongField" => into_opaque5ret(unsafe_::unsafe_put_long),
             // Unsafe fields
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_::unsafe_object_field_offset)

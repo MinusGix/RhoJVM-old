@@ -2,7 +2,6 @@ use rhojvm_base::id::ClassId;
 
 use crate::{
     class_instance::{ClassInstance, FieldIndex, Instance, ReferenceInstance},
-    gc::GcRef,
     jni::{JByte, JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JShort},
     memblock::MemoryBlockPtr,
     rv::{RuntimeValue, RuntimeValuePrimitive},
@@ -403,8 +402,8 @@ fn modify_field_value(
     };
 }
 
-fn get_field_value<'a>(
-    env: &'a mut Env,
+fn get_field_value(
+    env: &mut Env,
     target: JObject,
     offset: JLong,
 ) -> RuntimeValue<ReferenceInstance> {
@@ -473,6 +472,34 @@ pub(crate) extern "C" fn unsafe_put_int(
     modify_field_value(env, target, offset, |val| {
         assert!(val.into_i32().is_some());
         RuntimeValuePrimitive::I32(value).into()
+    });
+}
+
+pub(crate) extern "C" fn unsafe_get_long(
+    env: *mut Env<'_>,
+    _this: JObject,
+    target: JObject,
+    offset: JLong,
+) -> JLong {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    get_field_value(env, target, offset).into_i64().unwrap()
+}
+
+pub(crate) extern "C" fn unsafe_put_long(
+    env: *mut Env<'_>,
+    _this: JObject,
+    target: JObject,
+    offset: JLong,
+    value: JLong,
+) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    modify_field_value(env, target, offset, |val| {
+        assert!(val.into_i64().is_some());
+        RuntimeValuePrimitive::I64(value).into()
     });
 }
 

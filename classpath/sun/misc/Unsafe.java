@@ -124,12 +124,15 @@ public final class Unsafe {
     private native void putIntField(Object o, long offset, int value);
 
     public long getLong(Object o, long offset) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        return this.getLongField(o, offset);
     }
 
     public void putLong(Object o, long offset, long value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        this.putLongField(o, offset, value);
     }
+
+    private native long getLongField(Object o, long offset);
+    private native void putLongField(Object o, long offset, long value);
 
     public double getDouble(Object o, long offset) {
         throw new UnsupportedOperationException("TODO: Implement this");
