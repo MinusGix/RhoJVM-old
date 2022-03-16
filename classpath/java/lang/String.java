@@ -203,17 +203,20 @@ public final class String implements java.io.Serializable, Comparable<String>, C
         return StringConversion.convertFromChars(this.data, 0, this.data.length, charset);
     }
 
+    private static void checkValidLocale(Locale locale) {
+        if (!locale.getLanguage().equals(Locale.ENGLISH.getLanguage())) {
+            // TODO: I'm not sure how to implement this.
+            throw new UnsupportedOperationException("TODO: Implement support for locales other than english");
+        }
+    }
+
     public String toLowerCase(Locale locale) {
         if (locale == null) {
             throw new NullPointerException("locale");
         }
 
-        if (locale == Locale.ENGLISH) {
-            return this.toLowerCase();
-        } else {
-            // TODO: I'm not sure how to implement this.
-            throw new UnsupportedOperationException("TODO: Implement support for locales other than english");
-        }
+        String.checkValidLocale(locale);
+        return this.toLowerCase();
     }
 
     public String toLowerCase() {
@@ -240,12 +243,8 @@ public final class String implements java.io.Serializable, Comparable<String>, C
             throw new NullPointerException("locale");
         }
 
-        if (locale == Locale.ENGLISH) {
-            return this.toUpperCase();
-        } else {
-            // TODO: I'm not sure how to implement this.
-            throw new UnsupportedOperationException("TODO: Implement support for locales other than english");
-        }
+        String.checkValidLocale(locale);
+        return this.toUpperCase();
     }
 
     public String toUpperCase() {
