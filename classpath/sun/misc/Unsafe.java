@@ -111,6 +111,18 @@ public final class Unsafe {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
+    public int getInt(Object o, long offset) {
+        return this.getIntField(o, offset);
+    }
+
+    public void putInt(Object o, long offset, int value) {
+        this.putIntField(o, offset, value);
+    }
+
+    // This is currently just like this so we don't have to implement native overloading support
+    private native int getIntField(Object o, long offset);
+    private native void putIntField(Object o, long offset, int value);
+
     public long getLong(Object o, long offset) {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
@@ -136,15 +148,19 @@ public final class Unsafe {
     }
 
     public Object getObject(Object o, long offset) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        return this.getObjectField(o, offset);
     }
 
     public void putObject(Object o, long offset, Object value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        this.putObjectField(o, offset, value);
     }
 
+    private native Object getObjectField(Object o, long offset);
+    private native void putObjectField(Object o, long offset, Object value);
+
     public void putObjectVolatile(Object o, long offset, Object value) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // FIXME: This isn't volatile
+        this.putObjectField(o, offset, value);
     }
 
     public void putOrderedObject(Object o, long offset, Object value) {
@@ -152,7 +168,8 @@ public final class Unsafe {
     }
 
     public Object getObjectVolatile(Object o, long offset) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // FIXME: This isn't volatile
+        return this.getObjectField(o, offset);
     }
 
     public long getAddress(long address) {
@@ -194,7 +211,14 @@ public final class Unsafe {
     public final native int getAndAddInt(Object src, long offset, int delta);
 
     public boolean compareAndSwapInt(Object o, long offset, int old, int newVal) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // FIXME: This is obvious not atomic
+        int current = this.getInt(o, offset);
+        if (current == old) {
+            this.putInt(o, offset, newVal);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     public boolean compareAndSwapLong(Object o, long offset, long old, long newVal) {

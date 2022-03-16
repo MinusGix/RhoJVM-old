@@ -218,6 +218,14 @@ impl<REF> RuntimeValue<REF> {
         }
     }
 
+    #[must_use]
+    pub fn into_primitive(self) -> Option<RuntimeValuePrimitive> {
+        match self {
+            RuntimeValue::Primitive(prim) => Some(prim),
+            RuntimeValue::NullReference | RuntimeValue::Reference(_) => None,
+        }
+    }
+
     /// Convert this into a reference, if it is one.
     /// If the first layer is None, that means it was a non-reference.
     /// If the second layer is None, that means it is a null reference.

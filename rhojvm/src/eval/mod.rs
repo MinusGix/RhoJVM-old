@@ -677,32 +677,36 @@ pub fn eval_method(
                 ) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JInt));
                 }
+                (
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JLong));
+                }
 
                 _ => todo!("Fully implement two parameter native methods"),
             }
         } else if param_count == 3 {
-            if matches!(
-                method.descriptor().parameters()[0],
-                DescriptorType::Array { .. } | DescriptorType::Basic(DescriptorTypeBasic::Class(_))
-            ) && matches!(
-                method.descriptor().parameters()[1],
-                DescriptorType::Basic(DescriptorTypeBasic::Long)
-            ) && matches!(
-                method.descriptor().parameters()[2],
-                DescriptorType::Basic(DescriptorTypeBasic::Int)
-            ) {
-                impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JLong, param3: JInt));
-            } else if matches!(
-                method.descriptor().parameters()[0],
-                DescriptorType::Basic(DescriptorTypeBasic::Class(_))
-            ) && matches!(
-                method.descriptor().parameters()[1],
-                DescriptorType::Basic(DescriptorTypeBasic::Boolean)
-            ) && matches!(
-                method.descriptor().parameters()[2],
-                DescriptorType::Basic(DescriptorTypeBasic::Class(_))
-            ) {
-                impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JBoolean, param3: JObject));
+            let first = method.descriptor().parameters()[0];
+            let second = method.descriptor().parameters()[1];
+            let third = method.descriptor().parameters()[2];
+            match (first, second, third) {
+                (
+                    DescriptorType::Array { .. }
+                    | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JLong, param3: JInt));
+                }
+                (
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Boolean),
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JBoolean, param3: JObject));
+                }
+                _ => todo!("Fully implement three parameter native methods"),
             }
         } else if param_count == 4 {
             if matches!(

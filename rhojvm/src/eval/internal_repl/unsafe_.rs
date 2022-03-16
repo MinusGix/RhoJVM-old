@@ -5,7 +5,7 @@ use crate::{
     gc::GcRef,
     jni::{JByte, JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JShort},
     memblock::MemoryBlockPtr,
-    rv::RuntimeValuePrimitive,
+    rv::{RuntimeValue, RuntimeValuePrimitive},
     util::Env,
 };
 
@@ -342,6 +342,181 @@ pub(crate) extern "C" fn unsafe_object_field_offset(
     field_id.as_i64()
 }
 
+fn modify_field_value(
+    env: &mut Env,
+    target: JObject,
+    offset: JLong,
+    modify_with: impl FnOnce(RuntimeValue<ReferenceInstance>) -> RuntimeValue<ReferenceInstance>,
+) {
+    fn modify_field(
+        class: &mut ClassInstance,
+        offset: JLong,
+        modify_with: impl FnOnce(RuntimeValue<ReferenceInstance>) -> RuntimeValue<ReferenceInstance>,
+    ) {
+        let field_id = JFieldId::unchecked_from_i64(offset);
+        let field_id = unsafe { field_id.into_field_id() };
+        let field_id = field_id.expect("Field id was null");
+
+        let field = class.fields.get_mut(field_id).unwrap();
+        let field_value = field.value_mut();
+        let new_value = modify_with(*field_value);
+        *field_value = new_value;
+    }
+
+    let target = unsafe { env.get_jobject_as_gcref(target) };
+    let target = target.expect("Null pointer exception");
+
+    let target = env.state.gc.deref_mut(target).unwrap();
+    match target {
+        Instance::StaticClass(_) => todo!(),
+        Instance::Reference(class) => match class {
+            ReferenceInstance::Class(class) => modify_field(class, offset, modify_with),
+            ReferenceInstance::StaticForm(form) => {
+                modify_field(&mut form.inner, offset, modify_with);
+            }
+            ReferenceInstance::Thread(thread) => {
+                modify_field(&mut thread.inner, offset, modify_with);
+            }
+            // For arrays, the offset is currently just the index
+            ReferenceInstance::PrimitiveArray(arr) => {
+                let offset = usize::try_from(offset).unwrap();
+                let arr_value = arr.elements.get_mut(offset).unwrap();
+                let new_value = modify_with((*arr_value).into());
+                let new_value = new_value.into_primitive().unwrap();
+                let new_value_type = new_value.runtime_type();
+                assert_eq!(arr.element_type, new_value_type);
+                *arr_value = new_value;
+            }
+            ReferenceInstance::ReferenceArray(arr) => {
+                let offset = usize::try_from(offset).unwrap();
+                let arr_value = arr.elements.get_mut(offset).unwrap();
+                let new_value = if let Some(arr_value) = arr_value {
+                    modify_with(RuntimeValue::Reference(*arr_value))
+                } else {
+                    modify_with(RuntimeValue::NullReference)
+                };
+                let new_value = new_value.into_reference().unwrap();
+                // TODO: assert/check that the type of the stored reference is valid!
+                *arr_value = new_value;
+            }
+        },
+    };
+}
+
+fn get_field_value<'a>(
+    env: &'a mut Env,
+    target: JObject,
+    offset: JLong,
+) -> RuntimeValue<ReferenceInstance> {
+    fn get_field(class: &ClassInstance, offset: JLong) -> RuntimeValue<ReferenceInstance> {
+        let field_id = JFieldId::unchecked_from_i64(offset);
+        let field_id = unsafe { field_id.into_field_id() };
+        let field_id = field_id.expect("Field id was null");
+
+        class
+            .fields
+            .get(field_id)
+            .expect("Field offset doesn't exist on the target")
+            .value()
+    }
+
+    let target = unsafe { env.get_jobject_as_gcref(target) };
+    let target = target.expect("Null pointer exception");
+
+    let target = env.state.gc.deref(target).unwrap();
+    match target {
+        Instance::StaticClass(_) => todo!(),
+        Instance::Reference(class) => match class {
+            ReferenceInstance::Class(class) => get_field(class, offset),
+            ReferenceInstance::StaticForm(form) => get_field(&form.inner, offset),
+            ReferenceInstance::Thread(thread) => get_field(&thread.inner, offset),
+            ReferenceInstance::PrimitiveArray(arr) => {
+                let offset = usize::try_from(offset).unwrap();
+                let arr_value = arr.elements.get(offset).unwrap();
+                (*arr_value).into()
+            }
+            ReferenceInstance::ReferenceArray(arr) => {
+                let offset = usize::try_from(offset).unwrap();
+                let arr_value = arr.elements.get(offset).unwrap();
+                if let Some(re) = *arr_value {
+                    RuntimeValue::Reference(re)
+                } else {
+                    RuntimeValue::NullReference
+                }
+            }
+        },
+    }
+}
+
+pub(crate) extern "C" fn unsafe_get_int(
+    env: *mut Env<'_>,
+    _this: JObject,
+    target: JObject,
+    offset: JLong,
+) -> JInt {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    get_field_value(env, target, offset).into_i32().unwrap()
+}
+
+pub(crate) extern "C" fn unsafe_put_int(
+    env: *mut Env<'_>,
+    _this: JObject,
+    target: JObject,
+    offset: JLong,
+    value: JInt,
+) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    modify_field_value(env, target, offset, |val| {
+        assert!(val.into_i32().is_some());
+        RuntimeValuePrimitive::I32(value).into()
+    });
+}
+
+pub(crate) extern "C" fn unsafe_get_object(
+    env: *mut Env,
+    _: JObject,
+    target: JObject,
+    offset: JLong,
+) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let re = get_field_value(env, target, offset)
+        .into_reference()
+        .unwrap();
+    if let Some(re) = re {
+        unsafe { env.get_local_jobject_for(re.into_generic()) }
+    } else {
+        JObject::null()
+    }
+}
+
+pub(crate) extern "C" fn unsafe_put_object(
+    env: *mut Env,
+    _: JObject,
+    target: JObject,
+    offset: JLong,
+    value: JObject,
+) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let value = unsafe { env.get_jobject_as_gcref(value) };
+
+    modify_field_value(env, target, offset, |val| {
+        assert!(val.into_reference().is_some());
+        if let Some(value) = value {
+            RuntimeValue::Reference(value.unchecked_as())
+        } else {
+            RuntimeValue::NullReference
+        }
+    });
+}
+
 /// sun/misc/Unsafe
 /// `int getAndAddInt(Object src, long offset, int delta);`
 pub(crate) extern "C" fn unsafe_get_and_add_int(
@@ -357,26 +532,16 @@ pub(crate) extern "C" fn unsafe_get_and_add_int(
     // safety for this to be fine to turn into a reference
     let env = unsafe { &mut *env };
 
-    let target = unsafe { env.get_jobject_as_gcref(target) };
-    // We don't have to validate, since method calling should have done that
-    let target: GcRef<ClassInstance> = target.expect("Null pointer exception").unchecked_as();
+    let mut gotten_value = None;
+    modify_field_value(env, target, offset, |val| {
+        let current_val = val.into_i32().expect("Field value should be int");
+        gotten_value = Some(current_val);
+        RuntimeValuePrimitive::I32(current_val.overflowing_add(add_val).0).into()
+    });
 
-    let field_id = JFieldId::unchecked_from_i64(offset);
-    let field_id = unsafe { field_id.into_field_id() };
-    let field_id = field_id.expect("Field id was null");
-
-    // FIXME: This is meant to be atomic!
-
-    let target = env.state.gc.deref_mut(target).unwrap();
-    // TODO: exception
-    let target_val = target
-        .fields
-        .get_mut(field_id)
-        .expect("Field offset doesn't exist for this field")
-        .value_mut();
-    let current_val = (*target_val).into_i32().expect("Field value should be int");
-
-    *target_val = RuntimeValuePrimitive::I32(current_val.overflowing_add(add_val).0).into();
-
-    current_val
+    if let Some(gotten_value) = gotten_value {
+        gotten_value
+    } else {
+        panic!();
+    }
 }

@@ -146,7 +146,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
                 into_opaque3ret(unsafe_::unsafe_allocate_memory)
             }
             b"Java_sun_misc_Unsafe_freeMemory" => into_opaque3ret(unsafe_::unsafe_free_memory),
-            // Unsafe get
+            // Unsafe get memory
             b"Java_sun_misc_Unsafe_getByte" => into_opaque3ret(unsafe_::unsafe_get_byte_ptr),
             b"Java_sun_misc_Unsafe_getShort" => into_opaque3ret(unsafe_::unsafe_get_short_ptr),
             b"Java_sun_misc_Unsafe_getChar" => into_opaque3ret(unsafe_::unsafe_get_char_ptr),
@@ -154,7 +154,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_sun_misc_Unsafe_getLong" => into_opaque3ret(unsafe_::unsafe_get_long_ptr),
             b"Java_sun_misc_Unsafe_getFloat" => into_opaque3ret(unsafe_::unsafe_get_float_ptr),
             b"Java_sun_misc_Unsafe_getDouble" => into_opaque3ret(unsafe_::unsafe_get_double_ptr),
-            // Unsafe put
+            // Unsafe put memory
             b"Java_sun_misc_Unsafe_putByte" => into_opaque4ret(unsafe_::unsafe_put_byte_ptr),
             b"Java_sun_misc_Unsafe_putShort" => into_opaque4ret(unsafe_::unsafe_put_short_ptr),
             b"Java_sun_misc_Unsafe_putChar" => into_opaque4ret(unsafe_::unsafe_put_char_ptr),
@@ -162,6 +162,12 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_sun_misc_Unsafe_putLong" => into_opaque4ret(unsafe_::unsafe_put_long_ptr),
             b"Java_sun_misc_Unsafe_putFloat" => into_opaque4ret(unsafe_::unsafe_put_float_ptr),
             b"Java_sun_misc_Unsafe_putDouble" => into_opaque4ret(unsafe_::unsafe_put_double_ptr),
+            // Unsafe get field
+            b"Java_sun_misc_Unsafe_getObjectField" => into_opaque4ret(unsafe_::unsafe_get_object),
+            b"Java_sun_misc_Unsafe_getIntField" => into_opaque4ret(unsafe_::unsafe_get_int),
+            // Unsafe put field
+            b"Java_sun_misc_Unsafe_putObjectField" => into_opaque5ret(unsafe_::unsafe_put_object),
+            b"Java_sun_misc_Unsafe_putIntField" => into_opaque5ret(unsafe_::unsafe_put_int),
             // Unsafe fields
             b"Java_sun_misc_Unsafe_objectFieldOffset" => {
                 into_opaque3ret(unsafe_::unsafe_object_field_offset)
