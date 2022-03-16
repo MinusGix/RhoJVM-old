@@ -53,6 +53,9 @@ pub struct Env<'i> {
     pub tdata: ThreadData,
     pub string_interner: StringInterner,
     pub(crate) system_info: sysinfo::System,
+    /// Keep track of the time we started up (approximately)
+    /// Primarily for `System#nanoTime`/`System#currentTimeMillis`
+    pub(crate) startup_instant: std::time::Instant,
 }
 impl<'i> Env<'i> {
     pub fn new(
@@ -79,6 +82,7 @@ impl<'i> Env<'i> {
             system_info: sysinfo::System::new_with_specifics(
                 RefreshKind::new().with_cpu().with_memory(),
             ),
+            startup_instant: std::time::Instant::now(),
         }
     }
 

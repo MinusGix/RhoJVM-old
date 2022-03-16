@@ -85,17 +85,13 @@ public final class System {
         return System.props;
     }
 
-    public static long currentTimeMillis() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public static native long currentTimeMillis();
 
     public static int identityHashCode(Object o) {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public static long nanoTime() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public static native long nanoTime();
 
     public static String mapLibraryName(String name) {
         throw new UnsupportedOperationException("TODO: Implement this");

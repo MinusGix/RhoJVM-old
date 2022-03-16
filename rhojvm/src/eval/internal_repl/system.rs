@@ -11,7 +11,7 @@ use crate::{
     class_instance::{Instance, PrimitiveArrayInstance, ReferenceArrayInstance, ReferenceInstance},
     eval::{eval_method, Frame, Locals, ValueException},
     gc::GcRef,
-    jni::{JInt, JObject},
+    jni::{JClass, JInt, JLong, JObject},
     rv::{RuntimeValue, RuntimeValuePrimitive},
     util::{construct_string, Env},
 };
@@ -381,4 +381,22 @@ fn system_arraycopy_primitive(
     for (dest, src) in destination_slice.iter_mut().zip(source_slice.iter()) {
         *dest = *src;
     }
+}
+
+// We know it might truncate, which is an accepted part of the java api
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) extern "C" fn system_current_time_milliseconds(env: *mut Env, _: JClass) -> JLong {
+    assert!(!env.is_null(), "Null env. Internal bug?");
+    let env = unsafe { &mut *env };
+    let duration = env.startup_instant.elapsed();
+    duration.as_millis() as i64
+}
+
+// We know it might truncate, which is an accepted part of the java api
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) extern "C" fn system_nano_time(env: *mut Env, _: JClass) -> JLong {
+    assert!(!env.is_null(), "Null env. Internal bug?");
+    let env = unsafe { &mut *env };
+    let duration = env.startup_instant.elapsed();
+    duration.as_nanos() as i64
 }

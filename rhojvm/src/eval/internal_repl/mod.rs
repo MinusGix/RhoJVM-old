@@ -122,6 +122,10 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
                 into_opaque3ret(system::system_set_properties)
             }
             b"Java_java_lang_System_arraycopy" => into_opaque7ret(system::system_arraycopy),
+            b"Java_java_lang_System_currentTimeMillis" => {
+                into_opaque2ret(system::system_current_time_milliseconds)
+            }
+            b"Java_java_lang_System_nanoTime" => into_opaque2ret(system::system_nano_time),
             // Runtime
             b"Java_java_lang_Runtime_availableProcessors" => {
                 into_opaque2ret(runtime::runtime_available_processors)
