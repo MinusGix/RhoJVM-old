@@ -5,9 +5,11 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
+use classfile_parser::field_info::FieldAccessFlags;
+use either::Either;
 use rhojvm::{
-    class_instance::{ClassInstance, ReferenceArrayInstance},
-    eval::{eval_method, EvalMethodValue, Frame, Locals, ValueException},
+    class_instance::{ClassInstance, ReferenceArrayInstance, ThreadInstance},
+    eval::{eval_method, instances::make_fields, EvalMethodValue, Frame, Locals, ValueException},
     gc::GcRef,
     initialize_class,
     jni::native_interface::NativeInterface,
@@ -376,6 +378,39 @@ fn execute_class_name(
     let mut env: &mut Env = &mut *env;
 
     load_required_libs(env);
+
+    // Initialize the thread reference
+    let main_thread_thread_ref = {
+        let thread_class_id = env.class_names.gcid_from_bytes(b"java/lang/Thread");
+        let thread_static_ref = initialize_class(env, thread_class_id).unwrap().into_value();
+        let thread_static_ref = match thread_static_ref {
+            ValueException::Value(re) => re,
+            ValueException::Exception(exc) => panic!("Exception initializing main thread"),
+        };
+
+        let fields = match make_fields(env, thread_class_id, |field_info| {
+            !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+        })
+        .unwrap()
+        {
+            Either::Left(fields) => fields,
+            Either::Right(exc) => {
+                panic!("Exception initializing main thread fields")
+            }
+        };
+
+        // new does not run a constructor, it only initializes it
+        let class = ClassInstance {
+            instanceof: thread_class_id,
+            static_ref: thread_static_ref,
+            fields,
+        };
+
+        let thread_class = ThreadInstance::new(class, Some(env.tdata.id));
+        env.state.gc.alloc(thread_class)
+    };
+
+    env.tdata.thread_instance = Some(main_thread_thread_ref);
 
     let entrypoint_id = get_entrypoint_id(env);
     // Load the entry point

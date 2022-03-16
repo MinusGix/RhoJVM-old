@@ -28,7 +28,7 @@ use std::{
     collections::HashMap, num::NonZeroUsize, string::FromUtf16Error, sync::Arc, thread::ThreadId,
 };
 
-use class_instance::{ClassInstance, FieldId, Instance, StaticClassInstance};
+use class_instance::{ClassInstance, FieldId, Instance, StaticClassInstance, ThreadInstance};
 use classfile_parser::{
     constant_info::{ClassConstant, ConstantInfo},
     constant_pool::ConstantPoolIndexRaw,
@@ -240,11 +240,16 @@ pub struct ClassInfo {
 /// State that is per-thread
 pub struct ThreadData {
     pub id: ThreadId,
+    // This should always be filled after startup
+    pub thread_instance: Option<GcRef<ThreadInstance>>,
 }
 impl ThreadData {
     #[must_use]
     pub fn new(thread_id: ThreadId) -> ThreadData {
-        ThreadData { id: thread_id }
+        ThreadData {
+            id: thread_id,
+            thread_instance: None,
+        }
     }
 }
 

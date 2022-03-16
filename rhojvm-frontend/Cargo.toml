@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+classfile-parser = { git = "https://github.com/MinusGix/classfile-parser" }
 rhojvm-base = { path = "../rhojvm-base/" }
 stack_map-verifier = { path = "../stack_map-verifier/" }
 rhojvm = { path = "../rhojvm/" }
@@ -21,6 +22,8 @@ tracing-subscriber = { version = "0.2.0", default-features = false, features = [
 ] }
 # For command line argument parsing
 clap = { version = "3.1.0", features = ["derive"] }
+
+either = "1.6"
 # Used for profiling allocations and memory usage.
 # Useful, but has many dependencies and runtime-expensive
 #dhat = "0.2.4"

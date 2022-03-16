@@ -442,6 +442,10 @@ fn trace_instance(
                 gc.mark(class_ref.into_generic());
                 gc.mark(held_ref.into_generic());
             }
+            ReferenceInstance::Thread(thread) => {
+                let class_ref = thread.inner.static_ref;
+                gc.mark(class_ref.into_generic());
+            }
             ReferenceInstance::PrimitiveArray(_) => (),
             ReferenceInstance::ReferenceArray(array) => {
                 // TODO: It would be great if we could avoid allocating here

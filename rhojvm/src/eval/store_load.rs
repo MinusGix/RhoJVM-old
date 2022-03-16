@@ -385,6 +385,9 @@ impl RunInst for GetField {
             ReferenceInstance::Class(class) => {
                 // TODO: Check that it is the right class instance!
             }
+            ReferenceInstance::Thread(thread) => {
+                // TODO: Check that it is correct class instance!
+            }
             ReferenceInstance::StaticForm(class) => {
                 // TODO: Check that it is correct class instance!
             }

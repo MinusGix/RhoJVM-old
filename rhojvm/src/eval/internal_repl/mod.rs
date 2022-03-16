@@ -12,6 +12,7 @@ pub mod runtime;
 pub mod string;
 mod system;
 mod system_class_loader;
+mod thread;
 mod unsafe_;
 
 /// A garbage value intended for use in returns that shouldn't be used, because an exception was
@@ -167,6 +168,11 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_sun_misc_Unsafe_getAndAddInt" => {
                 into_opaque5ret(unsafe_::unsafe_get_and_add_int)
+            }
+
+            // Thread
+            b"Java_java_lang_Thread_currentThread" => {
+                into_opaque2ret(thread::thread_get_current_thread)
             }
 
             // String

@@ -965,6 +965,7 @@ fn get_field_for(env: *mut Env, obj: JObject, field_id: JFieldId) -> RuntimeValu
         Instance::Reference(re) => match re {
             ReferenceInstance::Class(class) => class.fields.get(field_id),
             ReferenceInstance::StaticForm(class) => class.inner.fields.get(field_id),
+            ReferenceInstance::Thread(class) => class.inner.fields.get(field_id),
             ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => {
                 panic!("Array does not properties")
             }
@@ -1149,7 +1150,9 @@ unsafe extern "C" fn get_array_length(env: *mut Env, instance: JArray) -> JSize 
     match instance {
         Instance::StaticClass(_) => panic!("Got static class instance in get array length"),
         Instance::Reference(re) => match re {
-            ReferenceInstance::StaticForm(_) | ReferenceInstance::Class(_) => panic!("Got class"),
+            ReferenceInstance::StaticForm(_)
+            | ReferenceInstance::Class(_)
+            | ReferenceInstance::Thread(_) => panic!("Got class"),
             ReferenceInstance::PrimitiveArray(arr) => arr.len(),
             ReferenceInstance::ReferenceArray(arr) => arr.len(),
         },

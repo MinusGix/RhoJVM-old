@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap, hash::Hash, thread::ThreadId};
 
 use classfile_parser::field_info::FieldAccessFlags;
 use either::Either;
@@ -126,7 +126,10 @@ impl GcValueMarker for Instance {}
 #[derive(Clone, Debug)]
 pub enum ReferenceInstance {
     Class(ClassInstance),
+    /// An instance of java/lang/Class
     StaticForm(StaticFormInstance),
+    /// An instance of java/lang/Thread
+    Thread(ThreadInstance),
     PrimitiveArray(PrimitiveArrayInstance),
     ReferenceArray(ReferenceArrayInstance),
 }
@@ -136,6 +139,7 @@ impl ReferenceInstance {
         match self {
             ReferenceInstance::Class(x) => x.fields.iter(),
             ReferenceInstance::StaticForm(x) => x.inner.fields.iter(),
+            ReferenceInstance::Thread(x) => x.inner.fields.iter(),
             ReferenceInstance::PrimitiveArray(x) => x.fields.iter(),
             ReferenceInstance::ReferenceArray(x) => x.fields.iter(),
         }
@@ -145,6 +149,7 @@ impl ReferenceInstance {
         match self {
             ReferenceInstance::Class(x) => x.instanceof,
             ReferenceInstance::StaticForm(x) => x.inner.instanceof,
+            ReferenceInstance::Thread(x) => x.inner.instanceof,
             ReferenceInstance::PrimitiveArray(x) => x.instanceof,
             ReferenceInstance::ReferenceArray(x) => x.instanceof,
         }
@@ -156,6 +161,7 @@ impl ReferenceInstance {
         match self {
             ReferenceInstance::Class(x) => Some(&x.fields),
             ReferenceInstance::StaticForm(x) => Some(&x.inner.fields),
+            ReferenceInstance::Thread(x) => Some(&x.inner.fields),
             ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => None,
         }
     }
@@ -166,6 +172,7 @@ impl ReferenceInstance {
         match self {
             ReferenceInstance::Class(x) => Some(&mut x.fields),
             ReferenceInstance::StaticForm(x) => Some(&mut x.inner.fields),
+            ReferenceInstance::Thread(x) => Some(&mut x.inner.fields),
             ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => None,
         }
     }
@@ -175,6 +182,7 @@ impl MemorySize for ReferenceInstance {
         match self {
             ReferenceInstance::Class(x) => x.memory_size(),
             ReferenceInstance::StaticForm(x) => x.memory_size(),
+            ReferenceInstance::Thread(x) => x.memory_size(),
             ReferenceInstance::PrimitiveArray(x) => x.memory_size(),
             ReferenceInstance::ReferenceArray(x) => x.memory_size(),
         }
@@ -246,6 +254,33 @@ impl MemorySize for StaticFormInstance {
     }
 }
 impl GcValueMarker for StaticFormInstance {}
+
+#[derive(Debug, Clone)]
+pub struct ThreadInstance {
+    pub(crate) inner: ClassInstance,
+    pub thread_id: Option<ThreadId>,
+}
+impl ThreadInstance {
+    #[must_use]
+    pub fn new(inner_instance: ClassInstance, thread_id: Option<ThreadId>) -> ThreadInstance {
+        ThreadInstance {
+            inner: inner_instance,
+            thread_id,
+        }
+    }
+
+    /// Insert the `thread_id` into the structure, not bothering to check if it already exists
+    pub(crate) fn fill_thread_id_unchecked(&mut self, thread_id: ThreadId) {
+        self.thread_id = Some(thread_id);
+    }
+}
+impl_reference_instance_conv!(Thread => ThreadInstance);
+impl MemorySize for ThreadInstance {
+    fn memory_size(&self) -> usize {
+        std::mem::size_of::<Self>()
+    }
+}
+impl GcValueMarker for ThreadInstance {}
 
 /// An instance of some class
 #[derive(Debug, Clone)]

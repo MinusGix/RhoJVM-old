@@ -22,7 +22,7 @@ use usize_cast::IntoUsize;
 use crate::{
     class_instance::{
         ClassInstance, Field, FieldAccess, FieldId, FieldIndex, Fields, PrimitiveArrayInstance,
-        ReferenceArrayInstance, ReferenceInstance,
+        ReferenceArrayInstance, ReferenceInstance, ThreadInstance,
     },
     eval::EvalError,
     gc::GcRef,
@@ -153,7 +153,7 @@ pub(crate) fn add_fields_for_class<F: Fn(&FieldInfoOpt) -> bool>(
 /// Takes a filter function so that this can be used for static class initialization and normal
 /// class init
 ///     Should return true if it should be kept
-pub(crate) fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
+pub fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
     env: &mut Env,
     class_id: ClassId,
     filter_fn: F,
@@ -212,6 +212,8 @@ impl RunInst for New {
         let target_class_name = class_file.get_text_b(target_class.name_index).ok_or(
             EvalError::InvalidConstantPoolIndex(target_class.name_index.into_generic()),
         )?;
+        // Thread is handled specially
+        let is_thread_class = target_class_name == b"java/lang/Thread";
         let target_class_id = env.class_names.gcid_from_bytes(target_class_name);
 
         // TODO: This provides some errors that should be exceptions
@@ -260,11 +262,13 @@ impl RunInst for New {
             fields,
         };
 
-        // Allocate the class instance
-        let class_ref = env.state.gc.alloc(class);
-        frame
-            .stack
-            .push(RuntimeValue::Reference(class_ref.into_generic()))?;
+        let class_ref = if is_thread_class {
+            let thread = ThreadInstance::new(class, None);
+            env.state.gc.alloc(thread).into_generic()
+        } else {
+            env.state.gc.alloc(class).into_generic()
+        };
+        frame.stack.push(RuntimeValue::Reference(class_ref))?;
 
         Ok(RunInstValue::Continue)
     }
