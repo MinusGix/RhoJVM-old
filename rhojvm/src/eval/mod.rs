@@ -679,6 +679,12 @@ pub fn eval_method(
                 }
                 (
                     DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Boolean),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JBoolean));
+                }
+                (
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
                     DescriptorType::Basic(DescriptorTypeBasic::Int),
                 ) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JInt));
