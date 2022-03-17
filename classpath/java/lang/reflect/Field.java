@@ -36,9 +36,7 @@ public final class Field extends AccessibleObject implements Member {
         return (internalField.flags & ACC_SYNTHETIC) != 0;
     }
 
-    public Class<?> getType() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native Class<?> getType();
 
     public Type getGenericType() {
         throw new UnsupportedOperationException("TODO: Implement this");

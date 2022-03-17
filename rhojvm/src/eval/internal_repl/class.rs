@@ -24,16 +24,16 @@ use crate::{
     GeneralError,
 };
 
-const BYTE_NAME: &[u8] = b"java/lang/Byte";
-const CHARACTER_NAME: &[u8] = b"java/lang/Character";
-const DOUBLE_NAME: &[u8] = b"java/lang/Double";
-const FLOAT_NAME: &[u8] = b"java/lang/Float";
-const INTEGER_NAME: &[u8] = b"java/lang/Integer";
-const LONG_NAME: &[u8] = b"java/lang/Long";
-const SHORT_NAME: &[u8] = b"java/lang/Short";
-const BOOL_NAME: &[u8] = b"java/lang/Boolean";
-const VOID_NAME: &[u8] = b"java/lang/Void";
-const PRIMITIVE_NAMES: &[&[u8]] = &[
+pub(crate) const BYTE_NAME: &[u8] = b"java/lang/Byte";
+pub(crate) const CHARACTER_NAME: &[u8] = b"java/lang/Character";
+pub(crate) const DOUBLE_NAME: &[u8] = b"java/lang/Double";
+pub(crate) const FLOAT_NAME: &[u8] = b"java/lang/Float";
+pub(crate) const INTEGER_NAME: &[u8] = b"java/lang/Integer";
+pub(crate) const LONG_NAME: &[u8] = b"java/lang/Long";
+pub(crate) const SHORT_NAME: &[u8] = b"java/lang/Short";
+pub(crate) const BOOL_NAME: &[u8] = b"java/lang/Boolean";
+pub(crate) const VOID_NAME: &[u8] = b"java/lang/Void";
+pub(crate) const PRIMITIVE_NAMES: &[&[u8]] = &[
     BYTE_NAME,
     CHARACTER_NAME,
     DOUBLE_NAME,

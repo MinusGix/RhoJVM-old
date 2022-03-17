@@ -6,6 +6,7 @@ use crate::{
 };
 
 mod class;
+pub mod field;
 mod object;
 mod primitive;
 pub mod reflection;
@@ -122,6 +123,8 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_Class_getComponentType" => {
                 into_opaque2ret(class::class_get_component_type)
             }
+            // Field
+            b"Java_java_lang_reflect_Field_getType" => into_opaque2ret(field::field_get_type),
             // System
             b"Java_java_lang_System_setProperties" => {
                 into_opaque3ret(system::system_set_properties)
