@@ -280,7 +280,7 @@ pub struct NativeInterface {
     pub get_float_array_region: MethodNoArguments,
     pub get_double_array_region: MethodNoArguments,
     pub set_boolean_array_region: MethodNoArguments,
-    pub set_byte_array_region: MethodNoArguments,
+    pub set_byte_array_region: SetByteArrayRegionFn,
     pub set_char_array_region: MethodNoArguments,
     pub set_short_array_region: MethodNoArguments,
     pub set_int_array_region: MethodNoArguments,
@@ -529,7 +529,7 @@ impl NativeInterface {
             get_float_array_region: unimpl_none_name!("get_float_array_region"),
             get_double_array_region: unimpl_none_name!("get_double_array_region"),
             set_boolean_array_region: unimpl_none_name!("set_boolean_array_region"),
-            set_byte_array_region: unimpl_none_name!("set_byte_array_region"),
+            set_byte_array_region,
             set_char_array_region: unimpl_none_name!("set_char_array_region"),
             set_short_array_region: unimpl_none_name!("set_short_array_region"),
             set_int_array_region: unimpl_none_name!("set_int_array_region"),
@@ -1334,7 +1334,7 @@ unsafe extern "C" fn get_byte_array_region(
             .take(length)
             .enumerate();
 
-        for (offset, val) in instance.elements.iter().enumerate() {
+        for (offset, val) in iter {
             let ptr_dest = output.add(offset);
             if let RuntimeValuePrimitive::I8(val) = val {
                 *ptr_dest = *val;
@@ -1344,6 +1344,74 @@ unsafe extern "C" fn get_byte_array_region(
         }
     } else {
         panic!("Instance was not a primitive array")
+    }
+}
+pub type SetByteArrayRegionFn = unsafe extern "C" fn(
+    env: *mut Env,
+    instance: JByteArray,
+    start: JSize,
+    length: JSize,
+    buffer: *const JByte,
+);
+unsafe extern "C" fn set_byte_array_region(
+    env: *mut Env,
+    instance: JByteArray,
+    start: JSize,
+    length: JSize,
+    buffer: *const JByte,
+) {
+    assert_valid_env(env);
+    assert!(!buffer.is_null(), "input buffer was a nullptr");
+    let env = &mut *env;
+
+    assert!(start >= 0, "Negative start");
+
+    let start = start.unsigned_abs();
+    let start = start.into_usize();
+
+    assert!(length >= 0, "Negative length");
+
+    let length = length.unsigned_abs();
+    let length = length.into_usize();
+
+    let end = if let Some(end) = start.checked_add(length) {
+        end
+    } else {
+        panic!("length + start would overflow");
+    };
+
+    let instance_ref = env
+        .get_jobject_as_gcref(instance)
+        .expect("SetByteArrayRegion array was null");
+    let instance = env
+        .state
+        .gc
+        .deref_mut(instance_ref)
+        .expect("Failed to get array");
+    if let Instance::Reference(ReferenceInstance::PrimitiveArray(instance)) = instance {
+        assert!(instance.element_type == RuntimeTypePrimitive::I8);
+        assert!(isize::try_from(instance.elements.len()).is_ok());
+
+        assert!(
+            start < instance.elements.len(),
+            "Start is past end of array"
+        );
+
+        assert!(end <= instance.elements.len(), "End is past end of array");
+
+        let iter = instance
+            .elements
+            .iter_mut()
+            .skip(start)
+            .take(length)
+            .enumerate();
+        for (offset, val) in iter {
+            let ptr_src = buffer.add(offset);
+            let src = *ptr_src;
+            *val = RuntimeValuePrimitive::I8(src);
+        }
+    } else {
+        panic!("Instance was not a primitive array");
     }
 }
 
