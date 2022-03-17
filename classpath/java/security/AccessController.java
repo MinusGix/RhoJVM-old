@@ -19,6 +19,10 @@ public final class AccessController {
         return action.run();
     }
 
+    public static<T> T doPrivileged(PrivilegedExceptionAction<T> action) throws Exception {
+        return action.run();
+    }
+
     public static<T> T doPrivileged(PrivilegedExceptionAction<T> action, AccessControlContext context) throws Exception {
         // TODO: Restrict privileges with the context
         return action.run();
