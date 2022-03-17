@@ -1,4 +1,7 @@
-use std::{ffi::CStr, os::raw::c_char};
+use std::{
+    ffi::{c_void, CStr},
+    os::raw::c_char,
+};
 
 use classfile_parser::method_info::MethodAccessFlags;
 use rhojvm_base::{
@@ -298,8 +301,8 @@ pub struct NativeInterface {
     pub get_string_region: MethodNoArguments,
     pub get_string_utf_region: MethodNoArguments,
 
-    pub get_primitive_array_critical: MethodNoArguments,
-    pub release_primitive_array_critical: MethodNoArguments,
+    pub get_primitive_array_critical: GetPrimitiveArrayCriticalFn,
+    pub release_primitive_array_critical: ReleasePrimitiveArrayCriticalFn,
 
     pub get_string_critical: GetStringCriticalFn,
     pub release_string_critical: ReleaseStringCriticalFn,
@@ -542,8 +545,8 @@ impl NativeInterface {
             get_java_vm: unimpl_none_name!("get_java_vm"),
             get_string_region: unimpl_none_name!("get_string_region"),
             get_string_utf_region: unimpl_none_name!("get_string_utf_region"),
-            get_primitive_array_critical: unimpl_none_name!("get_primitive_array_critical"),
-            release_primitive_array_critical: unimpl_none_name!("release_primitive_array_critical"),
+            get_primitive_array_critical,
+            release_primitive_array_critical,
             get_string_critical,
             release_string_critical,
             new_weak_global_ref: unimpl_none_name!("new_weak_global_ref"),
@@ -1644,4 +1647,118 @@ unsafe extern "C" fn release_string_critical(
     } else {
         todo!("NPE");
     }
+}
+
+fn construct_layout_for_primitive_array(
+    typ: RuntimeTypePrimitive,
+    len: usize,
+) -> std::alloc::Layout {
+    use std::alloc::Layout;
+    match typ {
+        RuntimeTypePrimitive::I64 => Layout::array::<JLong>(len),
+        RuntimeTypePrimitive::I32 => Layout::array::<JInt>(len),
+        RuntimeTypePrimitive::I16 => Layout::array::<JShort>(len),
+        RuntimeTypePrimitive::I8 => Layout::array::<JByte>(len),
+        RuntimeTypePrimitive::F32 => Layout::array::<JFloat>(len),
+        RuntimeTypePrimitive::F64 => Layout::array::<JDouble>(len),
+        RuntimeTypePrimitive::Char => Layout::array::<JChar>(len),
+    }
+    .unwrap()
+}
+
+unsafe fn copy_values<T>(target_ptr: *mut T, values: impl Iterator<Item = T>) {
+    for (i, val) in values.enumerate() {
+        assert!(isize::try_from(i).is_ok());
+        let element_ptr = target_ptr.add(i);
+        std::ptr::write(element_ptr, val);
+    }
+}
+
+fn allocate_primitive_array(
+    typ: RuntimeTypePrimitive,
+    data: &[RuntimeValuePrimitive],
+) -> *mut c_void {
+    let layout = construct_layout_for_primitive_array(typ, data.len());
+    let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+
+    let data = data.iter().copied();
+    unsafe {
+        match typ {
+            RuntimeTypePrimitive::I64 => {
+                copy_values(ptr.cast(), data.map(|x| x.into_i64().unwrap()));
+            }
+            RuntimeTypePrimitive::I32 => {
+                copy_values(ptr.cast(), data.map(|x| x.into_i32().unwrap()));
+            }
+            RuntimeTypePrimitive::I16 => {
+                copy_values(ptr.cast(), data.map(|x| x.into_i16().unwrap()));
+            }
+            RuntimeTypePrimitive::I8 => {
+                copy_values(ptr.cast(), data.map(|x| x.into_byte().unwrap()));
+            }
+            RuntimeTypePrimitive::F32 => {
+                copy_values(ptr.cast(), data.map(|x| x.into_f32().unwrap()));
+            }
+            RuntimeTypePrimitive::F64 => {
+                copy_values(ptr.cast(), data.map(|x| x.into_f64().unwrap()));
+            }
+            RuntimeTypePrimitive::Char => {
+                copy_values(ptr.cast(), data.map(|x| x.into_char().unwrap().0));
+            }
+        }
+    }
+
+    ptr.cast()
+}
+
+pub type GetPrimitiveArrayCriticalFn =
+    unsafe extern "C" fn(env: *mut Env, array: JArray, is_copy: *mut JBoolean) -> *mut c_void;
+unsafe extern "C" fn get_primitive_array_critical(
+    env: *mut Env,
+    array: JArray,
+    is_copy: *mut JBoolean,
+) -> *mut c_void {
+    assert_valid_env(env);
+    assert_non_aliasing(env, is_copy);
+
+    let env = &mut *env;
+
+    if let Some(array) = env.get_jobject_as_gcref(array) {
+        // NOTE: We can't just return a pointer to the data even once we get support for that
+        // because GetPrimitiveArrayCritical can be called multiple times
+        // However, ensuring that that is right and that they don't use the same array is hard
+        // so it may be best not to ever return a raw pointer.
+        // It might theoretically be fine, even if they're the same instance, since we aren't
+        // forging references from them, but it is still iffy
+
+        let array = env
+            .state
+            .gc
+            .deref(array.unchecked_as::<ReferenceInstance>())
+            .unwrap();
+        match array {
+            ReferenceInstance::PrimitiveArray(array) => {
+                allocate_primitive_array(array.element_type, &array.elements)
+            }
+            ReferenceInstance::ReferenceArray(_) => todo!(),
+            // Invalid
+            ReferenceInstance::Class(_) => todo!(),
+            ReferenceInstance::StaticForm(_) => todo!(),
+            ReferenceInstance::Thread(_) => todo!(),
+        }
+    } else {
+        todo!("NPE")
+    }
+}
+
+pub type ReleasePrimitiveArrayCriticalFn =
+    unsafe extern "C" fn(env: *mut Env, array: JArray, ptr: *mut c_void, mode: JInt);
+unsafe extern "C" fn release_primitive_array_critical(
+    env: *mut Env,
+    array: JArray,
+    ptr: *mut c_void,
+    mode: JInt,
+) {
+    // FIXME: We need to copy the data back into the array since there might have been edits!
+    tracing::warn!("ReleasePrimitiveArrayCritical unimplemented");
 }
