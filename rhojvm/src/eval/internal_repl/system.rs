@@ -107,6 +107,7 @@ struct Properties {
     tmpdir: Cow<'static, str>,
 
     username: Cow<'static, str>,
+    user_home: Cow<'static, str>,
 }
 impl Properties {
     // TODO: Can we warn/error at compile time if there is unknown data?
@@ -167,6 +168,9 @@ impl Properties {
                 .to_str()
                 .map_or(Cow::Borrowed("/tmp"), |x| Cow::Owned(x.to_string())),
             username: Cow::Owned(whoami::username()),
+            user_home: dirs::home_dir()
+                .and_then(|x| x.to_str().map(ToString::to_string))
+                .map_or(Cow::Borrowed("?"), Cow::Owned),
         }
     }
 
@@ -189,13 +193,16 @@ impl Properties {
                 .to_str()
                 .map_or(Cow::Borrowed("/tmp"), |x| Cow::Owned(x.to_string())),
             username: Cow::Owned(whoami::username()),
+            user_home: dirs::home_dir()
+                .and_then(|x| x.to_str().map(ToString::to_string))
+                .map_or(Cow::Borrowed("?"), Cow::Owned),
         }
     }
 }
 impl IntoIterator for Properties {
     type Item = (&'static str, Cow<'static, str>);
 
-    type IntoIter = std::array::IntoIter<Self::Item, 9>;
+    type IntoIter = std::array::IntoIter<Self::Item, 10>;
 
     fn into_iter(self) -> Self::IntoIter {
         // TODO: Could we provide a compile error if we don't use all the fields?
@@ -209,6 +216,7 @@ impl IntoIterator for Properties {
             ("user.dir", self.user_dir),
             ("java.io.tmpdir", self.tmpdir),
             ("user.name", self.username),
+            ("user.home", self.user_home),
         ]
         .into_iter()
     }
