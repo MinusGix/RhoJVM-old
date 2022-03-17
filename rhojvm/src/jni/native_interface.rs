@@ -1325,7 +1325,7 @@ unsafe extern "C" fn get_byte_array_region(
             "Start is past end of array"
         );
 
-        assert!(end < instance.elements.len(), "End is past end of array");
+        assert!(end <= instance.elements.len(), "End is past end of array");
 
         let iter = instance
             .elements
