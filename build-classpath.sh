@@ -20,6 +20,9 @@ JFILES="$JFILES ./java/security/AccessController.java"
 # sun/misc/
 JFILES="$JFILES ./sun/misc/VM.java ./sun/misc/Unsafe.java"
 
+# sun/reflect/
+JFILES="$JFILES ./sun/reflect/Reflection.java"
+
 # rho/
 JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/InternalField.java"
 

@@ -8,6 +8,7 @@ use crate::{
 mod class;
 mod object;
 mod primitive;
+pub mod reflection;
 pub mod runtime;
 pub mod string;
 mod system;
@@ -189,6 +190,11 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_sun_misc_Unsafe_getAndAddInt" => {
                 into_opaque5ret(unsafe_::unsafe_get_and_add_int)
+            }
+
+            // sun/reflect/Reflection
+            b"Java_sun_reflect_Reflection_getCallerClass" => {
+                into_opaque2ret(reflection::get_caller_class)
             }
 
             // Thread
