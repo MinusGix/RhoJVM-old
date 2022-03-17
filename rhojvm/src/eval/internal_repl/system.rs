@@ -1,13 +1,10 @@
-use std::{
-    borrow::Cow,
-    path::{Path, PathBuf},
-};
+use std::borrow::Cow;
 
 use rhojvm_base::code::{
     method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
     types::JavaChar,
 };
-use sysinfo::{RefreshKind, SystemExt};
+use sysinfo::SystemExt;
 use usize_cast::IntoUsize;
 
 use crate::{
@@ -102,6 +99,8 @@ struct Properties {
     os_arch: &'static str,
 
     user_dir: Cow<'static, str>,
+
+    tmpdir: Cow<'static, str>,
 }
 impl Properties {
     // TODO: Can we warn/error at compile time if there is unknown data?
@@ -157,7 +156,10 @@ impl Properties {
             user_dir: std::env::current_dir()
                 .ok()
                 .and_then(|x| x.to_str().map(ToString::to_string))
-                .map_or(Cow::Borrowed("C:/"), Cow::Owned),
+                .map_or(Cow::Borrowed("C:\\"), Cow::Owned),
+            tmpdir: std::env::temp_dir()
+                .to_str()
+                .map_or(Cow::Borrowed("/tmp"), |x| Cow::Owned(x.to_string())),
         }
     }
 
@@ -176,13 +178,16 @@ impl Properties {
                 .ok()
                 .and_then(|x| x.to_str().map(ToString::to_string))
                 .map_or(Cow::Borrowed("/"), Cow::Owned),
+            tmpdir: std::env::temp_dir()
+                .to_str()
+                .map_or(Cow::Borrowed("/tmp"), |x| Cow::Owned(x.to_string())),
         }
     }
 }
 impl IntoIterator for Properties {
     type Item = (&'static str, Cow<'static, str>);
 
-    type IntoIter = std::array::IntoIter<Self::Item, 7>;
+    type IntoIter = std::array::IntoIter<Self::Item, 8>;
 
     fn into_iter(self) -> Self::IntoIter {
         // TODO: Could we provide a compile error if we don't use all the fields?
@@ -194,6 +199,7 @@ impl IntoIterator for Properties {
             ("os.name", self.os_name),
             ("os.arch", Cow::Borrowed(self.os_arch)),
             ("user.dir", self.user_dir),
+            ("java.io.tmpdir", self.tmpdir),
         ]
         .into_iter()
     }
