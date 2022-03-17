@@ -16,9 +16,7 @@ use smallvec::SmallVec;
 use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{
-    class_instance::{
-        ClassInstance, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance,
-    },
+    class_instance::{FieldIndex, Instance, ReferenceInstance},
     eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
@@ -164,15 +162,15 @@ pub struct NativeInterface {
     pub get_long_field: GetLongFieldFn,
     pub get_float_field: GetFloatFieldFn,
     pub get_double_field: GetDoubleFieldFn,
-    pub set_object_field: MethodNoArguments,
-    pub set_boolean_field: MethodNoArguments,
-    pub set_byte_field: MethodNoArguments,
-    pub set_char_field: MethodNoArguments,
-    pub set_short_field: MethodNoArguments,
-    pub set_int_field: MethodNoArguments,
-    pub set_long_field: MethodNoArguments,
-    pub set_float_field: MethodNoArguments,
-    pub set_double_field: MethodNoArguments,
+    pub set_object_field: SetObjectFieldFn,
+    pub set_boolean_field: SetBooleanFieldFn,
+    pub set_byte_field: SetByteFieldFn,
+    pub set_char_field: SetCharFieldFn,
+    pub set_short_field: SetShortFieldFn,
+    pub set_int_field: SetIntFieldFn,
+    pub set_long_field: SetLongFieldFn,
+    pub set_float_field: SetFloatFieldFn,
+    pub set_double_field: SetDoubleFieldFn,
 
     pub get_static_method_id: GetStaticMethodIdFn,
 
@@ -427,15 +425,15 @@ impl NativeInterface {
             get_long_field,
             get_float_field,
             get_double_field,
-            set_object_field: unimpl_none_name!("set_object_field"),
-            set_boolean_field: unimpl_none_name!("set_boolean_field"),
-            set_byte_field: unimpl_none_name!("set_byte_field"),
-            set_char_field: unimpl_none_name!("set_char_field"),
-            set_short_field: unimpl_none_name!("set_short_field"),
-            set_int_field: unimpl_none_name!("set_int_field"),
-            set_long_field: unimpl_none_name!("set_long_field"),
-            set_float_field: unimpl_none_name!("set_float_field"),
-            set_double_field: unimpl_none_name!("set_double_field"),
+            set_object_field,
+            set_boolean_field,
+            set_byte_field,
+            set_char_field,
+            set_short_field,
+            set_int_field,
+            set_long_field,
+            set_float_field,
+            set_double_field,
             get_static_method_id,
             call_static_object_method: unimpl_none_name!("call_static_object_method"),
             call_static_object_method_v,
@@ -953,20 +951,17 @@ unsafe extern "C" fn get_field_id(
     }
 }
 
-fn get_field_for(env: *mut Env, obj: JObject, field_id: JFieldId) -> RuntimeValue {
-    assert_valid_env(env);
-    let env = unsafe { &mut *env };
-
+fn get_field_for<'a>(env: &'a mut Env, obj: JObject, field_id: JFieldId) -> &'a mut RuntimeValue {
     let obj = unsafe { env.get_jobject_as_gcref(obj) }.expect("Object was null");
     let field_id = unsafe { field_id.into_field_id() }.expect("Null field id");
 
-    let obj_instance = env.state.gc.deref(obj).expect("Bad gc ref");
+    let obj_instance = env.state.gc.deref_mut(obj).expect("Bad gc ref");
     let field = match obj_instance {
         Instance::StaticClass(_) => panic!("Static class ref is not allowed"),
         Instance::Reference(re) => match re {
-            ReferenceInstance::Class(class) => class.fields.get(field_id),
-            ReferenceInstance::StaticForm(class) => class.inner.fields.get(field_id),
-            ReferenceInstance::Thread(class) => class.inner.fields.get(field_id),
+            ReferenceInstance::Class(class) => class.fields.get_mut(field_id),
+            ReferenceInstance::StaticForm(class) => class.inner.fields.get_mut(field_id),
+            ReferenceInstance::Thread(class) => class.inner.fields.get_mut(field_id),
             ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => {
                 panic!("Array does not properties")
             }
@@ -974,21 +969,18 @@ fn get_field_for(env: *mut Env, obj: JObject, field_id: JFieldId) -> RuntimeValu
     };
 
     let field = field.expect("Failed to find field");
-    field.value()
+    field.value_mut()
 }
 
 pub type GetObjectFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JObject;
 unsafe extern "C" fn get_object_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JObject {
-    match get_field_for(env, obj, field_id) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    match *get_field_for(env, obj, field_id) {
         RuntimeValue::Primitive(_) => panic!("Field was a primitive"),
         RuntimeValue::NullReference => JObject::null(),
-        RuntimeValue::Reference(re) => {
-            assert_valid_env(env);
-            let env = &mut *env;
-
-            env.get_local_jobject_for(re.into_generic())
-        }
+        RuntimeValue::Reference(re) => env.get_local_jobject_for(re.into_generic()),
     }
 }
 
@@ -999,8 +991,10 @@ unsafe extern "C" fn get_boolean_field(
     obj: JObject,
     field_id: JFieldId,
 ) -> JBoolean {
+    assert_valid_env(env);
+    let env = &mut *env;
     if let RuntimeValue::Primitive(RuntimeValuePrimitive::Bool(value)) =
-        get_field_for(env, obj, field_id)
+        *get_field_for(env, obj, field_id)
     {
         value.into()
     } else {
@@ -1011,8 +1005,10 @@ unsafe extern "C" fn get_boolean_field(
 pub type GetByteFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JByte;
 unsafe extern "C" fn get_byte_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JByte {
+    assert_valid_env(env);
+    let env = &mut *env;
     if let RuntimeValue::Primitive(RuntimeValuePrimitive::I8(value)) =
-        get_field_for(env, obj, field_id)
+        *get_field_for(env, obj, field_id)
     {
         value
     } else {
@@ -1023,8 +1019,10 @@ unsafe extern "C" fn get_byte_field(env: *mut Env, obj: JObject, field_id: JFiel
 pub type GetCharFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JChar;
 unsafe extern "C" fn get_char_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JChar {
+    assert_valid_env(env);
+    let env = &mut *env;
     if let RuntimeValue::Primitive(RuntimeValuePrimitive::Char(value)) =
-        get_field_for(env, obj, field_id)
+        *get_field_for(env, obj, field_id)
     {
         value.as_i16() as u16
     } else {
@@ -1035,8 +1033,10 @@ unsafe extern "C" fn get_char_field(env: *mut Env, obj: JObject, field_id: JFiel
 pub type GetShortFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JShort;
 unsafe extern "C" fn get_short_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JShort {
+    assert_valid_env(env);
+    let env = &mut *env;
     if let RuntimeValue::Primitive(RuntimeValuePrimitive::I16(value)) =
-        get_field_for(env, obj, field_id)
+        *get_field_for(env, obj, field_id)
     {
         value
     } else {
@@ -1047,8 +1047,10 @@ unsafe extern "C" fn get_short_field(env: *mut Env, obj: JObject, field_id: JFie
 pub type GetIntFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JInt;
 unsafe extern "C" fn get_int_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JInt {
+    assert_valid_env(env);
+    let env = &mut *env;
     if let RuntimeValue::Primitive(RuntimeValuePrimitive::I32(value)) =
-        get_field_for(env, obj, field_id)
+        *get_field_for(env, obj, field_id)
     {
         value
     } else {
@@ -1059,8 +1061,10 @@ unsafe extern "C" fn get_int_field(env: *mut Env, obj: JObject, field_id: JField
 pub type GetLongFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JLong;
 unsafe extern "C" fn get_long_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JLong {
+    assert_valid_env(env);
+    let env = &mut *env;
     if let RuntimeValue::Primitive(RuntimeValuePrimitive::I64(value)) =
-        get_field_for(env, obj, field_id)
+        *get_field_for(env, obj, field_id)
     {
         value
     } else {
@@ -1071,8 +1075,10 @@ unsafe extern "C" fn get_long_field(env: *mut Env, obj: JObject, field_id: JFiel
 pub type GetFloatFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JFloat;
 unsafe extern "C" fn get_float_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JFloat {
+    assert_valid_env(env);
+    let env = &mut *env;
     if let RuntimeValue::Primitive(RuntimeValuePrimitive::F32(value)) =
-        get_field_for(env, obj, field_id)
+        *get_field_for(env, obj, field_id)
     {
         value
     } else {
@@ -1083,13 +1089,121 @@ unsafe extern "C" fn get_float_field(env: *mut Env, obj: JObject, field_id: JFie
 pub type GetDoubleFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId) -> JDouble;
 unsafe extern "C" fn get_double_field(env: *mut Env, obj: JObject, field_id: JFieldId) -> JDouble {
+    assert_valid_env(env);
+    let env = &mut *env;
     if let RuntimeValue::Primitive(RuntimeValuePrimitive::F64(value)) =
-        get_field_for(env, obj, field_id)
+        *get_field_for(env, obj, field_id)
     {
         value
     } else {
         panic!("Field did not contain a double");
     }
+}
+
+pub type SetObjectFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JObject);
+unsafe extern "C" fn set_object_field(
+    env: *mut Env,
+    obj: JObject,
+    field_id: JFieldId,
+    value: JObject,
+) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    // FIXME: Check that we can set that object into the field
+    let value = env.get_jobject_as_gcref(value);
+    let field_value = get_field_for(env, obj, field_id);
+
+    if let Some(value) = value {
+        *field_value = RuntimeValue::Reference(value.unchecked_as());
+    } else {
+        *field_value = RuntimeValue::NullReference;
+    }
+}
+pub type SetBooleanFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JBoolean);
+unsafe extern "C" fn set_boolean_field(
+    env: *mut Env,
+    obj: JObject,
+    field_id: JFieldId,
+    value: JBoolean,
+) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    let field_value = get_field_for(env, obj, field_id);
+    *field_value = RuntimeValuePrimitive::Bool(value != 0).into();
+}
+pub type SetByteFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JByte);
+unsafe extern "C" fn set_byte_field(env: *mut Env, obj: JObject, field_id: JFieldId, value: JByte) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    let field_value = get_field_for(env, obj, field_id);
+    *field_value = RuntimeValuePrimitive::I8(value).into();
+}
+pub type SetCharFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JChar);
+unsafe extern "C" fn set_char_field(env: *mut Env, obj: JObject, field_id: JFieldId, value: JChar) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    let value = JavaChar(value as u16);
+    let field_value = get_field_for(env, obj, field_id);
+    *field_value = RuntimeValuePrimitive::Char(value).into();
+}
+pub type SetShortFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JShort);
+unsafe extern "C" fn set_short_field(
+    env: *mut Env,
+    obj: JObject,
+    field_id: JFieldId,
+    value: JShort,
+) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    let field_value = get_field_for(env, obj, field_id);
+    *field_value = RuntimeValuePrimitive::I16(value).into();
+}
+pub type SetIntFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JInt);
+unsafe extern "C" fn set_int_field(env: *mut Env, obj: JObject, field_id: JFieldId, value: JInt) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    let field_value = get_field_for(env, obj, field_id);
+    *field_value = RuntimeValuePrimitive::I32(value).into();
+}
+pub type SetLongFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JLong);
+unsafe extern "C" fn set_long_field(env: *mut Env, obj: JObject, field_id: JFieldId, value: JLong) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    let field_value = get_field_for(env, obj, field_id);
+    *field_value = RuntimeValuePrimitive::I64(value).into();
+}
+pub type SetFloatFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JFloat);
+unsafe extern "C" fn set_float_field(
+    env: *mut Env,
+    obj: JObject,
+    field_id: JFieldId,
+    value: JFloat,
+) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    let field_value = get_field_for(env, obj, field_id);
+    *field_value = RuntimeValuePrimitive::F32(value).into();
+}
+pub type SetDoubleFieldFn =
+    unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JDouble);
+unsafe extern "C" fn set_double_field(
+    env: *mut Env,
+    obj: JObject,
+    field_id: JFieldId,
+    value: JDouble,
+) {
+    assert_valid_env(env);
+    let env = &mut *env;
+    let field_value = get_field_for(env, obj, field_id);
+    *field_value = RuntimeValuePrimitive::F64(value).into();
 }
 
 fn get_field_id_safe(
