@@ -1,6 +1,9 @@
 use std::num::NonZeroUsize;
 
-use classfile_parser::field_info::{FieldAccessFlags, FieldInfoOpt};
+use classfile_parser::{
+    attribute_info::InstructionIndex,
+    field_info::{FieldAccessFlags, FieldInfoOpt},
+};
 use either::Either;
 use rhojvm_base::{
     code::{
@@ -8,7 +11,7 @@ use rhojvm_base::{
         types::{JavaChar, PrimitiveType},
     },
     data::{class_files::ClassFiles, class_names::ClassNames, classes::Classes, methods::Methods},
-    id::ClassId,
+    id::{ClassId, MethodId},
     package::Packages,
     util::MemorySize,
 };
@@ -40,6 +43,17 @@ macro_rules! const_assert {
     };
 }
 
+#[derive(Debug, Clone)]
+pub struct CallStackEntry {
+    /// The method that was called
+    pub called_method: MethodId,
+    /// The method id of the method that called it, typically this should be the previous entry in
+    /// the callstack
+    pub called_from: MethodId,
+    /// The instruction index of inside the method that called it
+    pub called_at: InstructionIndex,
+}
+
 /// A struct that holds references to several of the important structures in their typical usage
 /// This is repr-C because it needs to be able to be passed to native functions
 #[repr(C)]
@@ -54,6 +68,8 @@ pub struct Env<'i> {
     pub state: State,
     pub tdata: ThreadData,
     pub string_interner: StringInterner,
+    /// Keeps track of methods being executed and what instruction they were executed at
+    pub call_stack: Vec<CallStackEntry>,
     pub(crate) system_info: sysinfo::System,
     /// Keep track of the time we started up (approximately)
     /// Primarily for `System#nanoTime`/`System#currentTimeMillis`
@@ -81,6 +97,7 @@ impl<'i> Env<'i> {
             state,
             tdata,
             string_interner,
+            call_stack: Vec::with_capacity(128),
             system_info: sysinfo::System::new_with_specifics(
                 RefreshKind::new().with_cpu().with_memory(),
             ),

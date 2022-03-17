@@ -21,6 +21,7 @@ use crate::{
     eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals},
     initialize_class, map_interface_index_small_vec_to_ids, resolve_derive,
     rv::{RuntimeValue, RuntimeValuePrimitive},
+    util::CallStackEntry,
     GeneralError, State,
 };
 
@@ -223,6 +224,7 @@ impl RunInst for InvokeStatic {
             env,
             method_id,
             frame,
+            inst_index,
             ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
@@ -319,7 +321,18 @@ impl RunInst for InvokeStatic {
         }
 
         let call_frame = Frame::new_locals(locals);
+
+        let cstack_entry = CallStackEntry {
+            called_method: target_method_id.into(),
+            called_from: method_id.into(),
+            called_at: inst_index,
+        };
+
+        // Note: We don't pop the stack entry if there is an error because that lets us know where
+        // we were at
+        env.call_stack.push(cstack_entry);
         let res = eval_method(env, target_method_id.into(), call_frame)?;
+        env.call_stack.pop();
 
         match res {
             // TODO: Check that these are valid return types!
@@ -340,6 +353,7 @@ impl RunInst for InvokeInterface {
             env,
             method_id,
             frame,
+            inst_index,
             ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
@@ -447,7 +461,18 @@ impl RunInst for InvokeInterface {
         // TODO: Check if the method is accessible?
 
         let call_frame = Frame::new_locals(locals);
+
+        let cstack_entry = CallStackEntry {
+            called_method: target_method_id,
+            called_from: method_id.into(),
+            called_at: inst_index,
+        };
+
+        // Note: We don't pop the stack entry if there is an error because that lets us know where
+        // we were at
+        env.call_stack.push(cstack_entry);
         let res = eval_method(env, target_method_id, call_frame)?;
+        env.call_stack.pop();
 
         match res {
             // TODO: Check that these are valid return types!
@@ -469,6 +494,7 @@ impl RunInst for InvokeSpecial {
             env,
             method_id,
             frame,
+            inst_index,
             ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
@@ -573,7 +599,18 @@ impl RunInst for InvokeSpecial {
 
         // Construct a frame for the function we're calling and invoke it
         let call_frame = Frame::new_locals(locals);
+
+        let cstack_entry = CallStackEntry {
+            called_method: target_method_id.into(),
+            called_from: method_id.into(),
+            called_at: inst_index,
+        };
+
+        // Note: We don't pop the stack entry if there is an error because that lets us know where
+        // we were at
+        env.call_stack.push(cstack_entry);
         let res = eval_method(env, target_method_id.into(), call_frame)?;
+        env.call_stack.pop();
 
         match res {
             // TODO: Check that these are valid return types!
@@ -716,6 +753,7 @@ impl RunInst for InvokeVirtual {
             env,
             method_id,
             frame,
+            inst_index,
             ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
@@ -838,7 +876,18 @@ impl RunInst for InvokeVirtual {
         // TODO: Check if the method is accessible?
 
         let call_frame = Frame::new_locals(locals);
+
+        let cstack_entry = CallStackEntry {
+            called_method: target_method_id,
+            called_from: method_id.into(),
+            called_at: inst_index,
+        };
+
+        // Note: We don't pop the stack entry if there is an error because that lets us know where
+        // we were at
+        env.call_stack.push(cstack_entry);
         let res = eval_method(env, target_method_id, call_frame)?;
+        env.call_stack.pop();
 
         match res {
             // TODO: Check that these are valid return types!
