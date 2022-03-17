@@ -1,12 +1,16 @@
 use classfile_parser::field_info::FieldAccessFlags;
 use either::Either;
-use rhojvm_base::data::class_file_loader::Resource::Buffer;
+use rhojvm_base::{
+    code::method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
+    data::class_file_loader::Resource::Buffer,
+};
 
 use crate::{
-    class_instance::ClassInstance,
-    eval::{instances::make_fields, ValueException},
+    class_instance::{ClassInstance, Fields},
+    eval::{eval_method, instances::make_fields, EvalMethodValue, Frame, Locals, ValueException},
     initialize_class,
     jni::{JClass, JObject, JString},
+    rv::RuntimeValue,
     util::{construct_byte_array_input_stream, get_string_contents_as_rust_string, Env},
 };
 
@@ -81,6 +85,100 @@ pub(crate) extern "C" fn system_class_loader_get_system_resouce_as_stream(
                 // Exception
                 JObject::null()
             }
+        }
+    }
+}
+
+pub(crate) extern "C" fn system_class_loader_get_resources(
+    env: *mut Env<'_>,
+    _: JObject,
+    name: JString,
+) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let name = unsafe { env.get_jobject_as_gcref(name) };
+    let resource_name_ref = if let Some(name) = name {
+        name
+    } else {
+        todo!("NPE")
+    };
+    let resource_name = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        resource_name_ref,
+    )
+    .unwrap();
+
+    // TODO: Resources with the same name?
+    if env.class_files.loader.has_resource(&resource_name) {
+        let single_enumeration_id = env
+            .class_names
+            .gcid_from_bytes(b"rho/util/SingleEnumeration");
+        let static_ref = initialize_class(env, single_enumeration_id)
+            .unwrap()
+            .into_value();
+        if let Some(static_ref) = env.state.extract_value(static_ref) {
+            let fields = match make_fields(env, single_enumeration_id, |field_info| {
+                field_info.access_flags.contains(FieldAccessFlags::STATIC)
+            })
+            .unwrap()
+            {
+                Either::Left(fields) => fields,
+                Either::Right(exc) => {
+                    panic!("Exception");
+                }
+            };
+            let instance = ClassInstance::new(single_enumeration_id, static_ref, fields);
+            let instance_ref = env.state.gc.alloc(instance);
+
+            let descriptor = MethodDescriptor::new(
+                smallvec::smallvec![DescriptorType::Basic(DescriptorTypeBasic::Class(
+                    env.class_names.object_id()
+                ))],
+                None,
+            );
+            let method_id = env
+                .methods
+                .load_method_from_desc(
+                    &mut env.class_names,
+                    &mut env.class_files,
+                    single_enumeration_id,
+                    b"<init>",
+                    &descriptor,
+                )
+                .unwrap();
+
+            let frame = Frame::new_locals(Locals::new_with_array([
+                RuntimeValue::Reference(instance_ref.into_generic()),
+                RuntimeValue::Reference(resource_name_ref.unchecked_as()),
+            ]));
+            match eval_method(env, method_id.into(), frame).unwrap() {
+                EvalMethodValue::ReturnVoid | EvalMethodValue::Return(_) => unsafe {
+                    env.get_local_jobject_for(instance_ref.into_generic())
+                },
+                EvalMethodValue::Exception(exc) => {
+                    env.state.fill_native_exception(exc);
+                    JObject::null()
+                }
+            }
+        } else {
+            JObject::null()
+        }
+    } else {
+        let empty_enumeration_id = env
+            .class_names
+            .gcid_from_bytes(b"rho/util/EmptyEnumeration");
+        let static_ref = initialize_class(env, empty_enumeration_id)
+            .unwrap()
+            .into_value();
+        if let Some(static_ref) = env.state.extract_value(static_ref) {
+            let instance = ClassInstance::new(empty_enumeration_id, static_ref, Fields::default());
+            let instance_ref = env.state.gc.alloc(instance);
+            unsafe { env.get_local_jobject_for(instance_ref.into_generic()) }
+        } else {
+            JObject::null()
         }
     }
 }

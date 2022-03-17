@@ -26,6 +26,9 @@ JFILES="$JFILES ./sun/reflect/Reflection.java"
 # rho/
 JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/InternalField.java"
 
+# rho/util/
+JFILES="$JFILES ./rho/util/EmptyEnumeration.java ./rho/util/SingleEnumeration.java"
+
 echo $JFILES
 # Compile them all
 javac -cp . $JFILES
