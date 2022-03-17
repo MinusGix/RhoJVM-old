@@ -1,4 +1,7 @@
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
 use rhojvm_base::code::{
     method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
@@ -97,6 +100,8 @@ struct Properties {
     file_encoding: &'static str,
     os_name: Cow<'static, str>,
     os_arch: &'static str,
+
+    user_dir: Cow<'static, str>,
 }
 impl Properties {
     // TODO: Can we warn/error at compile time if there is unknown data?
@@ -148,6 +153,11 @@ impl Properties {
             file_encoding: "UTF-8",
             os_name: Cow::Borrowed("Windows"),
             os_arch: Properties::os_arch(),
+            // TODO: Can we do better?
+            user_dir: std::env::current_dir()
+                .ok()
+                .and_then(|x| x.to_str().map(ToString::to_string))
+                .map_or(Cow::Borrowed("C:/"), Cow::Owned),
         }
     }
 
@@ -161,13 +171,18 @@ impl Properties {
                 .long_os_version()
                 .map_or(Cow::Borrowed("Unix"), Cow::Owned),
             os_arch: Properties::os_arch(),
+            // TODO: Can we do better?
+            user_dir: std::env::current_dir()
+                .ok()
+                .and_then(|x| x.to_str().map(ToString::to_string))
+                .map_or(Cow::Borrowed("/"), Cow::Owned),
         }
     }
 }
 impl IntoIterator for Properties {
     type Item = (&'static str, Cow<'static, str>);
 
-    type IntoIter = std::array::IntoIter<Self::Item, 6>;
+    type IntoIter = std::array::IntoIter<Self::Item, 7>;
 
     fn into_iter(self) -> Self::IntoIter {
         // TODO: Could we provide a compile error if we don't use all the fields?
@@ -178,6 +193,7 @@ impl IntoIterator for Properties {
             ("file.encoding", Cow::Borrowed(self.file_encoding)),
             ("os.name", self.os_name),
             ("os.arch", Cow::Borrowed(self.os_arch)),
+            ("user.dir", self.user_dir),
         ]
         .into_iter()
     }
