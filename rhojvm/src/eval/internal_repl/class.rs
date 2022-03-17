@@ -12,7 +12,11 @@ use rhojvm_base::{
 
 use crate::{
     class_instance::{ClassInstance, Instance, ReferenceInstance},
-    eval::{eval_method, instances::make_fields, EvalMethodValue, Frame, Locals, ValueException},
+    eval::{
+        eval_method,
+        instances::{make_fields, try_casting, CastResult},
+        EvalMethodValue, Frame, Locals, ValueException,
+    },
     gc::GcRef,
     initialize_class,
     jni::{JBoolean, JChar, JClass, JObject, JString},
@@ -832,4 +836,45 @@ pub(crate) extern "C" fn class_is_assignable_from(
     // TODO: We need to special handle primitive classes
 
     JBoolean::from(is_castable)
+}
+
+pub(crate) extern "C" fn class_is_instance(
+    env: *mut Env<'_>,
+    this: JClass,
+    other: JObject,
+) -> JBoolean {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("IsAssignableFrom's class was null");
+    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        this.of_id
+    } else {
+        // This should be caught by method calling
+        // Though it would be good to not panic
+        panic!();
+    };
+
+    let other = unsafe { env.get_jobject_as_gcref(other) };
+    let other = other.expect("IsInstance's other class was null");
+    let other_id = match env.state.gc.deref(other).unwrap() {
+        Instance::StaticClass(_) => todo!(),
+        Instance::Reference(re) => re.instanceof(),
+    };
+
+    match try_casting(env, other_id, this_id, |_env, _, _, _| {
+        Ok(CastResult::Failure)
+    })
+    .unwrap()
+    {
+        CastResult::Success => JBoolean::from(true),
+        CastResult::Failure => JBoolean::from(false),
+        CastResult::Exception(exc) => {
+            env.state.fill_native_exception(exc);
+            JBoolean::from(false)
+        }
+    }
 }

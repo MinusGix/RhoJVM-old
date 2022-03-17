@@ -248,9 +248,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public boolean isInstance(Object obj) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native boolean isInstance(Object obj);
 
     public boolean isInterface() {
         throw new UnsupportedOperationException("TODO: Implement this");
