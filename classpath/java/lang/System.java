@@ -97,13 +97,9 @@ public final class System {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public static void load(String path) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public static native void load(String path);
 
-    public static void loadLibrary(String name) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public static native void loadLibrary(String name);
 
     public static void gc() {
         throw new UnsupportedOperationException("TODO: Implement this");

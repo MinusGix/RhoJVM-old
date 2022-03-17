@@ -11,9 +11,9 @@ use crate::{
     class_instance::{Instance, PrimitiveArrayInstance, ReferenceArrayInstance, ReferenceInstance},
     eval::{eval_method, Frame, Locals, ValueException},
     gc::GcRef,
-    jni::{JClass, JInt, JLong, JObject},
+    jni::{JClass, JInt, JLong, JObject, JString},
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{construct_string, Env},
+    util::{construct_string, get_string_contents_as_rust_string, Env},
 };
 
 /// Initialize properties based on operating system
@@ -225,6 +225,54 @@ impl IntoIterator for Properties {
             ("java.library.path", self.java_library_path),
         ]
         .into_iter()
+    }
+}
+
+pub(crate) extern "C" fn system_load(env: *mut Env<'_>, _: JClass, path: JString) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let path = unsafe { env.get_jobject_as_gcref(path) };
+    let path = path.expect("NPE");
+
+    let path = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        path,
+    )
+    .unwrap();
+
+    // Safety: We have to trust the java code to not load arbitrary code that is bad for our health
+    unsafe {
+        env.state
+            .native
+            .load_library_blocking(path)
+            .expect("Failed to load native library");
+    }
+}
+
+pub(crate) extern "C" fn system_load_library(env: *mut Env<'_>, _: JClass, path: JString) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let path = unsafe { env.get_jobject_as_gcref(path) };
+    let path = path.expect("NPE");
+
+    let path = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        path,
+    )
+    .unwrap();
+
+    // Safety: We have to trust the java code to not load arbitrary code that is bad for our health
+    unsafe {
+        env.state
+            .native
+            .load_library_blocking(path)
+            .expect("Failed to load native library");
     }
 }
 
