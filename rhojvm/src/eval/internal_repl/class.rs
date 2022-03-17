@@ -767,3 +767,69 @@ pub(crate) extern "C" fn class_get_component_type(env: *mut Env<'_>, this: JObje
         panic!();
     }
 }
+
+pub(crate) extern "C" fn class_is_assignable_from(
+    env: *mut Env<'_>,
+    this: JClass,
+    other: JClass,
+) -> JBoolean {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("IsAssignableFrom's class was null");
+    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        this.of_id
+    } else {
+        // This should be caught by method calling
+        // Though it would be good to not panic
+        panic!();
+    };
+
+    let other = unsafe { env.get_jobject_as_gcref(other) };
+    let other = other.expect("IsAssignableFrom's other class was null");
+    let other_id = if let Instance::Reference(ReferenceInstance::StaticForm(other)) =
+        env.state.gc.deref(other).unwrap()
+    {
+        other.of_id
+    } else {
+        panic!();
+    };
+
+    let is_castable = other_id == this_id
+        || env
+            .classes
+            .is_super_class(
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.packages,
+                other_id,
+                this_id,
+            )
+            .unwrap()
+        || env
+            .classes
+            .implements_interface(
+                &mut env.class_names,
+                &mut env.class_files,
+                other_id,
+                this_id,
+            )
+            .unwrap()
+        || env
+            .classes
+            .is_castable_array(
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.packages,
+                other_id,
+                this_id,
+            )
+            .unwrap();
+
+    // TODO: We need to special handle primitive classes
+
+    JBoolean::from(is_castable)
+}

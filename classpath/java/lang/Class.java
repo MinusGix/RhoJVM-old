@@ -242,9 +242,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
 
     public native boolean isArray();
 
-    public boolean isAssignableFrom(Class<?> cls) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native boolean isAssignableFrom(Class<?> cls);
 
     public boolean isEnum() {
         throw new UnsupportedOperationException("TODO: Implement this");

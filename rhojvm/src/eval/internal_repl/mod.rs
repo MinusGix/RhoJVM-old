@@ -123,6 +123,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_Class_getComponentType" => {
                 into_opaque2ret(class::class_get_component_type)
             }
+            b"Java_java_lang_Class_isAssignableFrom" => {
+                into_opaque3ret(class::class_is_assignable_from)
+            }
             // Field
             b"Java_java_lang_reflect_Field_getType" => into_opaque2ret(field::field_get_type),
             // System
