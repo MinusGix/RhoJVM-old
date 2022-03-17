@@ -97,7 +97,7 @@ public abstract class ClassLoader {
     }
 
     public static InputStream getSystemResourceAsStream(String name) {
-        throw new UnsupportedOperationException("TODO");
+        return SystemClassLoader.getSystemResourceAsStream(name);
     }
 
     public static Enumeration<URL> getSystemResources(String name) throws IOException {

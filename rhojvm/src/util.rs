@@ -1,9 +1,11 @@
+use std::num::NonZeroUsize;
+
 use classfile_parser::field_info::{FieldAccessFlags, FieldInfoOpt};
 use either::Either;
 use rhojvm_base::{
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
-        types::JavaChar,
+        types::{JavaChar, PrimitiveType},
     },
     data::{class_files::ClassFiles, class_names::ClassNames, classes::Classes, methods::Methods},
     id::ClassId,
@@ -602,6 +604,85 @@ pub(crate) fn make_class_form_of(
     debug_assert!(class_info.class_ref.is_none(), "If this is false then we've initialized it in between our check, which could be an issue? Though it also seems completely possible.");
     class_info.class_ref = Some(static_form_ref);
     Ok(ValueException::Value(static_form_ref))
+}
+
+/// Create an instance of `java/io/ByteArrayInputStream` holding the given data
+pub(crate) fn construct_byte_array_input_stream(
+    env: &mut Env,
+    data: &[u8],
+) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
+    let bai_id = env
+        .class_names
+        .gcid_from_bytes(b"java/io/ByteArrayInputStream");
+    resolve_derive(
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+        &mut env.methods,
+        &mut env.state,
+        bai_id,
+        bai_id,
+    )?;
+
+    let byte_array_id = env
+        .class_names
+        .gcid_from_array_of_primitives(PrimitiveType::Byte);
+
+    let bai_static_ref = initialize_class(env, bai_id)?.into_value();
+    let bai_static_ref = match bai_static_ref {
+        ValueException::Value(re) => re,
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    };
+
+    let data = data
+        .iter()
+        .map(|x| RuntimeValuePrimitive::I8(*x as i8))
+        .collect::<Vec<_>>();
+
+    let array = PrimitiveArrayInstance::new(byte_array_id, RuntimeTypePrimitive::I8, data);
+    let array_ref = env.state.gc.alloc(array);
+
+    let fields = match make_fields(env, bai_id, |field_info| {
+        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+    })? {
+        Either::Left(fields) => fields,
+        Either::Right(exc) => {
+            return Ok(ValueException::Exception(exc));
+        }
+    };
+    let bai = ClassInstance::new(bai_id, bai_static_ref, fields);
+    let bai_ref = env.state.gc.alloc(bai);
+
+    // TODO: Cache this
+    let descriptor = MethodDescriptor::new(
+        smallvec::smallvec![DescriptorType::Array {
+            level: NonZeroUsize::new(1).unwrap(),
+            component: DescriptorTypeBasic::Byte
+        }],
+        None,
+    );
+
+    let constructor_id = env.methods.load_method_from_desc(
+        &mut env.class_names,
+        &mut env.class_files,
+        bai_id,
+        b"<init>",
+        &descriptor,
+    )?;
+
+    let locals = Locals::new_with_array([
+        RuntimeValue::Reference(bai_ref.into_generic()),
+        RuntimeValue::Reference(array_ref.into_generic()),
+    ]);
+    let frame = Frame::new_locals(locals);
+
+    match eval_method(env, constructor_id.into(), frame)? {
+        EvalMethodValue::ReturnVoid | EvalMethodValue::Return(_) => {}
+        EvalMethodValue::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    }
+
+    Ok(ValueException::Value(bai_ref))
 }
 
 #[cfg(test)]

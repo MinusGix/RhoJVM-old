@@ -1,7 +1,7 @@
 use rhojvm_base::{
     class::ClassFileData,
     data::{
-        class_file_loader::{ClassFileLoader, LoadClassFileError},
+        class_file_loader::{ClassFileLoader, LoadClassFileError, LoadResourceError, Resource},
         class_names::ClassNames,
     },
     id::ClassId,
@@ -51,6 +51,22 @@ impl<L: ClassFileLoader, R: ClassFileLoader> ClassFileLoader for CombineLoader<L
                     },
                 }
             }
+        }
+    }
+
+    fn load_resource(&mut self, resource_name: &str) -> Result<Resource, LoadResourceError> {
+        match self.left.load_resource(resource_name) {
+            Ok(resource) => Ok(resource),
+            Err(left_err) => match left_err {
+                LoadResourceError::ReadError(_) => Err(left_err),
+                _ => match self.right.load_resource(resource_name) {
+                    Ok(resource) => Ok(resource),
+                    Err(right_err) => match right_err {
+                        LoadResourceError::ReadError(_) => Err(right_err),
+                        _ => Err(left_err),
+                    },
+                },
+            },
         }
     }
 }

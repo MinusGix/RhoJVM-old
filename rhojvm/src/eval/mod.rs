@@ -706,6 +706,14 @@ pub fn eval_method(
                 (
                     DescriptorType::Array { .. }
                     | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JInt, param3: JInt));
+                }
+                (
+                    DescriptorType::Array { .. }
+                    | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
                     DescriptorType::Basic(DescriptorTypeBasic::Long),
                     DescriptorType::Basic(DescriptorTypeBasic::Int),
                 ) => {

@@ -343,6 +343,7 @@ fn load_required_libs(env: &mut Env) {
     let needed_libs = [
         "./rhojvm/ex/lib/amd64/server/libjvm.so",
         "./rhojvm/ex/lib/amd64/libjava.so",
+        "./rhojvm/ex/lib/amd64/libzip.so",
     ];
     for lib_path in needed_libs {
         unsafe {

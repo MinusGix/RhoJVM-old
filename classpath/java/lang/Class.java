@@ -212,7 +212,8 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
     }
 
     public InputStream getResourceAsStream(String name) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        // FIXME: Get class loader
+        return ClassLoader.getSystemResourceAsStream(name);
     }
 
     public Object[] getSigners() {

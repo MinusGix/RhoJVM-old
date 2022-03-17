@@ -9,7 +9,7 @@ use classfile_parser::class_parser_opt;
 use rhojvm_base::{
     class::ClassFileData,
     data::{
-        class_file_loader::{ClassFileLoader, LoadClassFileError},
+        class_file_loader::{ClassFileLoader, LoadClassFileError, LoadResourceError, Resource},
         class_names::ClassNames,
     },
     id::ClassId,
@@ -89,6 +89,11 @@ impl ClassFileLoader for ClassDirectories {
         let rel_path = class_path_iter_to_relative_path(path);
         self.direct_load_class_file_from_rel_path(class_file_id, rel_path)
             .map(Some)
+    }
+
+    fn load_resource(&mut self, _resource_name: &str) -> Result<Resource, LoadResourceError> {
+        // TODO: Does the class directories loader look for resources in its directories?
+        Err(LoadResourceError::Nonexistent)
     }
 }
 

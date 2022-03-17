@@ -22,6 +22,19 @@ pub enum LoadClassFileError {
     OpaqueError(Box<dyn Error>),
 }
 
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum LoadResourceError {
+    /// The resource did not exist
+    Nonexistent,
+    ReadError(std::io::Error),
+    OpaqueError(Box<dyn Error>),
+}
+
+pub enum Resource {
+    Buffer(Vec<u8>),
+}
+
 // TODO: Remove clone
 /// Note: Not exactly a class loader in the java sense, but does somewhat similar things
 pub trait ClassFileLoader {
@@ -34,4 +47,8 @@ pub trait ClassFileLoader {
         class_names: &ClassNames,
         class_file_id: ClassId,
     ) -> Result<Option<ClassFileData>, LoadClassFileError>;
+
+    // TODO: Could we avoid requiring us to return a Vec<u8>
+    // We might be able to return better types that will allow the usage of streaming apis
+    fn load_resource(&mut self, resource_name: &str) -> Result<Resource, LoadResourceError>;
 }

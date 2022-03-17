@@ -4,7 +4,7 @@ use classfile_parser::{class_parser_opt, parser::ParseData};
 use rhojvm_base::{
     class::ClassFileData,
     data::{
-        class_file_loader::{ClassFileLoader, LoadClassFileError},
+        class_file_loader::{ClassFileLoader, LoadClassFileError, LoadResourceError, Resource},
         class_names::ClassNames,
     },
     id::ClassId,
@@ -107,5 +107,20 @@ impl ClassFileLoader for JarClassFileLoader {
         debug_assert!(rem_data.is_empty());
 
         Ok(Some(ClassFileData::new(class_file_id, data, class_file)))
+    }
+
+    fn load_resource(&mut self, resource_name: &str) -> Result<Resource, LoadResourceError> {
+        let resource_name = resource_name.strip_prefix('/').unwrap_or(resource_name);
+
+        let mut file = self
+            .archive
+            .by_name(resource_name)
+            .map_err(|x| LoadResourceError::OpaqueError(x.into()))?;
+
+        let mut data = Vec::new();
+        file.read_to_end(&mut data)
+            .map_err(LoadResourceError::ReadError)?;
+
+        Ok(Resource::Buffer(data))
     }
 }
