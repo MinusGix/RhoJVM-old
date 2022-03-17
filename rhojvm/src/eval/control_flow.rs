@@ -405,10 +405,7 @@ impl RunInst for LookupSwitch {
     fn run(
         self,
         RunInstArgs {
-            env,
-            method_id,
-            frame,
-            inst_index,
+            frame, inst_index, ..
         }: RunInstArgs,
     ) -> Result<RunInstValue, GeneralError> {
         let key = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
@@ -430,8 +427,33 @@ impl RunInst for LookupSwitch {
     }
 }
 impl RunInst for TableSwitch {
-    fn run(self, _args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
-        todo!()
+    fn run(
+        self,
+        RunInstArgs {
+            frame, inst_index, ..
+        }: RunInstArgs,
+    ) -> Result<RunInstValue, GeneralError> {
+        let index = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let index = index
+            .into_int()
+            .ok_or(EvalError::ExpectedStackValueIntRepr)?;
+
+        let offset = if index < self.low || index > self.high {
+            self.default
+        } else {
+            let index = index - self.low;
+            let index = usize::try_from(index).unwrap();
+            // This should always exist unless someone has been modifying instructions out from
+            // under us
+            let offset = self.jump_offsets.get(index).unwrap();
+            *offset
+        };
+
+        let destination =
+            util::signed_offset_32_16(inst_index.0, offset).ok_or(EvalError::BranchOverflows)?;
+        let destination = InstructionIndex(destination);
+
+        Ok(RunInstValue::ContinueAt(destination))
     }
 }
 
