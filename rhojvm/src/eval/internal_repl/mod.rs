@@ -145,6 +145,11 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_java_lang_Integer_toString" => into_opaque4ret(primitive::integer_to_string),
             b"Java_java_lang_Integer_parseInt" => into_opaque4ret(primitive::integer_parse_int),
+            b"Java_java_lang_Long_numberOfLeadingZeros" => {
+                into_opaque3ret(primitive::long_number_of_leading_zeroes)
+            }
+            b"Java_java_lang_Long_toString" => into_opaque4ret(primitive::long_to_string),
+            b"Java_java_lang_Long_parseInt" => into_opaque4ret(primitive::long_parse_int),
             // Unsafe allocation
             b"Java_sun_misc_Unsafe_allocateMemory" => {
                 into_opaque3ret(unsafe_::unsafe_allocate_memory)
