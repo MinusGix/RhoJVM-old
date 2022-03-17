@@ -51,4 +51,6 @@ pub trait ClassFileLoader {
     // TODO: Could we avoid requiring us to return a Vec<u8>
     // We might be able to return better types that will allow the usage of streaming apis
     fn load_resource(&mut self, resource_name: &str) -> Result<Resource, LoadResourceError>;
+
+    fn has_resource(&mut self, resource_name: &str) -> bool;
 }

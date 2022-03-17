@@ -95,6 +95,10 @@ impl ClassFileLoader for ClassDirectories {
         // TODO: Does the class directories loader look for resources in its directories?
         Err(LoadResourceError::Nonexistent)
     }
+
+    fn has_resource(&mut self, resource_name: &str) -> bool {
+        false
+    }
 }
 
 pub(crate) fn class_path_iter_to_relative_path<'a>(

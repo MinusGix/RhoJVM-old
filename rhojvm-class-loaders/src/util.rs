@@ -69,4 +69,8 @@ impl<L: ClassFileLoader, R: ClassFileLoader> ClassFileLoader for CombineLoader<L
             },
         }
     }
+
+    fn has_resource(&mut self, resource_name: &str) -> bool {
+        self.left.has_resource(resource_name) || self.right.has_resource(resource_name)
+    }
 }

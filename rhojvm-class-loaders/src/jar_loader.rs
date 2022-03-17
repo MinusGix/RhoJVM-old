@@ -123,4 +123,10 @@ impl ClassFileLoader for JarClassFileLoader {
 
         Ok(Resource::Buffer(data))
     }
+
+    fn has_resource(&mut self, resource_name: &str) -> bool {
+        let resource_name = resource_name.strip_prefix('/').unwrap_or(resource_name);
+
+        self.archive.by_name(resource_name).is_ok()
+    }
 }
