@@ -533,13 +533,7 @@ fn load_constant(
                 EvalError::InvalidConstantPoolIndex(string.string_index.into_generic()),
             )?;
 
-            // TODO: This method of avoiding circularity feels hacky
-            let string_ref = if string.is_empty() {
-                // This special casing for the empty string is primarily done to avoid circularity
-                // issues, because the normal string constructor can use loadconstant with
-                // an empty string.
-                env.get_empty_string()?
-            } else {
+            let string_ref = {
                 let char_arr = string
                     .encode_utf16()
                     .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))

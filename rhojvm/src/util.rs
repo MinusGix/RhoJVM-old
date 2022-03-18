@@ -105,58 +105,6 @@ impl<'i> Env<'i> {
         }
     }
 
-    pub(crate) fn get_empty_string(
-        &mut self,
-    ) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
-        if let Some(empty_string_ref) = self.state.empty_string_ref {
-            return Ok(ValueException::Value(empty_string_ref));
-        }
-
-        // This code feels kinda hacky, but I'm unsure of a great way past it
-        // The issue primarily is that String relies on itself for all of its constructors
-        // Even its default constructor, which ldcs an empty string and gets its char array
-        // then uses that reference as its own char array (because it is a clone of the empty
-        // string)
-        // TODO: Is there a better way?
-
-        let string_ref = match alloc_string(self)? {
-            ValueException::Value(string_ref) => string_ref,
-            ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
-        };
-
-        // We try to find the correct field to modify based on types, and we have to modify since
-        // an array is initialized to null, not an empty array
-        // This should harden us a bit against different implementations
-        // And we only do this once, so the extra calculation time is insignificant
-        let char_array_id = self.state.char_array_id(&mut self.class_names);
-        let empty_array =
-            PrimitiveArrayInstance::new(char_array_id, RuntimeTypePrimitive::Char, Vec::new());
-        let empty_array_ref = self.state.gc.alloc(empty_array);
-
-        let string = self
-            .state
-            .gc
-            .deref_mut(string_ref)
-            .ok_or(EvalError::InvalidGcRef(string_ref.into_generic()))?;
-
-        let mut found_storage_field = false;
-        for (_field_name, field) in string.fields.iter_mut() {
-            if field.typ() == RuntimeType::Reference(char_array_id) {
-                *field.value_mut() = RuntimeValue::Reference(empty_array_ref.into_generic());
-                found_storage_field = true;
-                break;
-            }
-        }
-
-        if !found_storage_field {
-            return Err(GeneralError::StringNoValueField);
-        }
-
-        self.state.empty_string_ref = Some(string_ref);
-
-        Ok(ValueException::Value(string_ref))
-    }
-
     #[allow(clippy::unused_self)]
     /// Get a [`JObject`] instance for a specific [`GcRef`].
     /// Note that this is a local [`JObject`] so it can become invalid!
@@ -431,38 +379,28 @@ pub(crate) fn construct_string(
         env.state.gc.alloc(char_arr)
     };
 
+    let string_id = env.state.string_class_id(&mut env.class_names);
+
     let string_ref = match alloc_string(env)? {
         ValueException::Value(string_ref) => string_ref,
         ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
     };
 
-    // Get the string constructor that would take a char[], bool
-    let string_char_array_constructor = env.state.get_string_char_array_constructor(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.methods,
-    )?;
-    // Evaluate the string constructor
-    let string_inst = eval_method(
-        env,
-        string_char_array_constructor.into(),
-        Frame::new_locals(Locals::new_with_array([
-            RuntimeValue::Reference(string_ref.into_generic()),
-            RuntimeValue::Reference(char_arr_ref.into_generic()),
-            RuntimeValue::Primitive(RuntimeValuePrimitive::Bool(true)),
-        ])),
-    )?;
+    let string_data_field_id = env
+        .state
+        .get_string_data_field(&env.class_files, string_id)?;
 
-    match string_inst {
-        // We expect it to return nothing
-        EvalMethodValue::ReturnVoid => (),
-        // Returning something is weird..
-        EvalMethodValue::Return(v) => {
-            tracing::warn!("String constructor returned {:?}, ignoring..", v);
-        }
-        // If there was an exception, we simply pass it along
-        EvalMethodValue::Exception(exc) => return Ok(ValueException::Exception(exc)),
-    }
+    let string = env
+        .state
+        .gc
+        .deref_mut(string_ref)
+        .ok_or(EvalError::InvalidGcRef(string_ref.into_generic()))?;
+
+    *(string
+        .fields
+        .get_mut(string_data_field_id)
+        .unwrap()
+        .value_mut()) = RuntimeValue::Reference(char_arr_ref.into_generic());
 
     Ok(ValueException::Value(string_ref))
 }

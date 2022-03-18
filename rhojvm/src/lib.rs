@@ -277,9 +277,6 @@ pub struct State {
     char_array_id: Option<ClassId>,
 
     string_class_id: Option<ClassId>,
-    string_char_array_constructor: Option<ExactMethodId>,
-
-    pub(crate) empty_string_ref: Option<GcRef<ClassInstance>>,
 
     /// The field in java/lang/Class that stores the ClassId
     class_class_id_field: Option<FieldId>,
@@ -322,9 +319,6 @@ impl State {
 
             char_array_id: None,
             string_class_id: None,
-            string_char_array_constructor: None,
-
-            empty_string_ref: None,
 
             class_class_id_field: None,
 
@@ -384,47 +378,6 @@ impl State {
             self.string_class_id = Some(string_class_id);
             string_class_id
         }
-    }
-
-    // TODO: Should we be using the direct constructor?
-    // I'm unsure if we're guaranteed that it exists, but since
-    // it directly takes the char array rather than copying, it is better
-    /// Get the method id for the String(char[], bool) constructor
-    pub(crate) fn get_string_char_array_constructor(
-        &mut self,
-        class_names: &mut ClassNames,
-        class_files: &mut ClassFiles,
-        methods: &mut Methods,
-    ) -> Result<ExactMethodId, StepError> {
-        if let Some(constructor) = self.string_char_array_constructor {
-            return Ok(constructor);
-        }
-
-        let class_id = self.string_class_id(class_names);
-        class_files.load_by_class_path_id(class_names, class_id)?;
-
-        let char_array_descriptor = MethodDescriptor::new(
-            smallvec![
-                DescriptorType::Array {
-                    level: NonZeroUsize::new(1).unwrap(),
-                    component: DescriptorTypeBasic::Char,
-                },
-                DescriptorType::Basic(DescriptorTypeBasic::Boolean)
-            ],
-            None,
-        );
-
-        let id = methods.load_method_from_desc(
-            class_names,
-            class_files,
-            class_id,
-            b"<init>",
-            &char_array_descriptor,
-        )?;
-
-        self.string_char_array_constructor = Some(id);
-
-        Ok(id)
     }
 
     /// Searches the gc-heap for the Static Class for this specific class
@@ -580,8 +533,6 @@ pub enum GeneralError {
     UnsupportedClassVersion,
     InvalidDescriptorType(DescriptorTypeError),
     UnparsedFieldType,
-    /// The string's value store was not named b"value"
-    StringNoValueField,
     /// We failed to convert a java string to a rust string
     StringConversionFailure(FromUtf16Error),
 }
