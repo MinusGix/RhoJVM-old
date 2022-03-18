@@ -89,6 +89,14 @@ impl ClassFileData {
         self.get_t(i).map(|x| x.as_bytes(&self.class_file_data))
     }
 
+    #[must_use]
+    pub fn load_attribute_range_with_name(&self, name: &str) -> Option<Range<usize>> {
+        self.class_file
+            .load_attribute_with_name(&self.class_file_data, name)
+            .ok()
+            .flatten()
+    }
+
     pub fn load_method_info_by_index(
         &self,
         index: MethodIndex,
