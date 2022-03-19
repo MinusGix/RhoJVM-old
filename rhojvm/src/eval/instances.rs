@@ -32,7 +32,7 @@ use crate::{
     GeneralError,
 };
 
-use super::{RunInst, RunInstArgs, RunInstValue, ValueException};
+use super::{RunInstArgsC, RunInstContinue, RunInstContinueValue, ValueException};
 
 pub(crate) fn add_fields_for_class<F: Fn(&FieldInfoOpt) -> bool>(
     env: &mut Env,
@@ -187,16 +187,16 @@ pub fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
     Ok(Either::Left(fields))
 }
 
-impl RunInst for New {
+impl RunInstContinue for New {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
         let class_file = env
             .class_files
@@ -234,7 +234,7 @@ impl RunInst for New {
         let status = initialize_class(env, target_class_id)?;
         let target_ref = match status.into_value() {
             ValueException::Value(target) => target,
-            ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+            ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
         };
 
         let target_class = env.classes.get(&target_class_id).unwrap();
@@ -251,7 +251,7 @@ impl RunInst for New {
         })? {
             Either::Left(fields) => fields,
             Either::Right(exc) => {
-                return Ok(RunInstValue::Exception(exc));
+                return Ok(RunInstContinueValue::Exception(exc));
             }
         };
 
@@ -270,20 +270,20 @@ impl RunInst for New {
         };
         frame.stack.push(RuntimeValue::Reference(class_ref))?;
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
-impl RunInst for ANewArray {
+impl RunInstContinue for ANewArray {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
         let class_file = env
             .class_files
@@ -347,21 +347,21 @@ impl RunInst for ANewArray {
             .stack
             .push(RuntimeValue::Reference(array_ref.into_generic()))?;
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
-impl RunInst for MultiANewArray {
-    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for MultiANewArray {
+    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         todo!()
     }
 }
 
-impl RunInst for NewArray {
+impl RunInstContinue for NewArray {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let count = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let count = count
             .into_int()
@@ -393,7 +393,7 @@ impl RunInst for NewArray {
             .stack
             .push(RuntimeValue::Reference(array_ref.into_generic()))?;
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
@@ -563,21 +563,21 @@ pub(crate) fn try_casting(
     }
 }
 
-impl RunInst for CheckCast {
+impl RunInstContinue for CheckCast {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let val = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let val = match val {
             RuntimeValue::NullReference => {
                 frame.stack.push(RuntimeValue::NullReference)?;
-                return Ok(RunInstValue::Continue);
+                return Ok(RunInstContinueValue::Continue);
             }
             RuntimeValue::Reference(gc_ref) => gc_ref,
             RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
@@ -624,29 +624,29 @@ impl RunInst for CheckCast {
         )? {
             CastResult::Success => {
                 frame.stack.push(RuntimeValue::Reference(val))?;
-                Ok(RunInstValue::Continue)
+                Ok(RunInstContinueValue::Continue)
             }
             CastResult::Failure => todo!("CheckedCast exception"),
-            CastResult::Exception(exc) => Ok(RunInstValue::Exception(exc)),
+            CastResult::Exception(exc) => Ok(RunInstContinueValue::Exception(exc)),
         }
     }
 }
 
-impl RunInst for InstanceOf {
+impl RunInstContinue for InstanceOf {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let val = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let val = match val {
             RuntimeValue::NullReference => {
                 frame.stack.push(RuntimeValuePrimitive::I32(0))?;
-                return Ok(RunInstValue::Continue);
+                return Ok(RunInstContinueValue::Continue);
             }
             RuntimeValue::Reference(gc_ref) => gc_ref,
             RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
@@ -683,13 +683,13 @@ impl RunInst for InstanceOf {
         })? {
             CastResult::Success => {
                 frame.stack.push(RuntimeValuePrimitive::I32(1))?;
-                Ok(RunInstValue::Continue)
+                Ok(RunInstContinueValue::Continue)
             }
             CastResult::Failure => {
                 frame.stack.push(RuntimeValuePrimitive::I32(0))?;
-                Ok(RunInstValue::Continue)
+                Ok(RunInstContinueValue::Continue)
             }
-            CastResult::Exception(exc) => Ok(RunInstValue::Exception(exc)),
+            CastResult::Exception(exc) => Ok(RunInstContinueValue::Exception(exc)),
         }
     }
 }

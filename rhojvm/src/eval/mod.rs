@@ -837,7 +837,7 @@ pub fn eval_method(
         };
 
         // TODO: Some of the returned errors should maybe be exceptions
-        let res = map_inst!(inst; x; x.run(args))?;
+        let res = map_inst!(inst; x; RunInst::run(x, args))?;
 
         match res {
             // TODO: Should we throw an exception if we return a value of the wrong type?
@@ -961,6 +961,12 @@ pub enum RunInstValue {
     ContinueAt(InstructionIndex),
 }
 
+#[derive(Debug, Clone)]
+pub enum RunInstContinueValue {
+    Exception(GcRef<ClassInstance>),
+    Continue,
+}
+
 pub struct RunInstArgs<'e, 'i, 'f> {
     pub env: &'e mut Env<'i>,
     pub method_id: ExactMethodId,
@@ -968,8 +974,40 @@ pub struct RunInstArgs<'e, 'i, 'f> {
     /// Index into 'bytes' of instructions, which is more commonly used in code
     pub inst_index: InstructionIndex,
 }
+/// [`RunInstArgs`] but with a potentially nonexistent instruction index
+/// because instructions that implement [`RunInstContinue`] shouldn't rely on it.
+pub struct RunInstArgsC<'e, 'i, 'f> {
+    pub env: &'e mut Env<'i>,
+    pub method_id: ExactMethodId,
+    pub frame: &'f mut Frame,
+    pub inst_index: Option<InstructionIndex>,
+}
+
 pub trait RunInst: Instruction {
     fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError>;
+}
+
+/// RunInst but it merely continues to the next instruction or returns an error
+/// This helps certain code behave better
+pub trait RunInstContinue: Instruction {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError>;
+}
+
+impl<T: RunInstContinue> RunInst for T {
+    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+        match <T as RunInstContinue>::run(
+            self,
+            RunInstArgsC {
+                env: args.env,
+                method_id: args.method_id,
+                frame: args.frame,
+                inst_index: Some(args.inst_index),
+            },
+        )? {
+            RunInstContinueValue::Exception(exc) => Ok(RunInstValue::Exception(exc)),
+            RunInstContinueValue::Continue => Ok(RunInstValue::Continue),
+        }
+    }
 }
 
 impl RunInst for Wide {
@@ -977,8 +1015,8 @@ impl RunInst for Wide {
         // TODO: The passed in inst index is wrong, but that doesn't matter for the current set of
         // instructions
         match self.0 {
-            WideInst::WideIntLoad(x) => x.run(args),
-            WideInst::WideIntIncrement(x) => x.run(args),
+            WideInst::WideIntLoad(x) => RunInst::run(x, args),
+            WideInst::WideIntIncrement(x) => RunInst::run(x, args),
         }
     }
 }

@@ -50,8 +50,10 @@ pub struct CallStackEntry {
     /// The method id of the method that called it, typically this should be the previous entry in
     /// the callstack
     pub called_from: MethodId,
-    /// The instruction index of inside the method that called it
-    pub called_at: InstructionIndex,
+    /// The instruction index of inside the method that called it, if there was one
+    /// If we were to do something like running an instruction by itself, then this would
+    /// be `None`.
+    pub called_at: Option<InstructionIndex>,
 }
 
 /// A struct that holds references to several of the important structures in their typical usage

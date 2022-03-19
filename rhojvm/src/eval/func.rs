@@ -25,7 +25,7 @@ use crate::{
     GeneralError, State,
 };
 
-use super::{RunInst, RunInstArgs, RunInstValue};
+use super::{RunInstArgsC, RunInstContinue, RunInstContinueValue};
 
 fn grab_runtime_value_from_stack_for_function(
     class_names: &mut ClassNames,
@@ -217,17 +217,17 @@ fn find_static_method(
     )
 }
 
-impl RunInst for InvokeStatic {
+impl RunInstContinue for InvokeStatic {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             inst_index,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let index = self.index;
 
         let (class_id, _) = method_id.decompose();
@@ -339,24 +339,24 @@ impl RunInst for InvokeStatic {
             // We can use the casting code we wrote above for the check, probably?
             EvalMethodValue::ReturnVoid => (),
             EvalMethodValue::Return(v) => frame.stack.push(v)?,
-            EvalMethodValue::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
-impl RunInst for InvokeInterface {
+impl RunInstContinue for InvokeInterface {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             inst_index,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
         let class_file = env
             .class_files
@@ -479,25 +479,25 @@ impl RunInst for InvokeInterface {
             // We can use the casting code we wrote above for the check, probably?
             EvalMethodValue::ReturnVoid => (),
             EvalMethodValue::Return(v) => frame.stack.push(v)?,
-            EvalMethodValue::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
 // FIXME: This code ignores specific actions that it should do
-impl RunInst for InvokeSpecial {
+impl RunInstContinue for InvokeSpecial {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             inst_index,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let index = self.index;
 
         let (class_id, _) = method_id.decompose();
@@ -617,10 +617,10 @@ impl RunInst for InvokeSpecial {
             // We can use the casting code we wrote above for the check, probably?
             EvalMethodValue::ReturnVoid => (),
             EvalMethodValue::Return(v) => frame.stack.push(v)?,
-            EvalMethodValue::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
@@ -746,17 +746,17 @@ pub fn find_virtual_method(
     }
 }
 
-impl RunInst for InvokeVirtual {
+impl RunInstContinue for InvokeVirtual {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             inst_index,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         // TODO: Validate that the instance ref can be considered to extend the class that the
         // virtual method is on.
         //
@@ -894,15 +894,15 @@ impl RunInst for InvokeVirtual {
             // We can use the casting code we wrote above for the check, probably?
             EvalMethodValue::ReturnVoid => (),
             EvalMethodValue::Return(v) => frame.stack.push(v)?,
-            EvalMethodValue::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
-impl RunInst for InvokeDynamic {
-    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for InvokeDynamic {
+    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         todo!()
     }
 }

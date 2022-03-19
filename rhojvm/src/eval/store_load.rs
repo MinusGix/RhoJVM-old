@@ -51,11 +51,13 @@ use crate::{
     GeneralError, State,
 };
 
-use super::{EvalError, Frame, RunInst, RunInstArgs, RunInstValue, ValueException};
+use super::{
+    EvalError, Frame, RunInstArgsC, RunInstContinue, RunInstContinueValue, ValueException,
+};
 
 enum DestRes {
     GcRef((GcRef<StaticClassInstance>, FieldId, FieldRefConstant)),
-    RunInst(RunInstValue),
+    RunInstContinue(RunInstContinueValue),
 }
 fn get_field_dest(
     env: &mut Env,
@@ -94,7 +96,9 @@ fn get_field_dest(
     let dest_ref = match status.into_value() {
         ValueException::Value(dest) => dest,
         ValueException::Exception(exc) => {
-            return Ok(DestRes::RunInst(RunInstValue::Exception(exc)))
+            return Ok(DestRes::RunInstContinue(RunInstContinueValue::Exception(
+                exc,
+            )))
         }
     };
 
@@ -254,22 +258,22 @@ fn convert_field_type_store(
     })
 }
 
-impl RunInst for GetStatic {
+impl RunInstContinue for GetStatic {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
 
         let (dest_ref, dest_field_index, _) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
-            DestRes::RunInst(v) => return Ok(v),
+            DestRes::RunInstContinue(v) => return Ok(v),
         };
 
         let dest_instance = env
@@ -291,19 +295,19 @@ impl RunInst for GetStatic {
             todo!("Return no such field exception")
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for PutStaticField {
+impl RunInstContinue for PutStaticField {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
 
         // Get the value we are storing to the field
@@ -313,7 +317,7 @@ impl RunInst for PutStaticField {
         let (dest_ref, dest_field_index, _) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
-            DestRes::RunInst(v) => return Ok(v),
+            DestRes::RunInstContinue(v) => return Ok(v),
         };
 
         let dest_instance = env
@@ -346,19 +350,19 @@ impl RunInst for PutStaticField {
             todo!("Return no such field exception")
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for GetField {
+impl RunInstContinue for GetField {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
 
         let instance_ref = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
@@ -373,7 +377,7 @@ impl RunInst for GetField {
         let (_, dest_field_id, _) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably an exception
-            DestRes::RunInst(v) => return Ok(v),
+            DestRes::RunInstContinue(v) => return Ok(v),
         };
 
         let instance = env
@@ -412,19 +416,19 @@ impl RunInst for GetField {
             todo!("Return no such field exception");
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for PutField {
+impl RunInstContinue for PutField {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
 
         // Get the value we are storing to the field
@@ -444,7 +448,7 @@ impl RunInst for PutField {
         let (_, dest_field_index, _) = match get_field_dest(env, self.index, class_id)? {
             DestRes::GcRef(v) => v,
             // Probably threw an exception
-            DestRes::RunInst(v) => return Ok(v),
+            DestRes::RunInstContinue(v) => return Ok(v),
         };
 
         let dest_instance = env
@@ -485,19 +489,19 @@ impl RunInst for PutField {
             todo!("Return no such field exception")
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
 fn load_constant(
-    RunInstArgs {
+    RunInstArgsC {
         env,
         method_id,
         frame,
         ..
-    }: RunInstArgs,
+    }: RunInstArgsC,
     index: ConstantPoolIndexRaw<ConstantInfo>,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let (class_id, _) = method_id.decompose();
     let class_file = env
         .class_files
@@ -520,7 +524,7 @@ fn load_constant(
             let class_form = util::make_class_form_of(env, class_id, target_class_id)?;
             let class_form = match class_form {
                 ValueException::Value(class_form) => class_form,
-                ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+                ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
             };
 
             frame
@@ -545,7 +549,7 @@ fn load_constant(
                 ValueException::Value(string_ref) => frame
                     .stack
                     .push(RuntimeValue::Reference(string_ref.into_generic()))?,
-                ValueException::Exception(exc) => return Ok(RunInstValue::Exception(exc)),
+                ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
             }
         }
         ConstantInfo::MethodHandle(method_handle) => {
@@ -557,28 +561,28 @@ fn load_constant(
         _ => return Err(EvalError::InvalidConstantPoolIndex(index.into_generic()).into()),
     };
 
-    Ok(RunInstValue::Continue)
+    Ok(RunInstContinueValue::Continue)
 }
-impl RunInst for LoadConstant {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LoadConstant {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         load_constant(args, self.index)
     }
 }
-impl RunInst for LoadConstantWide {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LoadConstantWide {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         load_constant(args, self.index)
     }
 }
-impl RunInst for LoadConstant2Wide {
+impl RunInstContinue for LoadConstant2Wide {
     fn run(
         self,
-        RunInstArgs {
+        RunInstArgsC {
             env,
             method_id,
             frame,
             ..
-        }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let (class_id, _) = method_id.decompose();
         let class_file = env
             .class_files
@@ -597,25 +601,31 @@ impl RunInst for LoadConstant2Wide {
             _ => return Err(EvalError::InvalidConstantPoolIndex(self.index.into_generic()).into()),
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
-impl RunInst for Pop {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for Pop {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let val = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         if val.is_category_2() {
             return Err(EvalError::ExpectedStackValueCategory1.into());
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for Pop2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for Pop2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let val = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         if val.is_category_2() {
-            return Ok(RunInstValue::Continue);
+            return Ok(RunInstContinueValue::Continue);
         }
 
         let val2 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
@@ -623,33 +633,45 @@ impl RunInst for Pop2 {
             return Err(EvalError::ExpectedStackValueCategory1.into());
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
-impl RunInst for PushByte {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for PushByte {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I8(self.val))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for PushShort {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for PushShort {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I16(self.val))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
-impl RunInst for AConstNull {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for AConstNull {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValue::NullReference)?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
 // === Reference Load ===
 
-fn aload_index(frame: &mut Frame, index: LocalVariableIndex) -> Result<RunInstValue, GeneralError> {
+fn aload_index(
+    frame: &mut Frame,
+    index: LocalVariableIndex,
+) -> Result<RunInstContinueValue, GeneralError> {
     let local = frame
         .locals
         .get(index)
@@ -660,34 +682,49 @@ fn aload_index(frame: &mut Frame, index: LocalVariableIndex) -> Result<RunInstVa
     let local = *local;
     if local.is_reference() {
         frame.stack.push(local)?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     } else {
         Err(EvalError::ExpectedLocalVariableReference(index).into())
     }
 }
 
-impl RunInst for ALoad {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for ALoad {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         aload_index(frame, self.index.into())
     }
 }
-impl RunInst for ALoad0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for ALoad0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         aload_index(frame, 0)
     }
 }
-impl RunInst for ALoad1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for ALoad1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         aload_index(frame, 1)
     }
 }
-impl RunInst for ALoad2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for ALoad2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         aload_index(frame, 2)
     }
 }
-impl RunInst for ALoad3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for ALoad3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         aload_index(frame, 3)
     }
 }
@@ -697,7 +734,7 @@ impl RunInst for ALoad3 {
 fn astore_index(
     frame: &mut Frame,
     index: LocalVariableIndex,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let object = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
     if !object.is_reference() {
         return Err(EvalError::ExpectedStackValueReference.into());
@@ -705,46 +742,67 @@ fn astore_index(
 
     frame.locals.set_value_at(index, object);
 
-    Ok(RunInstValue::Continue)
+    Ok(RunInstContinueValue::Continue)
 }
-impl RunInst for AStore {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for AStore {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         astore_index(frame, self.index.into())
     }
 }
-impl RunInst for AStore0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for AStore0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         astore_index(frame, 0)
     }
 }
-impl RunInst for AStore1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for AStore1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         astore_index(frame, 1)
     }
 }
-impl RunInst for AStore2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for AStore2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         astore_index(frame, 2)
     }
 }
-impl RunInst for AStore3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for AStore3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         astore_index(frame, 3)
     }
 }
 
 // === Dup Instructions ===
 
-impl RunInst for Dup {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for Dup {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let v = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         frame.stack.push(v)?;
         frame.stack.push(v)?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for Dup2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for Dup2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let value1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         if value1.is_category_2() {
             // Only one category 2 type is popped
@@ -759,11 +817,14 @@ impl RunInst for Dup2 {
             frame.stack.push(value1)?;
         }
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for DupX1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DupX1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let value1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let value2 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
 
@@ -775,67 +836,88 @@ impl RunInst for DupX1 {
         frame.stack.push(value2)?;
         frame.stack.push(value1)?;
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for DupX2 {
-    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DupX2 {
+    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         todo!()
     }
 }
-impl RunInst for Dup2X1 {
-    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for Dup2X1 {
+    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         todo!()
     }
 }
-impl RunInst for Dup2X2 {
-    fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for Dup2X2 {
+    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         todo!()
     }
 }
 
 // === Int Constants ===
 
-impl RunInst for IConstNeg1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IConstNeg1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I32(-1))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for IntConst0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntConst0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I32(0))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for IntConst1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntConst1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I32(1))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for IntConst2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntConst2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I32(2))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for IntConst3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntConst3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I32(3))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for IntConst4 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntConst4 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I32(4))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for IntConst5 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntConst5 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I32(5))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
@@ -844,7 +926,7 @@ impl RunInst for IntConst5 {
 fn intload_index(
     frame: &mut Frame,
     index: LocalVariableIndex,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let local = frame
         .locals
         .get(index)
@@ -855,41 +937,59 @@ fn intload_index(
     let local = *local;
     if local.can_be_int() {
         frame.stack.push(local)?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     } else {
         tracing::info!("Value: {:?}", local);
         Err(EvalError::ExpectedLocalVariableIntRepr(index).into())
     }
 }
 
-impl RunInst for IntLoad {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntLoad {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intload_index(frame, self.index.into())
     }
 }
-impl RunInst for IntLoad0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntLoad0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intload_index(frame, 0)
     }
 }
-impl RunInst for IntLoad1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntLoad1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intload_index(frame, 1)
     }
 }
-impl RunInst for IntLoad2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntLoad2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intload_index(frame, 2)
     }
 }
-impl RunInst for IntLoad3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntLoad3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intload_index(frame, 3)
     }
 }
 
-impl RunInst for WideIntLoad {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for WideIntLoad {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intload_index(frame, self.index)
     }
 }
@@ -899,7 +999,7 @@ impl RunInst for WideIntLoad {
 fn intstore_index(
     frame: &mut Frame,
     index: LocalVariableIndex,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let object = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
     if !object.can_be_int() {
         return Err(EvalError::ExpectedStackValueIntRepr.into());
@@ -908,30 +1008,45 @@ fn intstore_index(
     // We don't convert it to an integer here
     frame.locals.set_value_at(index, object);
 
-    Ok(RunInstValue::Continue)
+    Ok(RunInstContinueValue::Continue)
 }
-impl RunInst for IntStore {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntStore {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intstore_index(frame, self.index.into())
     }
 }
-impl RunInst for IntStore0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntStore0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intstore_index(frame, 0)
     }
 }
-impl RunInst for IntStore1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntStore1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intstore_index(frame, 1)
     }
 }
-impl RunInst for IntStore2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntStore2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intstore_index(frame, 2)
     }
 }
-impl RunInst for IntStore3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntStore3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         intstore_index(frame, 3)
     }
 }
@@ -941,7 +1056,7 @@ impl RunInst for IntStore3 {
 fn floatload_index(
     frame: &mut Frame,
     index: LocalVariableIndex,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let local = frame
         .locals
         .get(index)
@@ -952,34 +1067,49 @@ fn floatload_index(
     let local = *local;
     if local.is_float() {
         frame.stack.push(local)?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     } else {
         Err(EvalError::ExpectedLocalVariableFloat(index).into())
     }
 }
 
-impl RunInst for FloatLoad {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatLoad {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatload_index(frame, self.index.into())
     }
 }
-impl RunInst for FloatLoad0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatLoad0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatload_index(frame, 0)
     }
 }
-impl RunInst for FloatLoad1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatLoad1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatload_index(frame, 1)
     }
 }
-impl RunInst for FloatLoad2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatLoad2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatload_index(frame, 2)
     }
 }
-impl RunInst for FloatLoad3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatLoad3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatload_index(frame, 3)
     }
 }
@@ -989,7 +1119,7 @@ impl RunInst for FloatLoad3 {
 fn floatstore_index(
     frame: &mut Frame,
     index: LocalVariableIndex,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let object = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
     if !object.is_float() {
         return Err(EvalError::ExpectedStackValueFloat.into());
@@ -998,52 +1128,76 @@ fn floatstore_index(
     // We don't convert it to an integer here
     frame.locals.set_value_at(index, object);
 
-    Ok(RunInstValue::Continue)
+    Ok(RunInstContinueValue::Continue)
 }
-impl RunInst for FloatStore {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatStore {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatstore_index(frame, self.index.into())
     }
 }
-impl RunInst for FloatStore0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatStore0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatstore_index(frame, 0)
     }
 }
-impl RunInst for FloatStore1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatStore1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatstore_index(frame, 1)
     }
 }
-impl RunInst for FloatStore2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatStore2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatstore_index(frame, 2)
     }
 }
-impl RunInst for FloatStore3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatStore3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         floatstore_index(frame, 3)
     }
 }
 
 // === Float Const ===
 
-impl RunInst for FloatConst0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatConst0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::F32(0.0))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for FloatConst1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatConst1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::F32(1.0))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for FloatConst2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatConst2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::F32(2.0))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
@@ -1052,7 +1206,7 @@ impl RunInst for FloatConst2 {
 fn longload_index(
     frame: &mut Frame,
     index: LocalVariableIndex,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let local = frame
         .locals
         .get(index)
@@ -1063,34 +1217,49 @@ fn longload_index(
     let local = *local;
     if local.is_long() {
         frame.stack.push(local)?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     } else {
         Err(EvalError::ExpectedLocalVariableLong(index).into())
     }
 }
 
-impl RunInst for LongLoad {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongLoad {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longload_index(frame, self.index.into())
     }
 }
-impl RunInst for LongLoad0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongLoad0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longload_index(frame, 0)
     }
 }
-impl RunInst for LongLoad1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongLoad1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longload_index(frame, 1)
     }
 }
-impl RunInst for LongLoad2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongLoad2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longload_index(frame, 2)
     }
 }
-impl RunInst for LongLoad3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongLoad3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longload_index(frame, 3)
     }
 }
@@ -1100,7 +1269,7 @@ impl RunInst for LongLoad3 {
 fn longstore_index(
     frame: &mut Frame,
     index: LocalVariableIndex,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let object = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
     if !object.is_long() {
         return Err(EvalError::ExpectedStackValueLong.into());
@@ -1109,46 +1278,67 @@ fn longstore_index(
     // We don't convert it to an integer here
     frame.locals.set_value_at(index, object);
 
-    Ok(RunInstValue::Continue)
+    Ok(RunInstContinueValue::Continue)
 }
-impl RunInst for LongStore {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongStore {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longstore_index(frame, self.index.into())
     }
 }
-impl RunInst for LongStore0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongStore0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longstore_index(frame, 0)
     }
 }
-impl RunInst for LongStore1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongStore1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longstore_index(frame, 1)
     }
 }
-impl RunInst for LongStore2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongStore2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longstore_index(frame, 2)
     }
 }
-impl RunInst for LongStore3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongStore3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         longstore_index(frame, 3)
     }
 }
 
 // === Long Const ===
 
-impl RunInst for LongConst0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongConst0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I64(0))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for LongConst1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongConst1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::I64(1))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
@@ -1157,7 +1347,7 @@ impl RunInst for LongConst1 {
 fn doubleload_index(
     frame: &mut Frame,
     index: LocalVariableIndex,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let local = frame
         .locals
         .get(index)
@@ -1168,34 +1358,49 @@ fn doubleload_index(
     let local = *local;
     if local.is_double() {
         frame.stack.push(local)?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     } else {
         Err(EvalError::ExpectedLocalVariableDouble(index).into())
     }
 }
 
-impl RunInst for DoubleLoad {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleLoad {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doubleload_index(frame, self.index.into())
     }
 }
-impl RunInst for DoubleLoad0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleLoad0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doubleload_index(frame, 0)
     }
 }
-impl RunInst for DoubleLoad1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleLoad1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doubleload_index(frame, 1)
     }
 }
-impl RunInst for DoubleLoad2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleLoad2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doubleload_index(frame, 2)
     }
 }
-impl RunInst for DoubleLoad3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleLoad3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doubleload_index(frame, 3)
     }
 }
@@ -1205,7 +1410,7 @@ impl RunInst for DoubleLoad3 {
 fn doublestore_index(
     frame: &mut Frame,
     index: LocalVariableIndex,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let object = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
     if !object.is_double() {
         return Err(EvalError::ExpectedStackValueDouble.into());
@@ -1214,56 +1419,77 @@ fn doublestore_index(
     // We don't convert it to an integer here
     frame.locals.set_value_at(index, object);
 
-    Ok(RunInstValue::Continue)
+    Ok(RunInstContinueValue::Continue)
 }
-impl RunInst for DoubleStore {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleStore {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doublestore_index(frame, self.index.into())
     }
 }
-impl RunInst for DoubleStore0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleStore0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doublestore_index(frame, 0)
     }
 }
-impl RunInst for DoubleStore1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleStore1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doublestore_index(frame, 1)
     }
 }
-impl RunInst for DoubleStore2 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleStore2 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doublestore_index(frame, 2)
     }
 }
-impl RunInst for DoubleStore3 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleStore3 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         doublestore_index(frame, 3)
     }
 }
 
 // === Double Const ===
 
-impl RunInst for DoubleConst0 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleConst0 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::F64(0.0))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
-impl RunInst for DoubleConst1 {
-    fn run(self, RunInstArgs { frame, .. }: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleConst1 {
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         frame.stack.push(RuntimeValuePrimitive::F64(1.0))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
 // === Reference[] ===
 
-impl RunInst for ArrayLength {
+impl RunInstContinue for ArrayLength {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let array_ref = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let array_ref = match array_ref {
             RuntimeValue::Reference(x) => x,
@@ -1281,7 +1507,7 @@ impl RunInst for ArrayLength {
             _ => return Err(EvalError::ExpectedArrayInstance.into()),
         };
         frame.stack.push(RuntimeValuePrimitive::I32(len))?;
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
@@ -1289,7 +1515,7 @@ fn array_load(
     state: &mut State,
     frame: &mut Frame,
     element_type: impl Into<RuntimeType>,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let element_type: RuntimeType = element_type.into();
 
     let index = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
@@ -1344,7 +1570,7 @@ fn array_load(
         _ => return Err(EvalError::ExpectedArrayInstance.into()),
     };
 
-    Ok(RunInstValue::Continue)
+    Ok(RunInstContinueValue::Continue)
 }
 
 fn arraystore_exception(
@@ -1360,15 +1586,15 @@ fn arraystore_exception(
 }
 
 fn array_store(
-    mut args: RunInstArgs,
+    mut args: RunInstArgsC,
     is_good_type: impl Fn(RuntimeTypePrimitive) -> bool,
     convert_value: impl Fn(
-        &mut RunInstArgs,
+        &mut RunInstArgsC,
         RuntimeValuePrimitive,
     ) -> Result<RuntimeValuePrimitive, GeneralError>,
     bad_array_value_err: GeneralError,
     bad_stack_value_err: GeneralError,
-) -> Result<RunInstValue, GeneralError> {
+) -> Result<RunInstContinueValue, GeneralError> {
     let value = args
         .frame
         .stack
@@ -1432,22 +1658,22 @@ fn array_store(
 
     array_inst.elements[index] = value;
 
-    Ok(RunInstValue::Continue)
+    Ok(RunInstContinueValue::Continue)
 }
 
-impl RunInst for AALoad {
+impl RunInstContinue for AALoad {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         array_load(&mut env.state, frame, RuntimeType::Reference(()))
     }
 }
-impl RunInst for AAStore {
+impl RunInstContinue for AAStore {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         let value = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let value_ref = match value {
             RuntimeValue::NullReference => None,
@@ -1535,20 +1761,20 @@ impl RunInst for AAStore {
 
         array_inst.elements[index] = value_ref;
 
-        Ok(RunInstValue::Continue)
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
-impl RunInst for FloatArrayLoad {
+impl RunInstContinue for FloatArrayLoad {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         array_load(&mut env.state, frame, RuntimeTypePrimitive::F32)
     }
 }
-impl RunInst for FloatArrayStore {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for FloatArrayStore {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         array_store(
             args,
             |v| matches!(v, RuntimeTypePrimitive::F32),
@@ -1559,16 +1785,16 @@ impl RunInst for FloatArrayStore {
     }
 }
 
-impl RunInst for DoubleArrayLoad {
+impl RunInstContinue for DoubleArrayLoad {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         array_load(&mut env.state, frame, RuntimeTypePrimitive::F64)
     }
 }
-impl RunInst for DoubleArrayStore {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for DoubleArrayStore {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         array_store(
             args,
             |v| matches!(v, RuntimeTypePrimitive::F64),
@@ -1579,16 +1805,16 @@ impl RunInst for DoubleArrayStore {
     }
 }
 
-impl RunInst for LongArrayLoad {
+impl RunInstContinue for LongArrayLoad {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         array_load(&mut env.state, frame, RuntimeTypePrimitive::I64)
     }
 }
-impl RunInst for LongArrayStore {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for LongArrayStore {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         array_store(
             args,
             |v| matches!(v, RuntimeTypePrimitive::I64),
@@ -1599,16 +1825,16 @@ impl RunInst for LongArrayStore {
     }
 }
 
-impl RunInst for ShortArrayLoad {
+impl RunInstContinue for ShortArrayLoad {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         array_load(&mut env.state, frame, RuntimeTypePrimitive::I16)
     }
 }
-impl RunInst for ShortArrayStore {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for ShortArrayStore {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         array_store(
             args,
             |v| v.can_be_int(),
@@ -1625,16 +1851,16 @@ impl RunInst for ShortArrayStore {
     }
 }
 
-impl RunInst for IntALoad {
+impl RunInstContinue for IntALoad {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         array_load(&mut env.state, frame, RuntimeTypePrimitive::I32)
     }
 }
-impl RunInst for IntArrayStore {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for IntArrayStore {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         array_store(
             args,
             |v| v.can_be_int(),
@@ -1650,16 +1876,16 @@ impl RunInst for IntArrayStore {
     }
 }
 
-impl RunInst for ByteArrayLoad {
+impl RunInstContinue for ByteArrayLoad {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         array_load(&mut env.state, frame, RuntimeTypePrimitive::I8)
     }
 }
-impl RunInst for ByteArrayStore {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for ByteArrayStore {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         array_store(
             args,
             |v| v.can_be_int(),
@@ -1676,16 +1902,16 @@ impl RunInst for ByteArrayStore {
     }
 }
 
-impl RunInst for CharArrayLoad {
+impl RunInstContinue for CharArrayLoad {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         array_load(&mut env.state, frame, RuntimeTypePrimitive::Char)
     }
 }
-impl RunInst for CharArrayStore {
-    fn run(self, args: RunInstArgs) -> Result<RunInstValue, GeneralError> {
+impl RunInstContinue for CharArrayStore {
+    fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
         array_store(
             args,
             |v| v.can_be_int(),

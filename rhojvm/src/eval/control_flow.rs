@@ -20,7 +20,9 @@ use crate::{
     GeneralError,
 };
 
-use super::{RunInst, RunInstArgs, RunInstValue};
+use super::{
+    RunInst, RunInstArgs, RunInstArgsC, RunInstContinue, RunInstContinueValue, RunInstValue,
+};
 
 impl RunInst for Return {
     fn run(self, _: RunInstArgs) -> Result<RunInstValue, GeneralError> {
@@ -131,11 +133,11 @@ impl RunInst for Goto {
     }
 }
 
-impl RunInst for AThrow {
+impl RunInstContinue for AThrow {
     fn run(
         self,
-        RunInstArgs { env, frame, .. }: RunInstArgs,
-    ) -> Result<RunInstValue, GeneralError> {
+        RunInstArgsC { env, frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
         // TODO: monitor
 
         let object = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
@@ -157,7 +159,7 @@ impl RunInst for AThrow {
                         throwable_id,
                     )? {
                         // TODO: It would be possible to provide a checked as version
-                        Ok(RunInstValue::Exception(gc_ref.unchecked_as()))
+                        Ok(RunInstContinueValue::Exception(gc_ref.unchecked_as()))
                     } else {
                         Err(EvalError::ExpectedThrowable.into())
                     }
