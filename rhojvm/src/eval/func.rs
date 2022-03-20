@@ -679,6 +679,21 @@ pub fn find_virtual_method(
                 Err(err) => return Err(err.into()),
             }
         }
+    } else if instance_is_array {
+        // Arrays also extend Object, and so have to check its methods
+        let object_id = class_names.object_id();
+        let method_id =
+            methods.load_method_from_desc(class_names, class_files, object_id, name, descriptor);
+        match method_id {
+            Ok(method_id) => return Ok(method_id.into()),
+            Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+                // Silently continue on to checking the interfaces
+            }
+            // TODO: Or should we just log the error and skip past it?
+            Err(err) => return Err(err.into()),
+        }
+
+        // otherwise, check interfaces
     }
 
     // TODO: Does this check the superinterfaces of the superinterfaces?
