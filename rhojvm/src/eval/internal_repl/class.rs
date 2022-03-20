@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use classfile_parser::{field_info::FieldAccessFlags, ClassAccessFlags};
 use either::Either;
 use rhojvm_base::{
@@ -11,7 +13,7 @@ use rhojvm_base::{
 };
 
 use crate::{
-    class_instance::{ClassInstance, Instance, ReferenceInstance},
+    class_instance::{ClassInstance, Instance, ReferenceInstance, StaticFormInstance},
     eval::{
         eval_method,
         instances::{make_fields, try_casting, CastResult},
@@ -19,11 +21,11 @@ use crate::{
     },
     gc::GcRef,
     initialize_class,
-    jni::{JBoolean, JChar, JClass, JObject, JString},
-    rv::{RuntimeValue, RuntimeValuePrimitive},
+    jni::{JBoolean, JClass, JObject, JString},
+    rv::{RuntimeTypePrimitive, RuntimeTypeVoid, RuntimeValue, RuntimeValuePrimitive},
     util::{
         self, construct_string, find_field_with_name, get_string_contents_as_rust_string,
-        make_class_form_of, to_utf16_arr, Env,
+        make_class_form_of, make_primitive_class_form_of, to_utf16_arr, Env,
     },
     GeneralError,
 };
@@ -37,17 +39,6 @@ pub(crate) const LONG_NAME: &[u8] = b"java/lang/Long";
 pub(crate) const SHORT_NAME: &[u8] = b"java/lang/Short";
 pub(crate) const BOOL_NAME: &[u8] = b"java/lang/Boolean";
 pub(crate) const VOID_NAME: &[u8] = b"java/lang/Void";
-pub(crate) const PRIMITIVE_NAMES: &[&[u8]] = &[
-    BYTE_NAME,
-    CHARACTER_NAME,
-    DOUBLE_NAME,
-    FLOAT_NAME,
-    INTEGER_NAME,
-    LONG_NAME,
-    SHORT_NAME,
-    BOOL_NAME,
-    VOID_NAME,
-];
 
 pub(crate) extern "C" fn class_get_primitive(
     env: *mut Env<'_>,
@@ -69,39 +60,35 @@ pub(crate) extern "C" fn class_get_primitive(
 
     // Note: This assumes that the jchar encoding can be directly compared to the ascii bytes for
     // these basic characters
-    let class_name: &[u8] = if name == "B" || name == "byte" {
-        BYTE_NAME
+    let class_typ = if name == "B" || name == "byte" {
+        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I8))
     } else if name == "C" || name == "char" {
-        CHARACTER_NAME
+        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::Char))
     } else if name == "D" || name == "double" {
-        DOUBLE_NAME
+        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::F64))
     } else if name == "F" || name == "float" {
-        FLOAT_NAME
+        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::F32))
     } else if name == "I" || name == "int" || name == "integer" {
-        INTEGER_NAME
+        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I32))
     } else if name == "J" || name == "long" {
-        LONG_NAME
+        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I64))
     } else if name == "S" || name == "short" {
-        SHORT_NAME
+        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I16))
     } else if name == "Z" || name == "bool" || name == "boolean" {
-        BOOL_NAME
+        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I8))
     } else if name == "V" || name == "void" {
-        VOID_NAME
+        make_primitive_class_form_of(env, None)
     } else {
         panic!("Unknown name ({}) passed into Class#getPrimitive", name);
     };
 
-    let class_id = env.class_names.gcid_from_bytes(class_name);
-    let object_id = env.class_names.object_id();
-
-    // We use object_id just to be explicit about them being bootstrap-ish classes
-    let class_form = util::make_class_form_of(env, object_id, class_id).expect("Handle errors");
-    let class_form = match class_form {
-        ValueException::Value(class_form) => class_form,
-        ValueException::Exception(exc) => todo!("Handle exceptions"),
-    };
-
-    unsafe { env.get_local_jobject_for(class_form.into_generic()) }
+    let class_typ = class_typ.expect("Failed to construct primitive class.");
+    if let Some(class_typ) = env.state.extract_value(class_typ) {
+        unsafe { env.get_local_jobject_for(class_typ.into_generic()) }
+    } else {
+        // Exception
+        JObject::null()
+    }
 }
 
 /// Gets the class name id for a slice of java characters in the format of Class's name
@@ -184,43 +171,36 @@ pub(crate) extern "C" fn class_get_name(env: *mut Env<'_>, this: JObject) -> JSt
     // forged.
     let this = unsafe { env.get_jobject_as_gcref(this) };
     let this = this.expect("RegisterNative's class was null");
-    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+    let this_of = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        this.of_id
+        this.of
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
         panic!();
     };
 
-    let (name, info) = env.class_names.name_from_gcid(this_id).unwrap();
+    let name = match this_of {
+        RuntimeTypeVoid::Primitive(prim) => Cow::Borrowed(match prim {
+            RuntimeTypePrimitive::I64 => "long",
+            RuntimeTypePrimitive::I32 => "int",
+            RuntimeTypePrimitive::I16 => "short",
+            RuntimeTypePrimitive::I8 => "byte",
+            RuntimeTypePrimitive::F32 => "float",
+            RuntimeTypePrimitive::F64 => "double",
+            RuntimeTypePrimitive::Char => "char",
+        }),
+        RuntimeTypeVoid::Void => Cow::Borrowed("void"),
+        RuntimeTypeVoid::Reference(this_id) => {
+            let (name, info) = env.class_names.name_from_gcid(this_id).unwrap();
+            let name = name.get();
+            // TODO: Don't use this
+            let name = convert_classfile_text(name);
 
-    let name = if info.is_array() {
-        convert_classfile_text(name.get())
-    } else {
-        let name: &[u8] = match name.get() {
-            // TODO: is this right?
-            // Primitive classes get mapped to a short name, I believe
-            b"java/lang/Byte" => b"byte",
-            b"java/lang/Character" => b"char",
-            b"java/lang/Double" => b"double",
-            b"java/lang/Float" => b"float",
-            b"java/lang/Integer" => b"int",
-            b"java/lang/Long" => b"long",
-            b"java/lang/Short" => b"short",
-            b"java/lang/Bool" => b"bool",
-            // TODO: does this a shortening?
-            b"java/lang/Void" => b"void",
-            _ => name.get(),
-        };
-
-        // TODO: Don't use this
-        let name = convert_classfile_text(name);
-
-        // Split it up by /
-        // The output is separated by .'s
-        std::borrow::Cow::Owned(name.replace('/', "."))
+            // Replace it with . since those names are meant to be separated by a .
+            Cow::Owned(name.replace('/', "."))
+        }
     };
 
     let name = name
@@ -259,7 +239,9 @@ pub(crate) extern "C" fn class_get_declared_field(
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        this.of_id
+        this.of
+            .into_reference()
+            .expect("Expected Class<T> to be of a Class")
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
@@ -379,15 +361,20 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
 
     let this = unsafe { env.get_jobject_as_gcref(this) };
     let this = this.expect("Class new instance's this ref was null");
-    // The id held inside
-    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+    let this_of = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        this.of_id
+        this.of
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
         panic!();
+    };
+
+    let this_id = if let Some(id) = this_of.into_reference() {
+        id
+    } else {
+        todo!("InstantiationException because of primitive")
     };
 
     let static_ref = initialize_class(env, this_id).unwrap().into_value();
@@ -463,14 +450,22 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
     let this = unsafe { env.get_jobject_as_gcref(this) };
     let this = this.expect("Class new instance's this ref was null");
     // The id held inside
-    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+    let this_of = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        this.of_id
+        this.of
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
         panic!();
+    };
+
+    let this_id = if let Some(id) = this_of.into_reference() {
+        id
+    } else {
+        // Otherwise, return null for primitive types
+        // TODO: is this correct?
+        return JObject::null();
     };
 
     // TODO: Should we assume its loaded?
@@ -686,25 +681,20 @@ pub(crate) extern "C" fn class_is_primitive(env: *mut Env<'_>, this: JObject) ->
     let this = unsafe { env.get_jobject_as_gcref(this) };
     let this = this.expect("Class new instance's this ref was null");
     // The id held inside
-    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+    let this_of = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        this.of_id
+        this.of
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
         panic!();
     };
 
-    // TODO: We could cache their ids somewhere that is easy to access since they're pretty common.
-    for primitive_name in PRIMITIVE_NAMES {
-        let primitive_id = env.class_names.gcid_from_bytes(primitive_name);
-        if primitive_id == this_id {
-            return u8::from(true);
-        }
-    }
-
-    u8::from(false)
+    JBoolean::from(match this_of {
+        RuntimeTypeVoid::Primitive(_) | RuntimeTypeVoid::Void => true,
+        RuntimeTypeVoid::Reference(_) => false,
+    })
 }
 
 pub(crate) extern "C" fn class_is_array(env: *mut Env<'_>, this: JObject) -> JBoolean {
@@ -714,22 +704,27 @@ pub(crate) extern "C" fn class_is_array(env: *mut Env<'_>, this: JObject) -> JBo
     let this = unsafe { env.get_jobject_as_gcref(this) };
     let this = this.expect("Class new instance's this ref was null");
     // The id held inside
-    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+    let this_of = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        this.of_id
+        this.of
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
         panic!();
     };
 
-    let (_, info) = env.class_names.name_from_gcid(this_id).unwrap();
+    JBoolean::from(match this_of {
+        RuntimeTypeVoid::Primitive(_) | RuntimeTypeVoid::Void => false,
+        RuntimeTypeVoid::Reference(this_id) => {
+            let (_, info) = env.class_names.name_from_gcid(this_id).unwrap();
 
-    u8::from(info.is_array())
+            info.is_array()
+        }
+    })
 }
 
-pub(crate) extern "C" fn class_get_component_type(env: *mut Env<'_>, this: JObject) -> JClass {
+pub(crate) extern "C" fn class_get_component_type(env: *mut Env<'_>, this: JClass) -> JClass {
     assert!(!env.is_null(), "Env was null. Internal bug?");
     let env = unsafe { &mut *env };
 
@@ -739,30 +734,57 @@ pub(crate) extern "C" fn class_get_component_type(env: *mut Env<'_>, this: JObje
     if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        let this_id = this.of_id;
+        let this_id = this
+            .of
+            .into_reference()
+            .expect("Expected Class<T> of a Class");
 
-        let component_id = match env.classes.get(&this_id).unwrap() {
+        let prim_class_form = match env.classes.get(&this_id).unwrap() {
             ClassVariant::Array(array) => match array.component_type() {
-                ArrayComponentType::Boolean => env.class_names.gcid_from_bytes(BOOL_NAME),
-                ArrayComponentType::Char => env.class_names.gcid_from_bytes(CHARACTER_NAME),
-                ArrayComponentType::Byte => env.class_names.gcid_from_bytes(BYTE_NAME),
-                ArrayComponentType::Short => env.class_names.gcid_from_bytes(SHORT_NAME),
-                ArrayComponentType::Int => env.class_names.gcid_from_bytes(INTEGER_NAME),
-                ArrayComponentType::Long => env.class_names.gcid_from_bytes(LONG_NAME),
-                ArrayComponentType::Float => env.class_names.gcid_from_bytes(FLOAT_NAME),
-                ArrayComponentType::Double => env.class_names.gcid_from_bytes(DOUBLE_NAME),
-                ArrayComponentType::Class(id) => id,
+                ArrayComponentType::Boolean => {
+                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I8))
+                }
+                ArrayComponentType::Char => {
+                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::Char))
+                }
+                ArrayComponentType::Byte => {
+                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I8))
+                }
+                ArrayComponentType::Short => {
+                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I16))
+                }
+                ArrayComponentType::Int => {
+                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I32))
+                }
+                ArrayComponentType::Long => {
+                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I64))
+                }
+                ArrayComponentType::Float => {
+                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::F32))
+                }
+                ArrayComponentType::Double => {
+                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::F64))
+                }
+                ArrayComponentType::Class(id) => {
+                    // TODO: this usage is incorrect
+                    let form = make_class_form_of(env, id, id).unwrap();
+                    if let Some(form) = env.state.extract_value(form) {
+                        return unsafe { env.get_local_jobject_for(form.into_generic()) };
+                    } else {
+                        // There was an exception
+                        return JClass::null();
+                    }
+                }
             },
             // It wasn't an array
             ClassVariant::Class(_) => return JClass::null(),
         };
 
-        // TODO: this usage is incorrect
-        let form = make_class_form_of(env, component_id, component_id).unwrap();
-        if let Some(form) = env.state.extract_value(form) {
-            unsafe { env.get_local_jobject_for(form.into_generic()) }
+        let prim_class_form = prim_class_form.unwrap();
+        if let Some(prim_class_form) = env.state.extract_value(prim_class_form) {
+            unsafe { env.get_local_jobject_for(prim_class_form.into_generic()) }
         } else {
-            // There was an exception
+            // Exception
             JClass::null()
         }
     } else {
@@ -782,10 +804,10 @@ pub(crate) extern "C" fn class_is_assignable_from(
 
     let this = unsafe { env.get_jobject_as_gcref(this) };
     let this = this.expect("IsAssignableFrom's class was null");
-    let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+    let this_of = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        this.of_id
+        this.of
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic
@@ -794,12 +816,31 @@ pub(crate) extern "C" fn class_is_assignable_from(
 
     let other = unsafe { env.get_jobject_as_gcref(other) };
     let other = other.expect("IsAssignableFrom's other class was null");
-    let other_id = if let Instance::Reference(ReferenceInstance::StaticForm(other)) =
+    let other_of = if let Instance::Reference(ReferenceInstance::StaticForm(other)) =
         env.state.gc.deref(other).unwrap()
     {
-        other.of_id
+        other.of
     } else {
         panic!();
+    };
+
+    // If they're the same primitive typeclass or the same class id then they're the same
+    if this_of == other_of {
+        return JBoolean::from(true);
+    }
+
+    // If they aren't references then they can't be equal
+
+    let this_id = if let Some(id) = this_of.into_reference() {
+        id
+    } else {
+        return JBoolean::from(false);
+    };
+
+    let other_id = if let Some(id) = other_of.into_reference() {
+        id
+    } else {
+        return JBoolean::from(false);
     };
 
     let is_castable = other_id == this_id
@@ -851,7 +892,9 @@ pub(crate) extern "C" fn class_is_instance(
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        this.of_id
+        this.of
+            .into_reference()
+            .expect("Expected Class<T> to be of a Class")
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic

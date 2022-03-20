@@ -916,7 +916,9 @@ unsafe extern "C" fn get_field_id(
     let class_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(class).unwrap()
     {
-        this.of_id
+        this.of
+            .into_reference()
+            .expect("Expected Class<T> of a Class")
     } else {
         // TODO: Don't panic
         panic!();
@@ -1597,7 +1599,9 @@ unsafe fn get_jmethod_id(
     let this_id = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
-        this.of_id
+        this.of
+            .into_reference()
+            .expect("Expected Class<T> of a class")
     } else {
         // This should be caught by method calling
         // Though it would be good to not panic

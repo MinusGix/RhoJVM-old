@@ -6,7 +6,7 @@ use rhojvm_base::{id::ClassId, util::MemorySize};
 
 use crate::{
     gc::{GcRef, GcValueMarker},
-    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeTypeVoid, RuntimeValue, RuntimeValuePrimitive},
 };
 
 macro_rules! impl_instance_conv {
@@ -233,21 +233,21 @@ impl<'a> TryFrom<&'a mut Instance> for &'a mut ReferenceInstance {
 pub struct StaticFormInstance {
     pub(crate) inner: ClassInstance,
     /// The T in Class<T>
-    pub(crate) of_id: ClassId,
-    /// The T in Class<T>
-    pub(crate) of: Option<GcRef<StaticClassInstance>>,
+    pub(crate) of: RuntimeTypeVoid<ClassId>,
+    // The T in Class<T>
+    // pub(crate) of_ref: Option<GcRef<StaticClassInstance>>,
 }
 impl StaticFormInstance {
     #[must_use]
     pub(crate) fn new(
         inner_instance: ClassInstance,
-        of_id: ClassId,
-        of: Option<GcRef<StaticClassInstance>>,
+        of: impl Into<RuntimeTypeVoid<ClassId>>,
+        _of_ref: Option<GcRef<StaticClassInstance>>,
     ) -> StaticFormInstance {
         StaticFormInstance {
             inner: inner_instance,
-            of_id,
-            of,
+            of: of.into(),
+            // of,
         }
     }
 }

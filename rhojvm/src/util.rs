@@ -30,7 +30,7 @@ use crate::{
     initialize_class,
     jni::{native_interface::NativeInterface, JObject},
     resolve_derive,
-    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    rv::{RuntimeType, RuntimeTypePrimitive, RuntimeTypeVoid, RuntimeValue, RuntimeValuePrimitive},
     string_intern::StringInterner,
     BegunStatus, GeneralError, State, ThreadData,
 };
@@ -474,6 +474,92 @@ pub fn get_string_contents_as_rust_string(
     String::from_utf16(&contents).map_err(GeneralError::StringConversionFailure)
 }
 
+fn state_target_primitive_field(
+    state: &mut State,
+    typ: Option<RuntimeTypePrimitive>,
+) -> &mut Option<GcRef<StaticFormInstance>> {
+    match typ {
+        Some(prim) => match prim {
+            RuntimeTypePrimitive::I64 => &mut state.long_static_form,
+            RuntimeTypePrimitive::I32 => &mut state.int_static_form,
+            RuntimeTypePrimitive::I16 => &mut state.short_static_form,
+            RuntimeTypePrimitive::I8 => &mut state.byte_static_form,
+            RuntimeTypePrimitive::F32 => &mut state.float_static_form,
+            RuntimeTypePrimitive::F64 => &mut state.double_static_form,
+            RuntimeTypePrimitive::Char => &mut state.char_static_form,
+        },
+        None => &mut state.void_static_form,
+    }
+}
+
+/// Make a Class<T> for a primitive type, the value being cached
+/// `None` represents void
+pub(crate) fn make_primitive_class_form_of(
+    env: &mut Env,
+    primitive: Option<RuntimeTypePrimitive>,
+) -> Result<ValueException<GcRef<StaticFormInstance>>, GeneralError> {
+    let rv: RuntimeTypeVoid<ClassId> = primitive
+        .map(RuntimeTypeVoid::from)
+        .unwrap_or(RuntimeTypeVoid::Void);
+
+    if let Some(re) = *state_target_primitive_field(&mut env.state, primitive) {
+        return Ok(ValueException::Value(re));
+    }
+
+    let class_form_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+
+    // Where are we resolving it from?
+    // resolve_derive(
+    //     &mut env.class_names,
+    //     &mut env.class_files,
+    //     &mut env.classes,
+    //     &mut env.packages,
+    //     &mut env.methods,
+    //     &mut env.state,
+    //     class_form_id,
+    //     from_class_id,
+    // )?;
+
+    let class_form_ref = initialize_class(env, class_form_id)?.into_value();
+    let class_form_ref = match class_form_ref {
+        ValueException::Value(v) => v,
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    };
+
+    let mut fields = match make_fields(env, class_form_id, |field_info| {
+        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+    })? {
+        Either::Left(fields) => fields,
+        Either::Right(exc) => {
+            return Ok(ValueException::Exception(exc));
+        }
+    };
+
+    // new does not run a constructor, it only initializes it
+    let inner_class = ClassInstance {
+        instanceof: class_form_id,
+        static_ref: class_form_ref,
+        fields,
+    };
+
+    let static_form = StaticFormInstance::new(inner_class, rv, None);
+    let static_form_ref = env.state.gc.alloc(static_form);
+
+    let storage_field = state_target_primitive_field(&mut env.state, primitive);
+    if let Some(re) = *storage_field {
+        // We somehow loaded it while we were loading it. That's a potential cause
+        // for circularity bugs if it occurs, but if we got here then we presumably
+        // managed to avoid it
+        // However, since we already got it, we just return the stored reference
+        // since that is the valid one.
+        Ok(ValueException::Value(re))
+    } else {
+        // Otherwise cache it
+        *storage_field = Some(static_form_ref);
+        Ok(ValueException::Value(static_form_ref))
+    }
+}
+
 pub(crate) fn make_class_form_of(
     env: &mut Env,
     from_class_id: ClassId,
@@ -536,16 +622,6 @@ pub(crate) fn make_class_form_of(
         }
     };
 
-    // This is the classId field, which is the only field in Rho's java/lang/Class
-    let class_id_field_id = env
-        .state
-        .get_class_class_id_field(&env.class_files, class_form_id)?;
-
-    let class_id_field = fields
-        .get_mut(class_id_field_id)
-        .ok_or(EvalError::MissingField(class_id_field_id))?;
-    *class_id_field.value_mut() = RuntimeValuePrimitive::I32(of_class_id.get() as i32).into();
-
     // new does not run a constructor, it only initializes it
     let inner_class = ClassInstance {
         instanceof: class_form_id,
@@ -553,7 +629,8 @@ pub(crate) fn make_class_form_of(
         fields,
     };
 
-    let static_form = StaticFormInstance::new(inner_class, of_class_id, None);
+    let static_form =
+        StaticFormInstance::new(inner_class, RuntimeType::Reference(of_class_id), None);
     let static_form_ref = env.state.gc.alloc(static_form);
 
     // Store the created form on the static inst so that it can be reused and cached

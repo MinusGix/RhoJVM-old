@@ -438,11 +438,11 @@ fn trace_instance(
             }
             ReferenceInstance::StaticForm(class) => {
                 let class_ref = class.inner.static_ref;
-                let held_ref = class.of;
+                // let held_ref = class.of;
                 gc.mark(class_ref.into_generic());
-                if let Some(held_ref) = held_ref {
-                    gc.mark(held_ref.into_generic());
-                }
+                // if let Some(held_ref) = held_ref {
+                //     gc.mark(held_ref.into_generic());
+                // }
             }
             ReferenceInstance::Thread(thread) => {
                 let class_ref = thread.inner.static_ref;

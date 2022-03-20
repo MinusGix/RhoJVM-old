@@ -278,9 +278,6 @@ pub struct State {
 
     string_class_id: Option<ClassId>,
 
-    /// The field in java/lang/Class that stores the ClassId
-    class_class_id_field: Option<FieldId>,
-
     /// The field in java/lang/String that holds the `char[]` that is its content.
     string_data_field: Option<FieldId>,
 
@@ -292,6 +289,17 @@ pub struct State {
 
     /// name field in java/lang/Package
     package_name_field_id: Option<FieldId>,
+
+    // Cached gcreferences to the Class<T> types for primitives
+    pub(crate) void_static_form: Option<GcRef<StaticFormInstance>>,
+    pub(crate) byte_static_form: Option<GcRef<StaticFormInstance>>,
+    pub(crate) bool_static_form: Option<GcRef<StaticFormInstance>>,
+    pub(crate) short_static_form: Option<GcRef<StaticFormInstance>>,
+    pub(crate) char_static_form: Option<GcRef<StaticFormInstance>>,
+    pub(crate) int_static_form: Option<GcRef<StaticFormInstance>>,
+    pub(crate) long_static_form: Option<GcRef<StaticFormInstance>>,
+    pub(crate) float_static_form: Option<GcRef<StaticFormInstance>>,
+    pub(crate) double_static_form: Option<GcRef<StaticFormInstance>>,
 }
 impl State {
     #[must_use]
@@ -320,8 +328,6 @@ impl State {
             char_array_id: None,
             string_class_id: None,
 
-            class_class_id_field: None,
-
             string_data_field: None,
 
             internal_field_field_ids: None,
@@ -329,6 +335,16 @@ impl State {
             field_internal_field_id: None,
 
             package_name_field_id: None,
+
+            void_static_form: None,
+            byte_static_form: None,
+            bool_static_form: None,
+            short_static_form: None,
+            char_static_form: None,
+            int_static_form: None,
+            long_static_form: None,
+            float_static_form: None,
+            double_static_form: None,
         }
     }
 
@@ -397,25 +413,6 @@ impl State {
         }
 
         None
-    }
-
-    /// The Class<T> class should already be loaded, and the id given should be for it.
-    /// # Panics
-    /// If it can't find the field
-    pub(crate) fn get_class_class_id_field(
-        &mut self,
-        class_files: &ClassFiles,
-        class_id: ClassId,
-    ) -> Result<FieldId, GeneralError> {
-        if let Some(field) = self.class_class_id_field {
-            return Ok(field);
-        }
-
-        let (field_id, _) = find_field_with_name(class_files, class_id, b"classId")?
-            .expect("Failed to get field id for internal java/lang/Class#classId field");
-        self.class_class_id_field = Some(field_id);
-
-        Ok(field_id)
     }
 
     /// The String class should already be loaded, and the id given should be for it.

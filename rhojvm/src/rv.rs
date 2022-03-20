@@ -430,10 +430,50 @@ impl<REF> RuntimeType<REF> {
             Self::Reference(_) => false,
         }
     }
+
+    /// Converts it into the value stored inside Reference
+    #[must_use]
+    pub fn into_reference(self) -> Option<REF> {
+        match self {
+            RuntimeType::Primitive(_) => None,
+            RuntimeType::Reference(re) => Some(re),
+        }
+    }
 }
 impl<REF> From<RuntimeTypePrimitive> for RuntimeType<REF> {
     fn from(v: RuntimeTypePrimitive) -> Self {
         RuntimeType::Primitive(v)
+    }
+}
+
+/// RuntimeType but with Void being a valid value
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeTypeVoid<REF = ()> {
+    Primitive(RuntimeTypePrimitive),
+    Void,
+    Reference(REF),
+}
+impl<REF> RuntimeTypeVoid<REF> {
+    /// Converts it into the value stored inside Reference
+    #[must_use]
+    pub fn into_reference(self) -> Option<REF> {
+        match self {
+            RuntimeTypeVoid::Primitive(_) | RuntimeTypeVoid::Void => None,
+            RuntimeTypeVoid::Reference(re) => Some(re),
+        }
+    }
+}
+impl<REF> From<RuntimeType<REF>> for RuntimeTypeVoid<REF> {
+    fn from(v: RuntimeType<REF>) -> Self {
+        match v {
+            RuntimeType::Primitive(prim) => RuntimeTypeVoid::Primitive(prim),
+            RuntimeType::Reference(v) => RuntimeTypeVoid::Reference(v),
+        }
+    }
+}
+impl<REF> From<RuntimeTypePrimitive> for RuntimeTypeVoid<REF> {
+    fn from(v: RuntimeTypePrimitive) -> Self {
+        RuntimeTypeVoid::Primitive(v)
     }
 }
 

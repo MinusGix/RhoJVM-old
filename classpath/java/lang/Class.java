@@ -17,10 +17,6 @@ import java.security.ProtectionDomain;
 import rho.SystemClassLoader;
 
 public final class Class<T> implements AnnotatedElement, GenericDeclaration, Type {
-    // TODO: We could make this final
-    // internal class id
-    private int classId;
-
     // So that it can't be constructed manually
     // Note that this is not actually called, the fields are filled in directly.
     private Class() {}
