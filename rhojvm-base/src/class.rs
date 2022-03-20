@@ -59,7 +59,8 @@ impl ClassFileData {
 
     // TODO: Give the class file a good way of parsing attributes to not expose
     // implementation details
-    pub(crate) fn parse_data_for(&self, r: Range<usize>) -> ParseData {
+    #[must_use]
+    pub fn parse_data_for(&self, r: Range<usize>) -> ParseData {
         ParseData::from_range(&self.class_file_data, r)
     }
 
