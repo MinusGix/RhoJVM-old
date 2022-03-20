@@ -48,3 +48,20 @@ pub(crate) extern "C" fn object_hashcode(env: *mut Env<'_>, this: JObject) -> JI
         todo!("Null pointer exception")
     }
 }
+
+pub(crate) extern "C" fn object_clone(env: *mut Env<'_>, this: JObject) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    if let Some(this) = this {
+        let cloned = env.state.gc.shallow_clone(this);
+        if let Some(cloned) = cloned {
+            unsafe { env.get_local_jobject_for(cloned) }
+        } else {
+            todo!("NPE")
+        }
+    } else {
+        todo!("NPE")
+    }
+}
