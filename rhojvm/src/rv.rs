@@ -28,8 +28,7 @@ pub enum RuntimeValuePrimitive {
     /// Char
     Char(JavaChar),
 
-    /// Considered equivalent to an i8
-    Bool(bool),
+    Bool(u8),
 }
 impl RuntimeValuePrimitive {
     #[must_use]
@@ -151,9 +150,8 @@ impl RuntimeValuePrimitive {
             RuntimeValuePrimitive::I64(_) => RuntimeTypePrimitive::I64,
             RuntimeValuePrimitive::I32(_) => RuntimeTypePrimitive::I32,
             RuntimeValuePrimitive::I16(_) => RuntimeTypePrimitive::I16,
-            RuntimeValuePrimitive::I8(_) | RuntimeValuePrimitive::Bool(_) => {
-                RuntimeTypePrimitive::I8
-            }
+            RuntimeValuePrimitive::I8(_) => RuntimeTypePrimitive::I8,
+            RuntimeValuePrimitive::Bool(_) => RuntimeTypePrimitive::Bool,
             RuntimeValuePrimitive::F32(_) => RuntimeTypePrimitive::F32,
             RuntimeValuePrimitive::F64(_) => RuntimeTypePrimitive::F64,
             RuntimeValuePrimitive::Char(_) => RuntimeTypePrimitive::Char,
@@ -359,9 +357,8 @@ impl RuntimeType<ClassId> {
     ) -> Result<RuntimeType<ClassId>, BadIdError> {
         Ok(match desc {
             DescriptorType::Basic(bdesc) => match bdesc {
-                DescriptorTypeBasic::Byte | DescriptorTypeBasic::Boolean => {
-                    RuntimeTypePrimitive::I8.into()
-                }
+                DescriptorTypeBasic::Byte => RuntimeTypePrimitive::I8.into(),
+                DescriptorTypeBasic::Boolean => RuntimeTypePrimitive::Bool.into(),
                 DescriptorTypeBasic::Char => RuntimeTypePrimitive::Char.into(),
                 DescriptorTypeBasic::Short => RuntimeTypePrimitive::I16.into(),
                 DescriptorTypeBasic::Int => RuntimeTypePrimitive::I32.into(),
@@ -483,6 +480,7 @@ pub enum RuntimeTypePrimitive {
     I32,
     I16,
     I8,
+    Bool,
     F32,
     F64,
     Char,
@@ -490,9 +488,8 @@ pub enum RuntimeTypePrimitive {
 impl From<PrimitiveType> for RuntimeTypePrimitive {
     fn from(v: PrimitiveType) -> Self {
         match v {
-            PrimitiveType::Byte | PrimitiveType::UnsignedByte | PrimitiveType::Boolean => {
-                RuntimeTypePrimitive::I8
-            }
+            PrimitiveType::Byte | PrimitiveType::UnsignedByte => RuntimeTypePrimitive::I8,
+            PrimitiveType::Boolean => RuntimeTypePrimitive::Bool,
             PrimitiveType::Short | PrimitiveType::UnsignedShort => RuntimeTypePrimitive::I16,
             PrimitiveType::Int => RuntimeTypePrimitive::I32,
             PrimitiveType::Long => RuntimeTypePrimitive::I64,
@@ -510,6 +507,7 @@ impl RuntimeTypePrimitive {
             RuntimeTypePrimitive::I32 => RuntimeValuePrimitive::I32(0),
             RuntimeTypePrimitive::I16 => RuntimeValuePrimitive::I16(0),
             RuntimeTypePrimitive::I8 => RuntimeValuePrimitive::I8(0),
+            RuntimeTypePrimitive::Bool => RuntimeValuePrimitive::Bool(false.into()),
             RuntimeTypePrimitive::F32 => RuntimeValuePrimitive::F32(0.0),
             RuntimeTypePrimitive::F64 => RuntimeValuePrimitive::F64(0.0),
             RuntimeTypePrimitive::Char => RuntimeValuePrimitive::Char(JavaChar(0)),
@@ -543,6 +541,7 @@ impl RuntimeTypePrimitive {
             RuntimeTypePrimitive::I32
                 | RuntimeTypePrimitive::I16
                 | RuntimeTypePrimitive::I8
+                | RuntimeTypePrimitive::Bool
                 | RuntimeTypePrimitive::Char
         )
     }

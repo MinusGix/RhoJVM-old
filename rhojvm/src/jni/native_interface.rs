@@ -1133,7 +1133,7 @@ unsafe extern "C" fn set_boolean_field(
     assert_valid_env(env);
     let env = &mut *env;
     let field_value = get_field_for(env, obj, field_id);
-    *field_value = RuntimeValuePrimitive::Bool(value != 0).into();
+    *field_value = RuntimeValuePrimitive::Bool(value).into();
 }
 pub type SetByteFieldFn =
     unsafe extern "C" fn(env: *mut Env, obj: JObject, field_id: JFieldId, value: JByte);
@@ -1685,7 +1685,7 @@ unsafe extern "C" fn call_static_object_method_v(
                     RuntimeValuePrimitive::I16(args.arg::<JShort>()).into()
                 }
                 DescriptorTypeBasic::Boolean => {
-                    RuntimeValuePrimitive::Bool(args.arg::<JBoolean>() != 0).into()
+                    RuntimeValuePrimitive::Bool(args.arg::<JBoolean>()).into()
                 }
                 DescriptorTypeBasic::Class(_) => {
                     // Requires JObject to be transparent, which it is
@@ -1845,6 +1845,7 @@ fn construct_layout_for_primitive_array(
         RuntimeTypePrimitive::I32 => Layout::array::<JInt>(len),
         RuntimeTypePrimitive::I16 => Layout::array::<JShort>(len),
         RuntimeTypePrimitive::I8 => Layout::array::<JByte>(len),
+        RuntimeTypePrimitive::Bool => Layout::array::<JBoolean>(len),
         RuntimeTypePrimitive::F32 => Layout::array::<JFloat>(len),
         RuntimeTypePrimitive::F64 => Layout::array::<JDouble>(len),
         RuntimeTypePrimitive::Char => Layout::array::<JChar>(len),
@@ -1881,6 +1882,10 @@ fn allocate_primitive_array(
             }
             RuntimeTypePrimitive::I8 => {
                 copy_values(ptr.cast(), data.map(|x| x.into_byte().unwrap()));
+            }
+            // This is a bit iffy. We're copying as bytes.
+            RuntimeTypePrimitive::Bool => {
+                copy_values(ptr.cast(), data.map(|x| x.into_bool_loose().unwrap()));
             }
             RuntimeTypePrimitive::F32 => {
                 copy_values(ptr.cast(), data.map(|x| x.into_f32().unwrap()));

@@ -484,6 +484,7 @@ fn state_target_primitive_field(
             RuntimeTypePrimitive::I32 => &mut state.int_static_form,
             RuntimeTypePrimitive::I16 => &mut state.short_static_form,
             RuntimeTypePrimitive::I8 => &mut state.byte_static_form,
+            RuntimeTypePrimitive::Bool => &mut state.bool_static_form,
             RuntimeTypePrimitive::F32 => &mut state.float_static_form,
             RuntimeTypePrimitive::F64 => &mut state.double_static_form,
             RuntimeTypePrimitive::Char => &mut state.char_static_form,

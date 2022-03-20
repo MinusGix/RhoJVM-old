@@ -252,7 +252,7 @@ impl JValue {
                 DescriptorTypeBasic::Long => RuntimeValuePrimitive::I64(self.j).into(),
                 DescriptorTypeBasic::Short => RuntimeValuePrimitive::I16(self.s).into(),
                 // We treat the any invalid bool values as if they were true
-                DescriptorTypeBasic::Boolean => RuntimeValuePrimitive::Bool(self.z != 0).into(),
+                DescriptorTypeBasic::Boolean => RuntimeValuePrimitive::Bool(self.z).into(),
                 DescriptorTypeBasic::Class(_) => {
                     if let Some(gc_ref) = env.get_jobject_as_gcref(self.l) {
                         RuntimeValue::Reference(gc_ref)
@@ -285,8 +285,8 @@ impl JValue {
                 RuntimeTypePrimitive::I64 => RuntimeValuePrimitive::I64(self.j).into(),
                 RuntimeTypePrimitive::I32 => RuntimeValuePrimitive::I32(self.i).into(),
                 RuntimeTypePrimitive::I16 => RuntimeValuePrimitive::I16(self.s).into(),
-                // Our code assumes that the representation of a bool and u8 are the same
                 RuntimeTypePrimitive::I8 => RuntimeValuePrimitive::I8(self.b).into(),
+                RuntimeTypePrimitive::Bool => RuntimeValuePrimitive::Bool(self.z).into(),
                 RuntimeTypePrimitive::F32 => RuntimeValuePrimitive::F32(self.f).into(),
                 RuntimeTypePrimitive::F64 => RuntimeValuePrimitive::F64(self.d).into(),
                 RuntimeTypePrimitive::Char => RuntimeValuePrimitive::Char(JavaChar(self.c)).into(),

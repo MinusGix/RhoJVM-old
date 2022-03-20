@@ -30,6 +30,7 @@ use crate::{
     GeneralError,
 };
 
+pub(crate) const BOOLEAN_NAME: &[u8] = b"java/lang/Boolean";
 pub(crate) const BYTE_NAME: &[u8] = b"java/lang/Byte";
 pub(crate) const CHARACTER_NAME: &[u8] = b"java/lang/Character";
 pub(crate) const DOUBLE_NAME: &[u8] = b"java/lang/Double";
@@ -37,8 +38,6 @@ pub(crate) const FLOAT_NAME: &[u8] = b"java/lang/Float";
 pub(crate) const INTEGER_NAME: &[u8] = b"java/lang/Integer";
 pub(crate) const LONG_NAME: &[u8] = b"java/lang/Long";
 pub(crate) const SHORT_NAME: &[u8] = b"java/lang/Short";
-pub(crate) const BOOL_NAME: &[u8] = b"java/lang/Boolean";
-pub(crate) const VOID_NAME: &[u8] = b"java/lang/Void";
 
 pub(crate) extern "C" fn class_get_primitive(
     env: *mut Env<'_>,
@@ -75,7 +74,7 @@ pub(crate) extern "C" fn class_get_primitive(
     } else if name == "S" || name == "short" {
         make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I16))
     } else if name == "Z" || name == "bool" || name == "boolean" {
-        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I8))
+        make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::Bool))
     } else if name == "V" || name == "void" {
         make_primitive_class_form_of(env, None)
     } else {
@@ -186,6 +185,7 @@ pub(crate) extern "C" fn class_get_name(env: *mut Env<'_>, this: JObject) -> JSt
             RuntimeTypePrimitive::I64 => "long",
             RuntimeTypePrimitive::I32 => "int",
             RuntimeTypePrimitive::I16 => "short",
+            RuntimeTypePrimitive::Bool => "boolean",
             RuntimeTypePrimitive::I8 => "byte",
             RuntimeTypePrimitive::F32 => "float",
             RuntimeTypePrimitive::F64 => "double",
@@ -658,7 +658,7 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
         impl_title_ref,
         impl_vendor_ref,
         impl_version_ref,
-        RuntimeValuePrimitive::Bool(sealed.unwrap_or(false)).into(),
+        RuntimeValuePrimitive::Bool(sealed.unwrap_or(false).into()).into(),
     ]);
     let frame = Frame::new_locals(locals);
 
@@ -742,7 +742,7 @@ pub(crate) extern "C" fn class_get_component_type(env: *mut Env<'_>, this: JClas
         let prim_class_form = match env.classes.get(&this_id).unwrap() {
             ClassVariant::Array(array) => match array.component_type() {
                 ArrayComponentType::Boolean => {
-                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I8))
+                    make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::Bool))
                 }
                 ArrayComponentType::Char => {
                     make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::Char))

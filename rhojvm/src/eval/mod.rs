@@ -426,6 +426,17 @@ macro_rules! impl_call_native_method {
                         let value: JByte = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
                         RuntimeValuePrimitive::I8(value).into()
                     },
+                    RuntimeTypePrimitive::Bool => {
+                        // TODO: This might need more handling for bools
+                        let native_func = unsafe {
+                            std::mem::transmute::<
+                                unsafe extern "C" fn(*mut Env, JObject),
+                                unsafe extern "C" fn(*mut Env, JObject, $($typ),*) -> JBoolean,
+                            >(native_func)
+                        };
+                        let value: JBoolean = unsafe { (native_func)(env_ptr, class_ref_jobject, $($pname),*) };
+                        RuntimeValuePrimitive::Bool(value).into()
+                    },
                     RuntimeTypePrimitive::F32 => {
                         let native_func = unsafe {
                             std::mem::transmute::<
@@ -633,8 +644,11 @@ pub fn eval_method(
                 | DescriptorType::Basic(DescriptorTypeBasic::Class(_)) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject));
                 }
-                DescriptorType::Basic(DescriptorTypeBasic::Byte | DescriptorTypeBasic::Boolean) => {
+                DescriptorType::Basic(DescriptorTypeBasic::Byte) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JByte));
+                }
+                DescriptorType::Basic(DescriptorTypeBasic::Boolean) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JBoolean));
                 }
                 DescriptorType::Basic(DescriptorTypeBasic::Char) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JChar));

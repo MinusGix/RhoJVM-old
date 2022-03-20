@@ -205,8 +205,21 @@ fn convert_field_type_store(
                 RuntimeValuePrimitive::I8(x.as_i16() as i8).into()
             }
             (RuntimeTypePrimitive::I8, RuntimeValuePrimitive::Bool(x)) => {
-                RuntimeValuePrimitive::I8(i8::from(x)).into()
+                RuntimeValuePrimitive::I8(x as i8).into()
             }
+            (RuntimeTypePrimitive::Bool, RuntimeValuePrimitive::I32(x)) => {
+                RuntimeValuePrimitive::Bool((x != 0).into()).into()
+            }
+            (RuntimeTypePrimitive::Bool, RuntimeValuePrimitive::I16(x)) => {
+                RuntimeValuePrimitive::Bool((x != 0).into()).into()
+            }
+            (RuntimeTypePrimitive::Bool, RuntimeValuePrimitive::I8(x)) => {
+                RuntimeValuePrimitive::Bool((x != 0).into()).into()
+            }
+            (RuntimeTypePrimitive::Bool, RuntimeValuePrimitive::Char(x)) => {
+                RuntimeValuePrimitive::Bool((x.as_i16() != 0).into()).into()
+            }
+            (RuntimeTypePrimitive::Bool, RuntimeValuePrimitive::Bool(_)) => src,
             // TODO: Do floats get any automatic conversion from integers or f64?
             (RuntimeTypePrimitive::F32, RuntimeValuePrimitive::F32(_)) => src,
             // (RuntimeTypePrimitive::F32, RuntimeValuePrimitive::F64(_)) => todo!(),// (RuntimeTypePrimitive::F64, RuntimeValuePrimitive::F32(_)) => todo!(),
@@ -1514,7 +1527,17 @@ impl RunInstContinue for ArrayLength {
 fn array_load(
     state: &mut State,
     frame: &mut Frame,
+    element_type: impl Into<RuntimeType> + Copy,
+) -> Result<RunInstContinueValue, GeneralError> {
+    let elem: RuntimeType = element_type.into();
+    array_load_filter(state, frame, element_type, |x| RuntimeType::from(x) == elem)
+}
+
+fn array_load_filter(
+    state: &mut State,
+    frame: &mut Frame,
     element_type: impl Into<RuntimeType>,
+    is_valid: impl FnOnce(RuntimeTypePrimitive) -> bool,
 ) -> Result<RunInstContinueValue, GeneralError> {
     let element_type: RuntimeType = element_type.into();
 
@@ -1554,7 +1577,7 @@ fn array_load(
         }
         ReferenceInstance::PrimitiveArray(array) => {
             if let RuntimeType::Primitive(prim_type) = element_type {
-                if prim_type != array.element_type {
+                if !is_valid(array.element_type) {
                     return Err(EvalError::ExpectedArrayInstanceOf(element_type).into());
                 }
 
@@ -1881,24 +1904,90 @@ impl RunInstContinue for ByteArrayLoad {
         self,
         RunInstArgsC { env, frame, .. }: RunInstArgsC,
     ) -> Result<RunInstContinueValue, GeneralError> {
-        array_load(&mut env.state, frame, RuntimeTypePrimitive::I8)
+        array_load_filter(&mut env.state, frame, RuntimeTypePrimitive::I8, |x| {
+            x == RuntimeTypePrimitive::I8 || x == RuntimeTypePrimitive::Bool
+        })
     }
 }
 impl RunInstContinue for ByteArrayStore {
     fn run(self, args: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
-        array_store(
-            args,
-            |v| v.can_be_int(),
-            // int-repr values are accepted, then narrowed
-            |_, v| {
-                #[allow(clippy::cast_possible_truncation)]
-                Ok(RuntimeValuePrimitive::I8(
-                    v.into_int().ok_or(EvalError::ExpectedStackValueIntRepr)? as i8,
-                ))
-            },
-            EvalError::ExpectedArrayInstanceOf(RuntimeTypePrimitive::I8.into()).into(),
-            EvalError::ExpectedStackValueIntRepr.into(),
-        )
+        // This is an inlined version of array_store because bytearraystore needs to work with both
+        // byte and boolean arrays
+        let value = args
+            .frame
+            .stack
+            .pop()
+            .ok_or(EvalError::ExpectedStackValue)?;
+        let value = match value {
+            RuntimeValue::Primitive(v) => v,
+            _ => return Err(EvalError::ExpectedStackValueIntRepr.into()),
+        };
+
+        let index = args
+            .frame
+            .stack
+            .pop()
+            .ok_or(EvalError::ExpectedStackValue)?;
+        let index = index
+            .into_int()
+            .ok_or(EvalError::ExpectedStackValueIntRepr)?;
+        // TODO: Is it correct to treat it as a u32?
+        let index = u32::from_ne_bytes(index.to_ne_bytes());
+
+        let array_ref = args
+            .frame
+            .stack
+            .pop()
+            .ok_or(EvalError::ExpectedStackValue)?;
+        let array_ref = match array_ref {
+            RuntimeValue::Reference(x) => x,
+            RuntimeValue::NullReference => todo!("Return NullPointerException"),
+            RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
+        };
+
+        if !value.runtime_type().can_be_int() {
+            return Err(EvalError::ExpectedStackValueIntRepr.into());
+        }
+
+        let array_inst = args
+            .env
+            .state
+            .gc
+            .deref_mut(array_ref)
+            .ok_or(EvalError::InvalidGcRef(array_ref.into_generic()))?;
+
+        let array_inst = if let ReferenceInstance::PrimitiveArray(array_inst) = array_inst {
+            array_inst
+        } else {
+            // TODO: Better err for ReferenceArray
+            return Err(EvalError::ExpectedArrayInstance.into());
+        };
+
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let value = if array_inst.element_type == RuntimeTypePrimitive::I8 {
+            RuntimeValuePrimitive::I8(
+                value
+                    .into_int()
+                    .ok_or(EvalError::ExpectedStackValueIntRepr)? as i8,
+            )
+        } else if array_inst.element_type == RuntimeTypePrimitive::Bool {
+            RuntimeValuePrimitive::Bool(
+                value
+                    .into_int()
+                    .ok_or(EvalError::ExpectedStackValueIntRepr)? as u8,
+            )
+        } else {
+            return Err(EvalError::ExpectedArrayInstanceOf(RuntimeTypePrimitive::I8.into()).into());
+        };
+
+        let index = index.into_usize();
+        if index >= array_inst.elements.len() {
+            todo!("Return ArrayIndexOutOfBoundsException")
+        }
+
+        array_inst.elements[index] = value;
+
+        Ok(RunInstContinueValue::Continue)
     }
 }
 

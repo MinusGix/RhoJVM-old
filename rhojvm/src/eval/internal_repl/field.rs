@@ -7,7 +7,8 @@ use crate::{
     class_instance::{FieldIndex, Instance, ReferenceInstance},
     eval::{
         internal_repl::class::{
-            BYTE_NAME, CHARACTER_NAME, DOUBLE_NAME, FLOAT_NAME, INTEGER_NAME, LONG_NAME, SHORT_NAME,
+            BOOLEAN_NAME, BYTE_NAME, CHARACTER_NAME, DOUBLE_NAME, FLOAT_NAME, INTEGER_NAME,
+            LONG_NAME, SHORT_NAME,
         },
         EvalError,
     },
@@ -125,6 +126,7 @@ pub(crate) extern "C" fn field_get_type(env: *mut Env<'_>, field: JObject) -> JC
                 RuntimeTypePrimitive::I32 => INTEGER_NAME,
                 RuntimeTypePrimitive::I16 => SHORT_NAME,
                 RuntimeTypePrimitive::I8 => BYTE_NAME,
+                RuntimeTypePrimitive::Bool => BOOLEAN_NAME,
                 RuntimeTypePrimitive::F32 => FLOAT_NAME,
                 RuntimeTypePrimitive::F64 => DOUBLE_NAME,
                 RuntimeTypePrimitive::Char => CHARACTER_NAME,
