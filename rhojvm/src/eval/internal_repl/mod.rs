@@ -9,6 +9,7 @@ mod class;
 pub mod field;
 mod object;
 mod primitive;
+pub mod reflect_array;
 pub mod reflection;
 pub mod runtime;
 pub mod string;
@@ -131,8 +132,12 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
                 into_opaque3ret(class::class_is_assignable_from)
             }
             b"Java_java_lang_Class_isInstance" => into_opaque3ret(class::class_is_instance),
-            // Field
+            // reflect/Field
             b"Java_java_lang_reflect_Field_getType" => into_opaque2ret(field::field_get_type),
+            // reflect/Array
+            b"Java_java_lang_reflect_Array_newInstanceArray" => {
+                into_opaque4ret(reflect_array::array_new_instance)
+            }
             // System
             b"Java_java_lang_System_setProperties" => {
                 into_opaque3ret(system::system_set_properties)

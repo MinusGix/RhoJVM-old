@@ -545,4 +545,20 @@ impl RuntimeTypePrimitive {
                 | RuntimeTypePrimitive::Char
         )
     }
+
+    /// Note that primitive type has more variants, we assume signed, so you can't do
+    /// this with the `From<PrimitiveType>` without losing some information.
+    #[must_use]
+    pub fn into_primitive_type(self) -> PrimitiveType {
+        match self {
+            RuntimeTypePrimitive::I64 => PrimitiveType::Long,
+            RuntimeTypePrimitive::I32 => PrimitiveType::Int,
+            RuntimeTypePrimitive::I16 => PrimitiveType::Short,
+            RuntimeTypePrimitive::I8 => PrimitiveType::Byte,
+            RuntimeTypePrimitive::Bool => PrimitiveType::Boolean,
+            RuntimeTypePrimitive::F32 => PrimitiveType::Float,
+            RuntimeTypePrimitive::F64 => PrimitiveType::Double,
+            RuntimeTypePrimitive::Char => PrimitiveType::Char,
+        }
+    }
 }

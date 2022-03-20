@@ -9,7 +9,7 @@ JFILES="$JFILES ./java/lang/Object.java ./java/lang/ClassLoader.java ./java/lang
 JFILE="$JFILES ./java/lang/UnsupportedOperationException.java"
 
 # java/lang/reflect
-JFILES="$JFILES ./java/lang/reflect/Field.java"
+JFILES="$JFILES ./java/lang/reflect/Field.java ./java/lang/reflect/Array.java"
 
 # java/lang/ref
 JFILES="$JFILES ./java/lang/ref/Reference.java"
