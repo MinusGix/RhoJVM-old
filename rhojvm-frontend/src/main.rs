@@ -59,6 +59,21 @@ impl CliArgs {
             } => *abort_on_unsupported,
         }
     }
+
+    pub fn log_class_names(&self) -> bool {
+        match &self.command {
+            CliCommands::Run {
+                class_name,
+                abort_on_unsupported,
+                log_class_names,
+            } => *log_class_names,
+            CliCommands::RunJar {
+                jar,
+                abort_on_unsupported,
+                log_class_names,
+            } => *log_class_names,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -70,12 +85,16 @@ enum CliCommands {
         // TODO: Can we avoid duplication?
         #[clap(long)]
         abort_on_unsupported: bool,
+        #[clap(long)]
+        log_class_names: bool,
     },
     RunJar {
         #[clap(parse(from_os_str), value_name = "JAR_FILE")]
         jar: PathBuf,
         #[clap(long)]
         abort_on_unsupported: bool,
+        #[clap(long)]
+        log_class_names: bool,
     },
 }
 
@@ -275,6 +294,7 @@ fn make_state_conf(args: &CliArgs) -> StateConfig {
         log_local_variable_modifications: false,
     };
     conf.abort_on_unsupported = args.abort_on_unsupported();
+    conf.log_class_names = args.log_class_names();
     conf
 }
 
@@ -500,6 +520,10 @@ fn execute_class_name(
                 tracing::error!("There was an error in running the method: {:?}", err);
                 eprintln!("There was an internal error in running code: {:?}", err);
             }
+        }
+
+        if env.state.conf.log_class_names {
+            tracing::info!("Class Names: {:#?}", env.class_names);
         }
     }
 }
