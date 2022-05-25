@@ -1,4 +1,12 @@
-use classfile_parser::{constant_info::ConstantInfo, method_info::MethodAccessFlags};
+use std::num::NonZeroUsize;
+
+use classfile_parser::{
+    attribute_info::bootstrap_methods_attribute_parser,
+    constant_info::{ConstantInfo, InvokeDynamicConstant, MethodHandleConstant},
+    field_info::FieldAccessFlags,
+    method_info::MethodAccessFlags,
+};
+use either::Either;
 use rhojvm_base::{
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
@@ -18,14 +26,16 @@ use rhojvm_base::{
 use smallvec::SmallVec;
 
 use crate::{
-    eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals},
+    class_instance::{ClassInstance, MethodHandleType, ReferenceArrayInstance, StaticFormInstance},
+    eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
+    gc::GcRef,
     initialize_class, map_interface_index_small_vec_to_ids, resolve_derive,
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::CallStackEntry,
+    util::{construct_string_r, make_class_form_of, make_method_handle, CallStackEntry, Env},
     GeneralError, State,
 };
 
-use super::{RunInstArgsC, RunInstContinue, RunInstContinueValue};
+use super::{instances::make_fields, RunInstArgsC, RunInstContinue, RunInstContinueValue};
 
 fn grab_runtime_value_from_stack_for_function(
     class_names: &mut ClassNames,
@@ -696,7 +706,6 @@ pub fn find_virtual_method(
         // otherwise, check interfaces
     }
 
-    // TODO: Does this check the superinterfaces of the superinterfaces?
     // TODO: Does this check the superinterfaces of the superclasses?
     // Check the superinterfaces of instance_id
     if instance_has_class_file {
@@ -704,36 +713,20 @@ pub fn find_virtual_method(
             .get(&instance_id)
             .ok_or(GeneralError::MissingLoadedClassFile(instance_id))?;
         let interfaces: SmallVec<[_; 8]> = instance_class_file.interfaces_indices_iter().collect();
-        let interfaces: SmallVec<[_; 8]> =
+        let mut interfaces: SmallVec<[_; 8]> =
             map_interface_index_small_vec_to_ids(class_names, instance_class_file, interfaces)?;
 
         for interface_id in interfaces {
-            let method_id = methods.load_method_from_desc(
+            if let Some(method_id) = find_interface_method_virtual(
                 class_names,
                 class_files,
-                interface_id,
+                classes,
+                methods,
                 name,
                 descriptor,
-            );
-            match method_id {
-                Ok(method_id) => {
-                    // While we got a method that matches, we first need to check that it is not
-                    // abstract.
-                    let method = methods
-                        .get(&method_id)
-                        .ok_or(GeneralError::MissingLoadedMethod(method_id.into()))?;
-                    if method.access_flags().contains(MethodAccessFlags::ABSTRACT) {
-                        continue;
-                    }
-
-                    return Ok(method_id.into());
-                }
-                Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
-                    // Skip past this interface
-                    continue;
-                }
-                // TODO: Or should we just log the error and skip past it?
-                Err(err) => return Err(err.into()),
+                interface_id,
+            )? {
+                return Ok(method_id);
             }
         }
 
@@ -759,6 +752,76 @@ pub fn find_virtual_method(
     } else {
         panic!("When trying to invoke a virtual function, the instance ({:?}) inherently did not have a class file while also was not an array.", class_names.name_from_gcid(instance_id));
     }
+}
+/// Tries finding a method on an interface
+/// Implementation detail of [`find_virtual_method`]
+fn find_interface_method_virtual(
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    methods: &mut Methods,
+    name: &[u8],
+    descriptor: &MethodDescriptor,
+    interface_id: ClassId,
+) -> Result<Option<MethodId>, GeneralError> {
+    let method_id =
+        methods.load_method_from_desc(class_names, class_files, interface_id, name, descriptor);
+    match method_id {
+        Ok(method_id) => {
+            // While we got a method that matches, we first need to check that it is not
+            // abstract.
+            let method = methods
+                .get(&method_id)
+                .ok_or(GeneralError::MissingLoadedMethod(method_id.into()))?;
+            if !method.access_flags().contains(MethodAccessFlags::ABSTRACT) {
+                return Ok(Some(method_id.into()));
+            }
+
+            // TODO: If it is abstract should we really be checking the superinterfaces of this interface?
+        }
+        Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+            // Ignore
+        }
+        // TODO: Or should we just log the error and skip past it?
+        Err(err) => return Err(err.into()),
+    }
+
+    // TODO: Should we be assuming that the interface is loaded?
+    // Currently, this is fine, but if we want to dispose of class files temp then it wouldn't be
+
+    // TODO: Is there any cases where they could be cyclic interface implementations?
+
+    // TODO: We could probably do better, such as not constructing a smallvec at all
+    // TODO: We could do better by not checking them if they've already been checked?
+
+    // Check the interfaces this interface extends
+    let interface_class_file = class_files
+        .get(&interface_id)
+        .ok_or(GeneralError::MissingLoadedClassFile(interface_id))?;
+    let interface_interfaces: SmallVec<[_; 8]> =
+        interface_class_file.interfaces_indices_iter().collect();
+    let interface_interfaces: SmallVec<[_; 8]> = map_interface_index_small_vec_to_ids(
+        class_names,
+        interface_class_file,
+        interface_interfaces,
+    )?;
+    // Check each of the interfaces this interface extends for the method
+    for interface_interface_id in interface_interfaces {
+        if let Some(method_id) = find_interface_method_virtual(
+            class_names,
+            class_files,
+            classes,
+            methods,
+            name,
+            descriptor,
+            interface_interface_id,
+        )? {
+            return Ok(Some(method_id));
+        }
+    }
+
+    // Failed to find the method
+    Ok(None)
 }
 
 impl RunInstContinue for InvokeVirtual {
