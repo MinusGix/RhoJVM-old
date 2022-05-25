@@ -17,6 +17,9 @@ JFILES="$JFILES ./java/lang/ref/Reference.java"
 # java/security
 JFILES="$JFILES ./java/security/AccessController.java"
 
+# java/util
+JFILES="$JFILES ./java/util/EnumMap.java"
+
 # sun/misc/
 JFILES="$JFILES ./sun/misc/VM.java ./sun/misc/Unsafe.java"
 
