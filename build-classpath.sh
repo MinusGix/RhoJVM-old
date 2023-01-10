@@ -11,6 +11,9 @@ JFILE="$JFILES ./java/lang/UnsupportedOperationException.java"
 # java/lang/reflect
 JFILES="$JFILES ./java/lang/reflect/Field.java ./java/lang/reflect/Array.java"
 
+# java/lang/invoke
+JFILES="$JFILES ./java/lang/invoke/MethodHandles.java ./java/lang/invoke/MethodHandle.java ./java/lang/invoke/MethodHandleInfo.java"
+
 # java/lang/ref
 JFILES="$JFILES ./java/lang/ref/Reference.java"
 
@@ -28,6 +31,9 @@ JFILES="$JFILES ./sun/reflect/Reflection.java"
 
 # rho/
 JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/InternalField.java"
+
+# rho/invoke
+JFILES="$JFILES ./rho/invoke/MethodHandleInst.java ./rho/invoke/MethodHandleInfoInst.java"
 
 # rho/util/
 JFILES="$JFILES ./rho/util/EmptyEnumeration.java ./rho/util/SingleEnumeration.java"

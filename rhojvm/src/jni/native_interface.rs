@@ -960,14 +960,7 @@ fn get_field_for<'a>(env: &'a mut Env, obj: JObject, field_id: JFieldId) -> &'a 
     let obj_instance = env.state.gc.deref_mut(obj).expect("Bad gc ref");
     let field = match obj_instance {
         Instance::StaticClass(_) => panic!("Static class ref is not allowed"),
-        Instance::Reference(re) => match re {
-            ReferenceInstance::Class(class) => class.fields.get_mut(field_id),
-            ReferenceInstance::StaticForm(class) => class.inner.fields.get_mut(field_id),
-            ReferenceInstance::Thread(class) => class.inner.fields.get_mut(field_id),
-            ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => {
-                panic!("Array does not properties")
-            }
-        },
+        Instance::Reference(re) => re.get_class_fields_mut().unwrap().get_mut(field_id),
     };
 
     let field = field.expect("Failed to find field");
@@ -1269,7 +1262,9 @@ unsafe extern "C" fn get_array_length(env: *mut Env, instance: JArray) -> JSize 
         Instance::Reference(re) => match re {
             ReferenceInstance::StaticForm(_)
             | ReferenceInstance::Class(_)
-            | ReferenceInstance::Thread(_) => panic!("Got class"),
+            | ReferenceInstance::Thread(_)
+            | ReferenceInstance::MethodHandle(_)
+            | ReferenceInstance::MethodHandleInfo(_) => panic!("Got class"),
             ReferenceInstance::PrimitiveArray(arr) => arr.len(),
             ReferenceInstance::ReferenceArray(arr) => arr.len(),
         },
@@ -1936,6 +1931,8 @@ unsafe extern "C" fn get_primitive_array_critical(
             ReferenceInstance::Class(_) => todo!(),
             ReferenceInstance::StaticForm(_) => todo!(),
             ReferenceInstance::Thread(_) => todo!(),
+            ReferenceInstance::MethodHandle(_) => todo!(),
+            ReferenceInstance::MethodHandleInfo(_) => todo!(),
         }
     } else {
         todo!("NPE")

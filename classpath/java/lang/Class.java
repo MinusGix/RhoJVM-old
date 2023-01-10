@@ -47,9 +47,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public String getSimpleName() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native String getSimpleName();
 
     public<U> Class<? extends U> asSubClass(Class<U> clazz) {
         throw new UnsupportedOperationException("TODO: Implement this");

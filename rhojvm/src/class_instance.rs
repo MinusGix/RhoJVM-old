@@ -2,7 +2,10 @@ use std::{collections::HashMap, hash::Hash, thread::ThreadId};
 
 use classfile_parser::field_info::FieldAccessFlags;
 use either::Either;
-use rhojvm_base::{id::ClassId, util::MemorySize};
+use rhojvm_base::{
+    id::{ClassId, ExactMethodId, MethodId},
+    util::MemorySize,
+};
 
 use crate::{
     gc::{GcRef, GcValueMarker},
@@ -130,6 +133,9 @@ pub enum ReferenceInstance {
     StaticForm(StaticFormInstance),
     /// An instance of java/lang/Thread
     Thread(ThreadInstance),
+    /// An instance of java/lang/invoke/MethodHandle
+    MethodHandle(MethodHandleInstance),
+    MethodHandleInfo(MethodHandleInfoInstance),
     PrimitiveArray(PrimitiveArrayInstance),
     ReferenceArray(ReferenceArrayInstance),
 }
@@ -140,6 +146,8 @@ impl ReferenceInstance {
             ReferenceInstance::Class(x) => x.fields.iter(),
             ReferenceInstance::StaticForm(x) => x.inner.fields.iter(),
             ReferenceInstance::Thread(x) => x.inner.fields.iter(),
+            ReferenceInstance::MethodHandle(x) => x.inner.fields.iter(),
+            ReferenceInstance::MethodHandleInfo(x) => x.inner.fields.iter(),
             ReferenceInstance::PrimitiveArray(x) => x.fields.iter(),
             ReferenceInstance::ReferenceArray(x) => x.fields.iter(),
         }
@@ -150,6 +158,8 @@ impl ReferenceInstance {
             ReferenceInstance::Class(x) => x.instanceof,
             ReferenceInstance::StaticForm(x) => x.inner.instanceof,
             ReferenceInstance::Thread(x) => x.inner.instanceof,
+            ReferenceInstance::MethodHandle(x) => x.inner.instanceof,
+            ReferenceInstance::MethodHandleInfo(x) => x.inner.instanceof,
             ReferenceInstance::PrimitiveArray(x) => x.instanceof,
             ReferenceInstance::ReferenceArray(x) => x.instanceof,
         }
@@ -162,6 +172,8 @@ impl ReferenceInstance {
             ReferenceInstance::Class(x) => Some(&x.fields),
             ReferenceInstance::StaticForm(x) => Some(&x.inner.fields),
             ReferenceInstance::Thread(x) => Some(&x.inner.fields),
+            ReferenceInstance::MethodHandle(x) => Some(&x.inner.fields),
+            ReferenceInstance::MethodHandleInfo(x) => Some(&x.inner.fields),
             ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => None,
         }
     }
@@ -173,6 +185,8 @@ impl ReferenceInstance {
             ReferenceInstance::Class(x) => Some(&mut x.fields),
             ReferenceInstance::StaticForm(x) => Some(&mut x.inner.fields),
             ReferenceInstance::Thread(x) => Some(&mut x.inner.fields),
+            ReferenceInstance::MethodHandle(x) => Some(&mut x.inner.fields),
+            ReferenceInstance::MethodHandleInfo(x) => Some(&mut x.inner.fields),
             ReferenceInstance::PrimitiveArray(_) | ReferenceInstance::ReferenceArray(_) => None,
         }
     }
@@ -183,6 +197,8 @@ impl MemorySize for ReferenceInstance {
             ReferenceInstance::Class(x) => x.memory_size(),
             ReferenceInstance::StaticForm(x) => x.memory_size(),
             ReferenceInstance::Thread(x) => x.memory_size(),
+            ReferenceInstance::MethodHandle(x) => x.memory_size(),
+            ReferenceInstance::MethodHandleInfo(x) => x.memory_size(),
             ReferenceInstance::PrimitiveArray(x) => x.memory_size(),
             ReferenceInstance::ReferenceArray(x) => x.memory_size(),
         }
@@ -285,6 +301,70 @@ impl MemorySize for ThreadInstance {
     }
 }
 impl GcValueMarker for ThreadInstance {}
+
+#[derive(Debug, Clone)]
+pub enum MethodHandleType {
+    /// 6
+    InvokeStatic(ExactMethodId),
+}
+impl MethodHandleType {
+    pub fn kind(&self) -> u8 {
+        match self {
+            MethodHandleType::InvokeStatic(_) => 6,
+        }
+    }
+}
+/// An instance of `rho/invoke/MethodHandle`
+/// This is legal since by the official java docs, users cannot extend `MethodHandle` so we can
+/// strictly rely upon our own implementation.
+#[derive(Debug, Clone)]
+pub struct MethodHandleInstance {
+    pub(crate) inner: ClassInstance,
+    pub typ: MethodHandleType,
+}
+impl MethodHandleInstance {
+    #[must_use]
+    pub fn new(inner_instance: ClassInstance, typ: MethodHandleType) -> MethodHandleInstance {
+        MethodHandleInstance {
+            inner: inner_instance,
+            typ,
+        }
+    }
+}
+impl_reference_instance_conv!(MethodHandle => MethodHandleInstance);
+impl MemorySize for MethodHandleInstance {
+    fn memory_size(&self) -> usize {
+        std::mem::size_of::<Self>()
+    }
+}
+impl GcValueMarker for MethodHandleInstance {}
+
+/// Note: This is only for `rho/invoke/MethodHandleInfoInst`
+/// Since `MethodHandleInfo` is an interface, theoretically anything can implement it
+#[derive(Debug, Clone)]
+pub struct MethodHandleInfoInstance {
+    pub(crate) inner: ClassInstance,
+    pub method_handle: GcRef<MethodHandleInstance>,
+}
+impl MethodHandleInfoInstance {
+    #[must_use]
+    pub fn new(
+        inner_instance: ClassInstance,
+        method_handle: GcRef<MethodHandleInstance>,
+    ) -> MethodHandleInfoInstance {
+        MethodHandleInfoInstance {
+            inner: inner_instance,
+            method_handle,
+        }
+    }
+}
+impl_reference_instance_conv!(MethodHandleInfo => MethodHandleInfoInstance);
+impl MemorySize for MethodHandleInfoInstance {
+    fn memory_size(&self) -> usize {
+        std::mem::size_of::<Self>()
+    }
+}
+impl GcValueMarker for MethodHandleInfoInstance {}
 
 /// An instance of some class
 #[derive(Debug, Clone)]

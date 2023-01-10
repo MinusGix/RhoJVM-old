@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use classfile_parser::{
     attribute_info::bootstrap_methods_attribute_parser,
     constant_info::{ConstantInfo, InvokeDynamicConstant, MethodHandleConstant},
+    descriptor,
     field_info::FieldAccessFlags,
     method_info::MethodAccessFlags,
 };
@@ -20,7 +21,7 @@ use rhojvm_base::{
     },
     id::{ClassId, ExactMethodId, MethodId},
     package::Packages,
-    util::Cesu8String,
+    util::{Cesu8Str, Cesu8String},
     StepError,
 };
 use smallvec::SmallVec;
@@ -30,8 +31,11 @@ use crate::{
     eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
     gc::GcRef,
     initialize_class, map_interface_index_small_vec_to_ids, resolve_derive,
-    rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{construct_string_r, make_class_form_of, make_method_handle, CallStackEntry, Env},
+    rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
+    util::{
+        construct_string, construct_string_r, make_class_form_of, make_method_handle,
+        make_primitive_class_form_of, CallStackEntry, Env,
+    },
     GeneralError, State,
 };
 
@@ -980,7 +984,413 @@ impl RunInstContinue for InvokeVirtual {
 }
 
 impl RunInstContinue for InvokeDynamic {
-    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
+    fn run(
+        self,
+        RunInstArgsC {
+            env,
+            method_id,
+            frame,
+            inst_index,
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
+        let index = self.index;
+
+        let (class_id, _) = method_id.decompose();
+        let class_file = env
+            .class_files
+            .get(&class_id)
+            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+
+        let inv_dyn = class_file
+            .get_t(index)
+            .ok_or(EvalError::InvalidConstantPoolIndex(index.into_generic()))?
+            .clone();
+
+        // Load the boot strap methods table and parse it
+        let bootstrap_attr = {
+            // TODO: Cache the parsed bootstrap methods table
+            let data_range = class_file
+                .load_attribute_range_with_name("BootstrapMethods")
+                .ok_or(EvalError::NoBootstrapTable)?;
+            let (data_rem, bootstrap_attr) =
+                bootstrap_methods_attribute_parser(class_file.parse_data_for(data_range))
+                    .map_err(|_| EvalError::InvalidBootstrapTable)?;
+            debug_assert!(data_rem.is_empty());
+            bootstrap_attr
+        };
+
+        {
+            // Get the bootstrap method from the table
+            let b_method = bootstrap_attr
+                .bootstrap_methods
+                .get(usize::from(inv_dyn.bootstrap_method_attr_index))
+                .ok_or(EvalError::InvalidBootstrapTableIndex(
+                    inv_dyn.bootstrap_method_attr_index,
+                ))?;
+
+            // The method handle instance that will serve as the bootstrap emthod
+            let method_handle_con = class_file
+                .get_t(b_method.bootstrap_method_ref)
+                .ok_or(EvalError::InvalidConstantPoolIndex(
+                    b_method.bootstrap_method_ref.into_generic(),
+                ))?
+                .clone();
+            // TODO: method type?
+            // References to arguments
+            let mut bargs_rv = Vec::with_capacity(b_method.bootstrap_arguments.len());
+            // TODO: Don't clone
+            for barg_idx in b_method.bootstrap_arguments.clone() {
+                let class_file = env
+                    .class_files
+                    .get(&class_id)
+                    .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+                let barg = class_file
+                    .get_t(barg_idx)
+                    .ok_or(EvalError::InvalidConstantPoolIndex(barg_idx))?
+                    .clone();
+                let val = match constant_info_to_rv(env, class_id, &barg)? {
+                    ValueException::Value(val) => val,
+                    ValueException::Exception(exc) => {
+                        return Ok(RunInstContinueValue::Exception(exc))
+                    }
+                };
+                bargs_rv.push(val);
+            }
+
+            // Reget the class file
+            let class_file = env
+                .class_files
+                .get(&class_id)
+                .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+
+            // I'm relatively sure this is the method type
+            let inv_nat = class_file.get_t(inv_dyn.name_and_type_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(inv_dyn.name_and_type_index.into_generic()),
+            )?;
+            let inv_name_index = inv_nat.name_index;
+            let inv_name = class_file
+                .get_text_t(inv_name_index)
+                .ok_or(EvalError::InvalidConstantPoolIndex(
+                    inv_name_index.into_generic(),
+                ))?
+                .into_owned();
+            let inv_desc_index = inv_nat.descriptor_index;
+            let inv_desc = class_file.get_text_b(inv_desc_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(inv_desc_index.into_generic()),
+            )?;
+            let inv_desc = MethodDescriptor::from_text(inv_desc, &mut env.class_names)
+                .map_err(EvalError::InvalidMethodDescriptor)?;
+            let method_type = match make_method_type(env, &inv_desc)? {
+                ValueException::Value(method_type) => method_type,
+                ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+            };
+
+            // construct the bootstrap method handle instance
+            let method_handle = make_method_handle(env, class_id, &method_handle_con)?;
+            let method_handle = match method_handle {
+                ValueException::Value(handle) => handle,
+                ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+            };
+
+            // tracing::info!("Inv Name: {}, Desc: {:?}", inv_name, inv_desc);
+
+            // Get the instance of the bootstrap method
+            let mh_inst = env.state.gc.deref(method_handle).unwrap();
+            tracing::info!("MH Inst: {:?}", mh_inst);
+
+            match mh_inst.typ {
+                MethodHandleType::InvokeStatic(method_id) => {
+                    let (class_id, _method_index) = method_id.decompose();
+                    let class_file = env.class_files.get(&class_id).unwrap();
+                    let method = env.methods.get(&method_id).unwrap();
+                    tracing::info!("InvokeStatic {:#?}", method);
+                    let method_name = class_file.get_text_t(method.name_index()).unwrap();
+                    tracing::info!("\tMethodName: {}", method_name);
+
+                    let desc = method.descriptor();
+                    tracing::info!("Parameters:");
+                    for param in desc.parameters() {
+                        if let DescriptorType::Basic(DescriptorTypeBasic::Class(class_id)) = param {
+                            tracing::info!(
+                                "\tClass Reference: {:?}",
+                                env.class_names.tpath(*class_id)
+                            );
+                        } else {
+                            tracing::info!("\tParam: {:?}", param);
+                        }
+                    }
+
+                    if let Some(DescriptorType::Basic(DescriptorTypeBasic::Class(class_id))) =
+                        desc.return_type()
+                    {
+                        tracing::info!(
+                            "Returns Class Reference: {:?}",
+                            env.class_names.tpath(*class_id)
+                        );
+                    } else {
+                        tracing::info!("Returns: {:?}", desc.return_type());
+                    }
+
+                    // The MethodHandles$Lookup reference
+                    let lookup = {
+                        // Load the method handles class
+                        let mh_class_id = env
+                            .class_names
+                            .gcid_from_bytes(b"java/lang/invoke/MethodHandles");
+                        env.class_files
+                            .load_by_class_path_id(&mut env.class_names, mh_class_id)
+                            .map_err(StepError::from)?;
+                        // Get the id for the lookup class
+                        let mh_lookup_class_id = env
+                            .class_names
+                            .gcid_from_bytes(b"java/lang/invoke/MethodHandles$Lookup");
+
+                        // TODO: A reference to lookup could be stored in a field to make this more efficient
+                        let lookup_method_id = {
+                            // Create the descriptor for the lookup method
+                            let method_handles_lookup_desc =
+                                MethodDescriptor::new_ret(DescriptorType::Basic(
+                                    DescriptorTypeBasic::Class(mh_lookup_class_id),
+                                ));
+                            env.methods.load_method_from_desc(
+                                &mut env.class_names,
+                                &mut env.class_files,
+                                mh_class_id,
+                                b"lookup",
+                                &method_handles_lookup_desc,
+                            )?
+                        };
+
+                        let frame = Frame::default();
+                        match eval_method(env, lookup_method_id.into(), frame)? {
+                            EvalMethodValue::Return(lookup) => lookup.into_reference().expect("Bad method handles lookup return value").expect("Null method handle lookup"),
+                            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+                            EvalMethodValue::ReturnVoid => unreachable!("This indicates an internal bug, such as a incompatible MethodHandles class or corruption"),
+                        }
+                    };
+                    let call_site_name = match construct_string_r(env, inv_name.as_ref())? {
+                        ValueException::Value(call_site_name) => call_site_name,
+                        ValueException::Exception(exc) => {
+                            return Ok(RunInstContinueValue::Exception(exc))
+                        }
+                    };
+                    // we have the method type already
+
+                    // therare additional parameters
+                    // ex:
+                    // - (Ljava/long/Object;)Z is an erased method signature
+                    // - The REF_invokeStatic Main.lambda$main$o:(Ljava/lang/String;)Z is the MethodHandle to the actual lambda logic
+                    // - The (Ljava/lang/String;)Z is a non-erased method signature accepting one string and returning a boolean
+                    // The jvm will pass all the info to the bootstrap method
+                    // The bootstrap method will then use that info to create an instance of Predicate (our callsite?)
+                    // then the jvm will pass that to the filter method
+
+                    let frame = Frame::new_locals({
+                        let mut locals = Locals::new_with_array([
+                            RuntimeValue::Reference(lookup),
+                            RuntimeValue::Reference(call_site_name.into_generic()),
+                            RuntimeValue::Reference(method_type.into_generic()),
+                        ]);
+
+                        for barg in bargs_rv {
+                            locals.push_transform(barg);
+                        }
+
+                        locals
+                    });
+
+                    let call_site = match eval_method(env, method_id.into(), frame)? {
+                        EvalMethodValue::Return(call_site) => call_site,
+                        EvalMethodValue::Exception(exc) => {
+                            return Ok(RunInstContinueValue::Exception(exc))
+                        }
+                        EvalMethodValue::ReturnVoid => unreachable!(),
+                    }
+                    .into_reference()
+                    .unwrap()
+                    .unwrap();
+                }
+            }
+
+            // // TODO: execute method handle (aka the bootstrap method)
+            // this will give us a CallSite
+            // this has the actual logic that the jvm should execute
+            // it also has a condition representing the validity of the callsite
+            // we are intended to cache it, unsure if we are *required* to do so?
+        };
+
         todo!()
     }
+}
+
+fn constant_info_to_rv(
+    env: &mut Env,
+    class_id: ClassId,
+    inf: &ConstantInfo,
+) -> Result<ValueException<RuntimeValue>, GeneralError> {
+    let class_file = env
+        .class_files
+        .get(&class_id)
+        .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+    match inf {
+        ConstantInfo::Utf8(_) => todo!(),
+        ConstantInfo::Integer(_) => todo!(),
+        ConstantInfo::Float(_) => todo!(),
+        ConstantInfo::Long(_) => todo!(),
+        ConstantInfo::Double(_) => todo!(),
+        ConstantInfo::Class(_) => todo!(),
+        ConstantInfo::String(_) => todo!(),
+        ConstantInfo::FieldRef(_) => todo!(),
+        ConstantInfo::MethodRef(_) => todo!(),
+        ConstantInfo::InterfaceMethodRef(_) => todo!(),
+        ConstantInfo::NameAndType(_) => todo!(),
+        ConstantInfo::MethodHandle(method_handle_c) => {
+            Ok(make_method_handle(env, class_id, method_handle_c)?
+                .map(|v| RuntimeValue::Reference(v.into_generic())))
+        }
+        ConstantInfo::MethodType(method_typ) => {
+            let descriptor = class_file.get_text_b(method_typ.descriptor_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(method_typ.descriptor_index.into_generic()),
+            )?;
+            let descriptor = MethodDescriptor::from_text(descriptor, &mut env.class_names)
+                .map_err(EvalError::InvalidMethodDescriptor)?;
+            Ok(make_method_type(env, &descriptor)?
+                .map(|v| RuntimeValue::Reference(v.into_generic())))
+        }
+        ConstantInfo::InvokeDynamic(_) => todo!(),
+        ConstantInfo::Unusable => todo!(),
+    }
+}
+
+fn make_method_type(
+    env: &mut Env,
+    descriptor: &MethodDescriptor,
+) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
+    let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+    let class_array_id = env
+        .class_names
+        .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), class_class_id)
+        .map_err(StepError::BadId)?;
+
+    let method_type_id = env
+        .class_names
+        .gcid_from_bytes(b"java/lang/invoke/MethodType");
+
+    // TODO: Invalid usage of resolve derive because we are acting like we are resolving it from itself
+    resolve_derive(
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+        &mut env.methods,
+        &mut env.state,
+        method_type_id,
+        method_type_id,
+    )?;
+
+    // Initialize the class properly
+    let _static_method_type = match initialize_class(env, method_type_id)?.into_value() {
+        ValueException::Value(re) => re,
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    };
+
+    // Calling methodType function (note that it isn't a normal constructor!)
+    // with signatures (Class<?> ret, Class<?>[]parameters) -> MethodType
+    let locals = {
+        let mut locals = Locals::default();
+
+        if let Some(return_type) = descriptor.return_type() {
+            let form = match descriptor_type_to_static_form(env, *return_type)? {
+                ValueException::Value(form) => form,
+                ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+            };
+
+            locals.push_transform(form);
+        }
+
+        let mut parameters = Vec::new();
+        for parameter in descriptor.parameters() {
+            let form = match descriptor_type_to_static_form(env, *parameter)? {
+                ValueException::Value(form) => form,
+                ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+            };
+            let form = form.into_reference().unwrap();
+
+            parameters.push(form);
+        }
+        let array = ReferenceArrayInstance::new(class_array_id, class_class_id, parameters);
+        let array_ref = env.state.gc.alloc(array);
+        locals.push_transform(RuntimeValue::Reference(array_ref.into_generic()));
+
+        locals
+    };
+
+    let frame = Frame::new_locals(locals);
+
+    let method_type_descriptor = MethodDescriptor::new(
+        smallvec::smallvec![
+            DescriptorType::Basic(DescriptorTypeBasic::Class(class_class_id)),
+            DescriptorType::Array {
+                level: NonZeroUsize::new(1).unwrap(),
+                component: DescriptorTypeBasic::Class(class_class_id)
+            }
+        ],
+        Some(DescriptorType::Basic(DescriptorTypeBasic::Class(
+            method_type_id,
+        ))),
+    );
+
+    let method_id = env.methods.load_method_from_desc(
+        &mut env.class_names,
+        &mut env.class_files,
+        method_type_id,
+        b"methodType",
+        &method_type_descriptor,
+    )?;
+
+    match eval_method(env, method_id.into(), frame)? {
+        EvalMethodValue::ReturnVoid => panic!("Constructor returned nothing"),
+        EvalMethodValue::Return(inst) => {
+            // TODO: Don't unwrap
+            let inst = inst.into_reference().unwrap();
+            let inst = inst.expect("Got a null pointer from methodType constructor");
+
+            // It has to have returned a class instance because that's what the descriptor specified
+            Ok(ValueException::Value(inst.unchecked_as()))
+        }
+        EvalMethodValue::Exception(exc) => Ok(ValueException::Exception(exc)),
+    }
+}
+
+fn descriptor_type_to_static_form(
+    env: &mut Env,
+    typ: DescriptorType,
+) -> Result<ValueException<RuntimeValue>, GeneralError> {
+    Ok(match typ {
+        DescriptorType::Basic(basic) => match basic {
+            DescriptorTypeBasic::Byte => todo!(),
+            DescriptorTypeBasic::Char => todo!(),
+            DescriptorTypeBasic::Double => todo!(),
+            DescriptorTypeBasic::Float => todo!(),
+            DescriptorTypeBasic::Int => todo!(),
+            DescriptorTypeBasic::Long => todo!(),
+            DescriptorTypeBasic::Class(class_id) => {
+                // TODO: Incorrect usage of make_class_form_of
+                make_class_form_of(env, class_id, class_id)
+            }
+            DescriptorTypeBasic::Short => todo!(),
+            DescriptorTypeBasic::Boolean => {
+                make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::Bool))
+            }
+        },
+        DescriptorType::Array { level, component } => {
+            let id = env
+                .class_names
+                .gcid_from_level_array_of_desc_type_basic(level, component)
+                .map_err(StepError::BadId)?;
+            // TODO: Incorrect usage of make_class_form_of
+            make_class_form_of(env, id, id)
+        }
+    }?
+    .map(|x| RuntimeValue::Reference(x.into_generic())))
 }

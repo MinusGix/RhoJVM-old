@@ -134,6 +134,9 @@ pub struct StateConfig {
     /// Whether it should abort when an `UnsupportedOperationException` is thrown.
     /// This is typically only on for debugging of code, to make it easier to pinpoint in logs.
     pub abort_on_unsupported: bool,
+    /// Whether it should log class names after execution of the code
+    /// This makes it somewhat easier to diagnose issues where a class is not loaded when it should be
+    pub log_class_names: bool,
 }
 impl StateConfig {
     #[must_use]
@@ -144,6 +147,7 @@ impl StateConfig {
             stack_map_verification_logging: StackMapVerificationLogging::default(),
             max_stack_size: Some(MaxStackSize::default()),
             abort_on_unsupported: false,
+            log_class_names: false,
         }
     }
 

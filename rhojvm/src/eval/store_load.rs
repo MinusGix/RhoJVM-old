@@ -256,7 +256,14 @@ fn convert_field_type_store(
 
             let is_castable = instance_id == id
                 || classes.is_super_class(class_names, class_files, packages, instance_id, id)?
-                || classes.implements_interface(class_names, class_files, instance_id, id)?;
+                || classes.implements_interface(class_names, class_files, instance_id, id)?
+                || classes.is_castable_array(
+                    class_names,
+                    class_files,
+                    packages,
+                    instance_id,
+                    id,
+                )?;
 
             if is_castable {
                 RuntimeValue::Reference(src_ref)
@@ -399,13 +406,19 @@ impl RunInstContinue for GetField {
             .deref(instance_ref)
             .ok_or(EvalError::InvalidGcRef(instance_ref.into_generic()))?;
         match instance {
-            ReferenceInstance::Class(class) => {
+            ReferenceInstance::Class(_class) => {
                 // TODO: Check that it is the right class instance!
             }
-            ReferenceInstance::Thread(thread) => {
+            ReferenceInstance::Thread(_thread) => {
                 // TODO: Check that it is correct class instance!
             }
-            ReferenceInstance::StaticForm(class) => {
+            ReferenceInstance::StaticForm(_class) => {
+                // TODO: Check that it is correct class instance!
+            }
+            ReferenceInstance::MethodHandle(_class) => {
+                // TODO: Check that it is correct class instance!
+            }
+            ReferenceInstance::MethodHandleInfo(_class) => {
                 // TODO: Check that it is correct class instance!
             }
             ReferenceInstance::PrimitiveArray(_) => todo!(),

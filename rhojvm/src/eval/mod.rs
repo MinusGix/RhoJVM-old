@@ -126,6 +126,12 @@ pub enum EvalError {
     InvalidInvokeStaticConstantInfo,
     /// We tried to parse the method descriptor but failed
     InvalidMethodDescriptor(MethodDescriptorError),
+    // These bootstrap errors should really be caught in initial verification
+    /// We reached an invoke dynamic instruction but there was no bootstrap methods table
+    NoBootstrapTable,
+    /// We failed to parse the bootstrap methods table
+    InvalidBootstrapTable,
+    InvalidBootstrapTableIndex(u16),
 }
 
 #[derive(Debug, Clone)]
@@ -520,6 +526,14 @@ macro_rules! impl_call_native_method {
 pub enum ValueException<V> {
     Value(V),
     Exception(GcRef<ClassInstance>),
+}
+impl<V> ValueException<V> {
+    pub fn map<A, F: FnOnce(V) -> A>(self, op: F) -> ValueException<A> {
+        match self {
+            ValueException::Value(v) => ValueException::Value((op)(v)),
+            ValueException::Exception(exc) => ValueException::Exception(exc),
+        }
+    }
 }
 impl ValueException<GcRef<ClassInstance>> {
     #[must_use]

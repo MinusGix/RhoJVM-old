@@ -7,6 +7,8 @@ use crate::{
 
 mod class;
 pub mod field;
+pub mod method_handle;
+pub mod method_handle_info;
 mod object;
 mod primitive;
 pub mod reflect_array;
@@ -118,6 +120,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
                 into_opaque3ret(class::class_get_class_for_name)
             }
             b"Java_java_lang_Class_getName" => into_opaque2ret(class::class_get_name),
+            b"Java_java_lang_Class_getSimpleName" => into_opaque2ret(class::class_get_simple_name),
             b"Java_java_lang_Class_getPackage" => into_opaque2ret(class::class_get_package),
             b"Java_java_lang_Class_getDeclaredField" => {
                 into_opaque3ret(class::class_get_declared_field)
@@ -137,6 +140,18 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             // reflect/Array
             b"Java_java_lang_reflect_Array_newInstanceArray" => {
                 into_opaque4ret(reflect_array::array_new_instance)
+            }
+            // rho/invoke/MethodHandle
+            b"Java_rho_invoke_MethodHandle_invoke" => {
+                into_opaque3ret(method_handle::method_handle_invoke)
+            }
+            // java/lang/invoke/MethodHandles
+            b"Java_java_lang_invoke_MethodHandles_revealDirect" => {
+                into_opaque3ret(method_handle::mh_lookup_reveal_direct)
+            }
+            // rho/invoke/MethodHandleInfoInst
+            b"Java_rho_invoke_MethodHandleInfoInst_getReferenceKind" => {
+                into_opaque2ret(method_handle_info::mh_info_get_reference_kind)
             }
             // System
             b"Java_java_lang_System_setProperties" => {

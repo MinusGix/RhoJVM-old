@@ -376,6 +376,12 @@ fn modify_field_value(
             ReferenceInstance::Thread(thread) => {
                 modify_field(&mut thread.inner, offset, modify_with);
             }
+            ReferenceInstance::MethodHandle(handle) => {
+                modify_field(&mut handle.inner, offset, modify_with);
+            }
+            ReferenceInstance::MethodHandleInfo(info) => {
+                modify_field(&mut info.inner, offset, modify_with);
+            }
             // For arrays, the offset is currently just the index
             ReferenceInstance::PrimitiveArray(arr) => {
                 let offset = usize::try_from(offset).unwrap();
@@ -429,6 +435,8 @@ fn get_field_value(
             ReferenceInstance::Class(class) => get_field(class, offset),
             ReferenceInstance::StaticForm(form) => get_field(&form.inner, offset),
             ReferenceInstance::Thread(thread) => get_field(&thread.inner, offset),
+            ReferenceInstance::MethodHandle(handle) => get_field(&handle.inner, offset),
+            ReferenceInstance::MethodHandleInfo(info) => get_field(&info.inner, offset),
             ReferenceInstance::PrimitiveArray(arr) => {
                 let offset = usize::try_from(offset).unwrap();
                 let arr_value = arr.elements.get(offset).unwrap();

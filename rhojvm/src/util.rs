@@ -2,6 +2,8 @@ use std::num::NonZeroUsize;
 
 use classfile_parser::{
     attribute_info::InstructionIndex,
+    constant_info::{ConstantInfo, MethodHandleConstant},
+    constant_pool::ConstantPoolIndexRaw,
     field_info::{FieldAccessFlags, FieldInfoOpt},
 };
 use either::Either;
@@ -15,12 +17,14 @@ use rhojvm_base::{
     package::Packages,
     util::MemorySize,
 };
+use smallvec::{SmallVec, ToSmallVec};
 use sysinfo::{RefreshKind, SystemExt};
 
 use crate::{
     class_instance::{
-        ClassInstance, FieldId, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance,
-        StaticClassInstance, StaticFormInstance,
+        ClassInstance, FieldId, FieldIndex, Fields, Instance, MethodHandleInstance,
+        MethodHandleType, PrimitiveArrayInstance, ReferenceInstance, StaticClassInstance,
+        StaticFormInstance,
     },
     eval::{
         eval_method, instances::make_fields, EvalError, EvalMethodValue, Frame, Locals,
@@ -639,6 +643,140 @@ pub(crate) fn make_class_form_of(
     debug_assert!(class_info.class_ref.is_none(), "If this is false then we've initialized it in between our check, which could be an issue? Though it also seems completely possible.");
     class_info.class_ref = Some(static_form_ref);
     Ok(ValueException::Value(static_form_ref))
+}
+
+pub(crate) fn make_method_handle(
+    env: &mut Env,
+    class_id: ClassId,
+    MethodHandleConstant {
+        reference_kind,
+        reference_index,
+    }: &MethodHandleConstant,
+) -> Result<ValueException<GcRef<MethodHandleInstance>>, GeneralError> {
+    #[allow(clippy::match_same_arms)]
+    match reference_kind {
+        // getField
+        1 => todo!(),
+        // getStatic
+        2 => todo!(),
+        // putField
+        3 => todo!(),
+        // putStatic
+        4 => todo!(),
+        // invokeVirtual
+        5 => todo!(),
+        // invokeStatic
+        6 => make_invoke_static_method_handle(env, class_id, *reference_index),
+        // invokeSpecial
+        7 => todo!(),
+        // newInvokeSpecial
+        8 => todo!(),
+        // invokeInterface
+        9 => todo!(),
+        _ => panic!("Unknown MethodHandle reference kind: {}", reference_kind),
+    }
+}
+
+pub(crate) fn make_invoke_static_method_handle(
+    env: &mut Env,
+    class_id: ClassId,
+    reference_index: ConstantPoolIndexRaw<ConstantInfo>,
+) -> Result<ValueException<GcRef<MethodHandleInstance>>, GeneralError> {
+    let class_file = env
+        .class_files
+        .get(&class_id)
+        .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+
+    let reference_value = class_file
+        .get_t(reference_index)
+        .ok_or(EvalError::InvalidConstantPoolIndex(reference_index))?;
+
+    if let ConstantInfo::MethodRef(method) = reference_value {
+        let name_and_type_index = method.name_and_type_index;
+        let class =
+            class_file
+                .get_t(method.class_index)
+                .ok_or(EvalError::InvalidConstantPoolIndex(
+                    method.class_index.into_generic(),
+                ))?;
+        // Get the name of the class the method is on
+        let target_class_id = {
+            let target_class_name = class_file.get_text_b(class.name_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(class.name_index.into_generic()),
+            )?;
+            env.class_names.gcid_from_bytes(target_class_name)
+        };
+        // Get the name of the method and the descriptor of it
+        let (target_method_name, target_desc) = {
+            let nat = class_file.get_t(name_and_type_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(name_and_type_index.into_generic()),
+            )?;
+            let target_method_name = class_file.get_text_b(nat.name_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(nat.name_index.into_generic()),
+            )?;
+
+            let target_desc = {
+                let target_desc = class_file.get_text_b(nat.descriptor_index).ok_or(
+                    EvalError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
+                )?;
+                MethodDescriptor::from_text(target_desc, &mut env.class_names)
+                    .map_err(EvalError::InvalidMethodDescriptor)?
+            };
+
+            (target_method_name, target_desc)
+        };
+        // Unfortunately we have to collect since we need mutable access to class_files
+        let target_method_name: SmallVec<[_; 16]> = target_method_name.to_smallvec();
+        // Find the method
+        let target_method_id = env.methods.load_method_from_desc(
+            &mut env.class_names,
+            &mut env.class_files,
+            target_class_id,
+            &target_method_name,
+            &target_desc,
+        )?;
+
+        let method_handle =
+            construct_method_handle(env, MethodHandleType::InvokeStatic(target_method_id))?;
+
+        Ok(method_handle)
+    } else {
+        panic!();
+    }
+}
+
+pub(crate) fn construct_method_handle(
+    env: &mut Env<'_>,
+    typ: MethodHandleType,
+) -> Result<ValueException<GcRef<MethodHandleInstance>>, GeneralError> {
+    // rho's method handle extends the abstract method handle class and is what method handle
+    // instance is of
+    let mh_id = env
+        .class_names
+        .gcid_from_bytes(b"rho/invoke/MethodHandleInst");
+    // TODO: Deriving from itself is bad
+    resolve_derive(
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+        &mut env.methods,
+        &mut env.state,
+        mh_id,
+        mh_id,
+    )?;
+
+    let mh_static_ref = initialize_class(env, mh_id)?.into_value();
+    let mh_static_ref = match mh_static_ref {
+        ValueException::Value(re) => re,
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    };
+
+    // We assume that there are no fields to initialize
+    let class_instance = ClassInstance::new(mh_id, mh_static_ref, Fields::default());
+    let mh_instance = MethodHandleInstance::new(class_instance, typ);
+
+    Ok(ValueException::Value(env.state.gc.alloc(mh_instance)))
 }
 
 /// Create an instance of `java/io/ByteArrayInputStream` holding the given data

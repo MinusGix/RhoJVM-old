@@ -169,7 +169,7 @@ pub(crate) extern "C" fn class_get_name(env: *mut Env<'_>, this: JObject) -> JSt
     // SAFETY: We assume that it is a valid ref and that it has not been
     // forged.
     let this = unsafe { env.get_jobject_as_gcref(this) };
-    let this = this.expect("RegisterNative's class was null");
+    let this = this.expect("get name's class was null");
     let this_of = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
         env.state.gc.deref(this).unwrap()
     {
@@ -200,6 +200,61 @@ pub(crate) extern "C" fn class_get_name(env: *mut Env<'_>, this: JObject) -> JSt
 
             // Replace it with . since those names are meant to be separated by a .
             Cow::Owned(name.replace('/', "."))
+        }
+    };
+
+    let name = name
+        .encode_utf16()
+        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
+        .collect();
+    let name = construct_string(env, name).unwrap();
+    let name = match name {
+        ValueException::Value(name) => name,
+        ValueException::Exception(_) => todo!(),
+    };
+
+    unsafe { env.get_local_jobject_for(name.into_generic()) }
+}
+
+pub(crate) extern "C" fn class_get_simple_name(env: *mut Env<'_>, this: JObject) -> JString {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    // Class<T>
+    // SAFETY: We assume that it is a valid ref and that it has not been forged
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("get simple name's class was null");
+    let this_of = if let Instance::Reference(ReferenceInstance::StaticForm(this)) =
+        env.state.gc.deref(this).unwrap()
+    {
+        this.of
+    } else {
+        // Should be caught by method calling
+        panic!();
+    };
+
+    let name = match this_of {
+        RuntimeTypeVoid::Primitive(prim) => Cow::Borrowed(match prim {
+            RuntimeTypePrimitive::I64 => "long",
+            RuntimeTypePrimitive::I32 => "int",
+            RuntimeTypePrimitive::I16 => "short",
+            RuntimeTypePrimitive::Bool => "boolean",
+            RuntimeTypePrimitive::I8 => "byte",
+            RuntimeTypePrimitive::F32 => "float",
+            RuntimeTypePrimitive::F64 => "double",
+            RuntimeTypePrimitive::Char => "char",
+        }),
+        RuntimeTypeVoid::Void => Cow::Borrowed("void"),
+        RuntimeTypeVoid::Reference(this_id) => {
+            // TODO: anonymous classes shouldn't have a simple name
+            let (name, info) = env.class_names.name_from_gcid(this_id).unwrap();
+            let name = name.get();
+            // TODO: Don't use this
+            let name = convert_classfile_text(name);
+
+            // Replace it with . since those names are meant to be separated by a .
+            Cow::Owned(name.split("/").last().unwrap_or("").to_owned())
         }
     };
 
