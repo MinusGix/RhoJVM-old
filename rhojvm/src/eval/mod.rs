@@ -28,6 +28,7 @@ use crate::{
     GeneralError,
 };
 
+mod bootstrap;
 mod control_flow;
 mod func;
 pub mod instances;
@@ -132,6 +133,11 @@ pub enum EvalError {
     /// We failed to parse the bootstrap methods table
     InvalidBootstrapTable,
     InvalidBootstrapTableIndex(u16),
+}
+impl From<rhojvm_base::class::InvalidConstantPoolIndex> for EvalError {
+    fn from(v: rhojvm_base::class::InvalidConstantPoolIndex) -> EvalError {
+        EvalError::InvalidConstantPoolIndex(v.0)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -630,6 +636,8 @@ pub fn eval_method(
             let native_func = match native_func {
                 Ok(native_func) => native_func,
                 Err(err) => {
+                    // TODO: When this happens it seems like there's an extra garbage character at the end?
+                    // Am I forgetting to remove that?
                     tracing::error!(
                         "Failed to find native function({:?}): {}",
                         err,
@@ -648,6 +656,12 @@ pub fn eval_method(
         };
         let native_func = native_func.get().clone();
 
+        // This is doing a hellish way of calling the native function, because we don't have a good
+        // way to dynamically push the arguments the functions need. I think we would *have* to
+        // write manual assembler to do the full general case. However I want to support platforms
+        // that Rust can compile to, even if it can only interpret the JVM code rather than jit
+        // However, in the future, we could write various versions for common platforms and then
+        // only compile these absurd manual calls for non-directly-supported platforms
         let param_count = method.descriptor().parameters().len();
         if param_count == 0 {
             impl_call_native_method!(env, frame, class_id, method, native_func; ());

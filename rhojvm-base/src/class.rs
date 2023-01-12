@@ -27,6 +27,9 @@ pub enum ClassFileIndexError {
     InvalidSuperClassNameIndex,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct InvalidConstantPoolIndex(pub ConstantPoolIndexRaw<ConstantInfo>);
+
 #[derive(Debug, Clone)]
 pub struct ClassFileData {
     pub(crate) id: ClassId,
@@ -81,6 +84,20 @@ impl ClassFileData {
         self.class_file.const_pool.get_t(i)
     }
 
+    pub fn getr<'a, T>(
+        &'a self,
+        i: ConstantPoolIndexRaw<T>,
+    ) -> Result<&'a T, InvalidConstantPoolIndex>
+    where
+        &'a T: TryFrom<&'a ConstantInfo>,
+        T: TryFrom<ConstantInfo>,
+    {
+        self.class_file
+            .const_pool
+            .get_t(i)
+            .ok_or_else(|| InvalidConstantPoolIndex(i.into_generic()))
+    }
+
     // TODO: Add a cache for these!
     pub fn get_text_t(&self, i: impl TryInto<ConstantPoolIndex<Utf8Constant>>) -> Option<Cow<str>> {
         self.get_t(i).map(|x| x.as_text(&self.class_file_data))
@@ -88,6 +105,24 @@ impl ClassFileData {
 
     pub fn get_text_b(&self, i: impl TryInto<ConstantPoolIndex<Utf8Constant>>) -> Option<&[u8]> {
         self.get_t(i).map(|x| x.as_bytes(&self.class_file_data))
+    }
+
+    pub fn getr_text(
+        &self,
+        i: ConstantPoolIndexRaw<Utf8Constant>,
+    ) -> Result<Cow<str>, InvalidConstantPoolIndex> {
+        self.get_t(i)
+            .map(|x| x.as_text(&self.class_file_data))
+            .ok_or_else(|| InvalidConstantPoolIndex(i.into_generic()))
+    }
+
+    pub fn getr_text_b(
+        &self,
+        i: ConstantPoolIndexRaw<Utf8Constant>,
+    ) -> Result<&[u8], InvalidConstantPoolIndex> {
+        self.get_t(i)
+            .map(|x| x.as_bytes(&self.class_file_data))
+            .ok_or_else(|| InvalidConstantPoolIndex(i.into_generic()))
     }
 
     #[must_use]

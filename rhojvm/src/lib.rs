@@ -578,6 +578,11 @@ impl From<FindSymbolError> for GeneralError {
         Self::FindSymbol(err)
     }
 }
+impl From<rhojvm_base::class::InvalidConstantPoolIndex> for GeneralError {
+    fn from(v: rhojvm_base::class::InvalidConstantPoolIndex) -> Self {
+        Self::Eval(EvalError::InvalidConstantPoolIndex(v.0))
+    }
+}
 
 #[derive(Debug)]
 pub enum VerificationError {

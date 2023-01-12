@@ -66,6 +66,8 @@ pub(crate) enum TrustedClassNameInsert {
     },
 }
 
+// TODO: Should this be using a smallvec? Probably a lot of them are less than 32 bytes, but 64
+// would probably be a safer size?
 #[derive(Clone)]
 pub struct RawClassName(pub Vec<u8>);
 impl RawClassName {
@@ -317,6 +319,9 @@ impl ClassNames {
         id
     }
 
+    /// Similar to `gcid_from_bytes` but marginally more efficient in the case where you *had to*
+    /// construct a vec (but perhaps you should be using a smallvec?) since it can then immediately
+    /// store that in the hashmap.
     pub fn gcid_from_vec(&mut self, class_path: Vec<u8>) -> ClassId {
         let class_path = RawClassName(class_path);
         let kind = InternalKind::from_raw_class_name(class_path.as_slice());

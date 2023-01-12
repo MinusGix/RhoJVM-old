@@ -858,6 +858,43 @@ pub(crate) fn construct_byte_array_input_stream(
     Ok(ValueException::Value(bai_ref))
 }
 
+/// A macro intended to make extracting a value from a `ValueException` easier.  
+#[macro_export]
+macro_rules! exc_value {
+    (ret inst: $v:expr) => {
+        match $v {
+            ValueException::Value(x) => x,
+            ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+        }
+    };
+    (ret: $v:expr) => {
+        match $v {
+            ValueException::Value(x) => x,
+            ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+        }
+    };
+}
+
+/// A macro intended to make extracting a value from a `EvalMethodValue` easier.
+#[macro_export]
+macro_rules! exc_eval_value {
+    (ret inst (expect_return: reference) ($name:expr): $v:expr) => {
+        match $v {
+            EvalMethodValue::Return(x) => x.into_reference().unwrap_or_else(|| {
+                panic!(
+                    "Bad return value from function ({:?}), expected reference",
+                    $name
+                )
+            }),
+            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+            EvalMethodValue::ReturnVoid => unreachable!(
+                "No (void) return value from function ({:?}), expected reference",
+                $name
+            ),
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use crate::util::get_disjoint2_mut;
