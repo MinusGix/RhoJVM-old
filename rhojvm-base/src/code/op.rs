@@ -179,7 +179,9 @@ macro_rules! define_instruction {
         $(#[$name_outer])*
             #[derive(Debug, Clone)]
             pub struct $name {
+
                 $(
+                    $(#[$arg_outer])*
                     pub $arg : <$arg_ty as ParseOutput>::Output,
                 )*
             }
