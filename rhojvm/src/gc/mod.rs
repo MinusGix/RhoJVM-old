@@ -132,6 +132,26 @@ impl Gc {
         Some(GcRef::new_unchecked(index))
     }
 
+    /// Converts a `GcRef<T>` to a `GcRef<U>`, if the `U` type can be deref'd into an value.
+    /// If `GcRef<T>` can't be deref'd then it returns a similarly-incorrect `GcRef<U>`.
+    pub fn checked_as<'a, T: 'static, U: 'static>(&'a self, reference: GcRef<T>) -> Option<GcRef<U>>
+    where
+        &'a T: TryFrom<&'a Instance>,
+        &'a U: TryFrom<&'a Instance>,
+    {
+        let Some(obj) = self.objects.get(reference.index).and_then(Option::as_ref) else {
+            // The reference doesn't exist, so we just let the bad reference through
+            return Some(reference.unchecked_as())
+        };
+
+        if <&U>::try_from(&obj.value).is_ok() {
+            Some(reference.unchecked_as())
+        } else {
+            // Failed to convert
+            None
+        }
+    }
+
     #[must_use]
     pub fn deref<'a, T>(&'a self, reference: GcRef<T>) -> Option<&'a T>
     where
@@ -354,13 +374,27 @@ impl<T> GcRef<T> {
         }
     }
 
-    /// Converts the generic parameter into U, unchecked
+    /// Converts the generic parameter into U, unchecked  
+    /// This does not check that the `GcRef` would actually work for that type. If you want that,
+    /// then use [`Gc::checked_as`]
     #[must_use]
     pub fn unchecked_as<U>(self) -> GcRef<U> {
         GcRef {
             index: self.index,
             _marker: PhantomData,
         }
+    }
+
+    /// Converts a `GcRef<T>` to a `GcRef<U>`, if the `U` type can be deref'd into an value.
+    /// If `GcRef<T>` can't be deref'd then it returns a similarly-incorrect `GcRef<U>`.
+    pub fn checked_as<'a, U>(&self, gc: &'a Gc) -> Option<GcRef<U>>
+    where
+        T: 'static,
+        U: 'static,
+        &'a T: TryFrom<&'a Instance>,
+        &'a U: TryFrom<&'a Instance>,
+    {
+        gc.checked_as(*self)
     }
 }
 impl<T> Copy for GcRef<T> {}
