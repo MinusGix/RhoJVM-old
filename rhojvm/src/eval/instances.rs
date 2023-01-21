@@ -4,7 +4,6 @@ use classfile_parser::{
     field_info::{FieldAccessFlags, FieldInfoOpt},
     ClassAccessFlags,
 };
-use either::Either;
 use rhojvm_base::{
     class::ArrayClass,
     code::{
@@ -25,6 +24,7 @@ use crate::{
         ReferenceArrayInstance, ReferenceInstance, ThreadInstance,
     },
     eval::EvalError,
+    exc_value,
     gc::GcRef,
     initialize_class, resolve_derive,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
@@ -157,7 +157,7 @@ pub fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
     env: &mut Env,
     class_id: ClassId,
     filter_fn: F,
-) -> Result<Either<Fields, GcRef<ClassInstance>>, GeneralError> {
+) -> Result<ValueException<Fields>, GeneralError> {
     let mut fields = Fields::default();
 
     // Iterate over the super classes (which includes the current class)
@@ -177,14 +177,23 @@ pub fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
         if target_info.has_class_file() {
             if let Some(exception) = add_fields_for_class(env, target_id, &filter_fn, &mut fields)?
             {
-                return Ok(Either::Right(exception));
+                return Ok(ValueException::Exception(exception));
             }
         }
         // TODO: This may not be correct
         // otherwise, if no class file, then no fields for this one
     }
 
-    Ok(Either::Left(fields))
+    Ok(ValueException::Value(fields))
+}
+
+pub fn make_instance_fields(
+    env: &mut Env,
+    class_id: ClassId,
+) -> Result<ValueException<Fields>, GeneralError> {
+    make_fields(env, class_id, |field_info| {
+        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
+    })
 }
 
 impl RunInstContinue for New {
@@ -246,14 +255,8 @@ impl RunInstContinue for New {
             todo!("return InstantiationError exception")
         }
 
-        let fields = match make_fields(env, target_class_id, |field_info| {
-            !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-        })? {
-            Either::Left(fields) => fields,
-            Either::Right(exc) => {
-                return Ok(RunInstContinueValue::Exception(exc));
-            }
-        };
+        let fields = make_instance_fields(env, target_class_id)?;
+        let fields = exc_value!(ret inst: fields);
 
         // new does not run a constructor, it only initializes it
         let class = ClassInstance {
