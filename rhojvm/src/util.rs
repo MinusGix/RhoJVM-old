@@ -4,9 +4,8 @@ use classfile_parser::{
     attribute_info::InstructionIndex,
     constant_info::{ConstantInfo, MethodHandleConstant},
     constant_pool::ConstantPoolIndexRaw,
-    field_info::{FieldAccessFlags, FieldInfoOpt},
+    field_info::FieldInfoOpt,
 };
-use either::Either;
 use rhojvm_base::{
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
@@ -27,7 +26,7 @@ use crate::{
         StaticFormInstance,
     },
     eval::{
-        eval_method, instances::make_fields, EvalError, EvalMethodValue, Frame, Locals,
+        eval_method, instances::make_instance_fields, EvalError, EvalMethodValue, Frame, Locals,
         ValueException,
     },
     gc::GcRef,
@@ -44,6 +43,52 @@ use crate::{
 macro_rules! const_assert {
     ($x:expr $(,)?) => {
         const _: () = assert!($x);
+    };
+}
+
+/// A macro intended to make extracting a value from a `ValueException` easier.  
+#[macro_export]
+macro_rules! exc_value {
+    (ret inst: $v:expr) => {
+        match $v {
+            ValueException::Value(x) => x,
+            ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+        }
+    };
+    (ret: $v:expr) => {
+        match $v {
+            ValueException::Value(x) => x,
+            ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+        }
+    };
+}
+
+/// A macro intended to make extracting a value from a `EvalMethodValue` easier.
+#[macro_export]
+macro_rules! exc_eval_value {
+    (ret inst (expect_return: ) ($name:expr): $v:expr) => {
+        match $v {
+            EvalMethodValue::Return(x) => x,
+            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+            EvalMethodValue::ReturnVoid => {
+                unreachable!("No (void) return value from function ({:?})", $name)
+            }
+        }
+    };
+    (ret inst (expect_return: reference) ($name:expr): $v:expr) => {
+        match $v {
+            EvalMethodValue::Return(x) => x.into_reference().unwrap_or_else(|| {
+                panic!(
+                    "Bad return value from function ({:?}), expected reference",
+                    $name
+                )
+            }),
+            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+            EvalMethodValue::ReturnVoid => unreachable!(
+                "No (void) return value from function ({:?}), expected reference",
+                $name
+            ),
+        }
     };
 }
 
@@ -271,16 +316,10 @@ pub(crate) fn make_exception_with_text(
         ValueException::Value(re) => re,
         ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
     };
-    let fields = match make_fields(env, exception_id, |field_info| {
-        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-    })
-    .unwrap()
-    {
-        Either::Left(fields) => fields,
-        Either::Right(exc) => {
-            return Ok(ValueException::Exception(exc));
-        }
-    };
+
+    let fields = make_instance_fields(env, exception_id)?;
+    let fields = exc_value!(ret: fields);
+
     let exception_this_ref = env.state.gc.alloc(ClassInstance {
         instanceof: exception_id,
         static_ref,
@@ -343,14 +382,8 @@ pub(crate) fn alloc_string(
         ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
     };
 
-    let fields = match make_fields(env, string_id, |field_info| {
-        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-    })? {
-        Either::Left(fields) => fields,
-        Either::Right(exc) => {
-            return Ok(ValueException::Exception(exc));
-        }
-    };
+    let fields = make_instance_fields(env, string_id)?;
+    let fields = exc_value!(ret: fields);
 
     // new does not run a constructor, it only initializes it
     let instance = ClassInstance::new(string_id, string_ref, fields);
@@ -478,7 +511,7 @@ pub fn get_string_contents_as_rust_string(
     String::from_utf16(&contents).map_err(GeneralError::StringConversionFailure)
 }
 
-fn state_target_primitive_field(
+pub(crate) fn state_target_primitive_field(
     state: &mut State,
     typ: Option<RuntimeTypePrimitive>,
 ) -> &mut Option<GcRef<StaticFormInstance>> {
@@ -531,14 +564,8 @@ pub(crate) fn make_primitive_class_form_of(
         ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
     };
 
-    let mut fields = match make_fields(env, class_form_id, |field_info| {
-        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-    })? {
-        Either::Left(fields) => fields,
-        Either::Right(exc) => {
-            return Ok(ValueException::Exception(exc));
-        }
-    };
+    let fields = make_instance_fields(env, class_form_id)?;
+    let fields = exc_value!(ret: fields);
 
     // new does not run a constructor, it only initializes it
     let inner_class = ClassInstance {
@@ -618,14 +645,8 @@ pub(crate) fn make_class_form_of(
         ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
     };
 
-    let mut fields = match make_fields(env, class_form_id, |field_info| {
-        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-    })? {
-        Either::Left(fields) => fields,
-        Either::Right(exc) => {
-            return Ok(ValueException::Exception(exc));
-        }
-    };
+    let fields = make_instance_fields(env, class_form_id)?;
+    let fields = exc_value!(ret: fields);
 
     // new does not run a constructor, it only initializes it
     let inner_class = ClassInstance {
@@ -816,14 +837,9 @@ pub(crate) fn construct_byte_array_input_stream(
     let array = PrimitiveArrayInstance::new(byte_array_id, RuntimeTypePrimitive::I8, data);
     let array_ref = env.state.gc.alloc(array);
 
-    let fields = match make_fields(env, bai_id, |field_info| {
-        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-    })? {
-        Either::Left(fields) => fields,
-        Either::Right(exc) => {
-            return Ok(ValueException::Exception(exc));
-        }
-    };
+    let fields = make_instance_fields(env, bai_id)?;
+    let fields = exc_value!(ret: fields);
+
     let bai = ClassInstance::new(bai_id, bai_static_ref, fields);
     let bai_ref = env.state.gc.alloc(bai);
 
@@ -856,43 +872,6 @@ pub(crate) fn construct_byte_array_input_stream(
     }
 
     Ok(ValueException::Value(bai_ref))
-}
-
-/// A macro intended to make extracting a value from a `ValueException` easier.  
-#[macro_export]
-macro_rules! exc_value {
-    (ret inst: $v:expr) => {
-        match $v {
-            ValueException::Value(x) => x,
-            ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
-        }
-    };
-    (ret: $v:expr) => {
-        match $v {
-            ValueException::Value(x) => x,
-            ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
-        }
-    };
-}
-
-/// A macro intended to make extracting a value from a `EvalMethodValue` easier.
-#[macro_export]
-macro_rules! exc_eval_value {
-    (ret inst (expect_return: reference) ($name:expr): $v:expr) => {
-        match $v {
-            EvalMethodValue::Return(x) => x.into_reference().unwrap_or_else(|| {
-                panic!(
-                    "Bad return value from function ({:?}), expected reference",
-                    $name
-                )
-            }),
-            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
-            EvalMethodValue::ReturnVoid => unreachable!(
-                "No (void) return value from function ({:?}), expected reference",
-                $name
-            ),
-        }
-    };
 }
 
 #[cfg(test)]

@@ -12,7 +12,7 @@ JFILE="$JFILES ./java/lang/UnsupportedOperationException.java"
 JFILES="$JFILES ./java/lang/reflect/Field.java ./java/lang/reflect/Array.java"
 
 # java/lang/invoke
-JFILES="$JFILES ./java/lang/invoke/MethodHandles.java ./java/lang/invoke/MethodHandle.java ./java/lang/invoke/MethodHandleInfo.java"
+JFILES="$JFILES ./java/lang/invoke/MethodHandles.java ./java/lang/invoke/MethodHandle.java ./java/lang/invoke/MethodHandleInfo.java ./java/lang/invoke/MethodType.java"
 
 # java/lang/ref
 JFILES="$JFILES ./java/lang/ref/Reference.java"

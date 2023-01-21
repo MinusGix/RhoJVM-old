@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 
 use classfile_parser::{
-    attribute_info::bootstrap_methods_attribute_parser,
+    attribute_info::{bootstrap_methods_attribute_parser, InstructionIndex},
     constant_info::{ConstantInfo, InvokeDynamicConstant, MethodHandleConstant},
     descriptor,
     field_info::FieldAccessFlags,
@@ -27,8 +27,15 @@ use rhojvm_base::{
 use smallvec::SmallVec;
 
 use crate::{
-    class_instance::{ClassInstance, MethodHandleType, ReferenceArrayInstance, StaticFormInstance},
-    eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
+    class_instance::{
+        ClassInstance, MethodHandleInstance, MethodHandleType, ReferenceArrayInstance,
+        ReferenceInstance, StaticFormInstance,
+    },
+    eval::{
+        bootstrap::bootstrap_method_arg_to_rv, eval_method, EvalError, EvalMethodValue, Frame,
+        Locals, ValueException,
+    },
+    exc_eval_value, exc_value,
     gc::GcRef,
     initialize_class, map_interface_index_small_vec_to_ids, resolve_derive,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
@@ -231,6 +238,62 @@ fn find_static_method(
     )
 }
 
+fn invoke_static_method(
+    env: &mut Env<'_>,
+    frame: &mut Frame,
+    method_id: ExactMethodId,
+    called_from_method_id: MethodId,
+    called_at: Option<InstructionIndex>,
+) -> Result<RunInstContinueValue, GeneralError> {
+    // TODO: We might need to load the method here just in case!
+    let method = env
+        .methods
+        .get(&method_id)
+        .ok_or(EvalError::MissingMethod(method_id))?;
+    let method_descriptor = method.descriptor().clone();
+
+    let mut locals = Locals::default();
+    for parameter in method_descriptor.parameters().iter().rev() {
+        let value = grab_runtime_value_from_stack_for_function(
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.state,
+            frame,
+            parameter,
+        )?;
+
+        locals.prepush_transform(value);
+    }
+
+    let call_frame = Frame::new_locals(locals);
+
+    let cstrack_entry = CallStackEntry {
+        called_method: method_id.into(),
+        called_from: called_from_method_id,
+        called_at,
+    };
+
+    // Note: we don't pop the stack entry if there is an error because that lets us know where we
+    // were at
+    env.call_stack.push(cstrack_entry);
+    let res = eval_method(env, method_id.into(), call_frame)?;
+    env.call_stack.pop();
+
+    // TODO: Should we have a version that doesn't modify the frame and just returns the
+    // EvalMethodValue?
+    match res {
+        // TODO: Check that these are valid return types
+        // We can use the casting code we wrote above for the check, probably?
+        EvalMethodValue::ReturnVoid => (),
+        EvalMethodValue::Return(v) => frame.stack.push(v)?,
+        EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+    }
+
+    Ok(RunInstContinueValue::Continue)
+}
+
 impl RunInstContinue for InvokeStatic {
     fn run(
         self,
@@ -250,16 +313,18 @@ impl RunInstContinue for InvokeStatic {
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
-        let info = class_file
-            .get_t(index)
-            .ok_or(EvalError::InvalidConstantPoolIndex(index))?;
+        let (target_class_index, method_nat_index) = {
+            let info = class_file
+                .get_t(index)
+                .ok_or(EvalError::InvalidConstantPoolIndex(index))?;
 
-        let (target_class_index, method_nat_index) = match info {
-            ConstantInfo::MethodRef(method) => (method.class_index, method.name_and_type_index),
-            ConstantInfo::InterfaceMethodRef(method) => {
-                (method.class_index, method.name_and_type_index)
+            match info {
+                ConstantInfo::MethodRef(method) => (method.class_index, method.name_and_type_index),
+                ConstantInfo::InterfaceMethodRef(method) => {
+                    (method.class_index, method.name_and_type_index)
+                }
+                _ => return Err(EvalError::InvalidInvokeStaticConstantInfo.into()),
             }
-            _ => return Err(EvalError::InvalidInvokeStaticConstantInfo.into()),
         };
 
         let target_class =
@@ -319,44 +384,7 @@ impl RunInstContinue for InvokeStatic {
             &method_descriptor,
         )?;
 
-        let mut locals = Locals::default();
-        for parameter in method_descriptor.parameters().iter().rev() {
-            let value = grab_runtime_value_from_stack_for_function(
-                &mut env.class_names,
-                &mut env.class_files,
-                &mut env.classes,
-                &mut env.packages,
-                &mut env.state,
-                frame,
-                parameter,
-            )?;
-
-            locals.prepush_transform(value);
-        }
-
-        let call_frame = Frame::new_locals(locals);
-
-        let cstack_entry = CallStackEntry {
-            called_method: target_method_id.into(),
-            called_from: method_id.into(),
-            called_at: inst_index,
-        };
-
-        // Note: We don't pop the stack entry if there is an error because that lets us know where
-        // we were at
-        env.call_stack.push(cstack_entry);
-        let res = eval_method(env, target_method_id.into(), call_frame)?;
-        env.call_stack.pop();
-
-        match res {
-            // TODO: Check that these are valid return types!
-            // We can use the casting code we wrote above for the check, probably?
-            EvalMethodValue::ReturnVoid => (),
-            EvalMethodValue::Return(v) => frame.stack.push(v)?,
-            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
-        }
-
-        Ok(RunInstContinueValue::Continue)
+        invoke_static_method(env, frame, target_method_id, method_id.into(), inst_index)
     }
 }
 
@@ -993,19 +1021,53 @@ impl RunInstContinue for InvokeDynamic {
             inst_index,
         }: RunInstArgsC,
     ) -> Result<RunInstContinueValue, GeneralError> {
+        // The general idea behind InvokeDynamic is, well, invoking a function dynamically.
+        // A Java program typically always knows one of:
+        // - InvokeStatic: The literal static function that you're calling (ex a static method)
+        // - InvokeVirtual: The virtual function that you're calling (ex a method on an object,
+        // since you may have an instance of a class which *extends* the type you 'know')
+        // - InvokeInterface: Relatively similar to invoke virtual
+        // However, these require you to know the signature of the function you're calling at
+        // compile time. You won't run into a 'this function does not exist' error at runtime, like
+        // you might in javascript or python.
+        //
+        // What InvokeDynamic does is have an index into the bootstrap method table.
+        // When you first execute the InvokeDynamic operation, you look up the bootstrap method.
+        // The bootstrap method gives you back a `CallSite` instance, which is forevermore
+        // associated with this specific InvokeDynamic instruction.
+        // However, what the `CallSite` does is have a `MethodHandle` within it, which as the name
+        // suggests, it can reference some method. This method is the actual method that will be
+        // called when you execute the InvokeDynamic instruction.
+        //
+        // Sometimes that is *it*. You do it once, and then forevermore you refer to the same
+        // function. This helps the JVM have special optimizations, like for string building,
+        // that can still apply to code compiled for older versions of the JVM.
+        // Because the JVM implements the code to choose the `MethodHandle`, and so it doesn't have
+        // to rely on the bytecode being a certain specific way. (Or, rather, it has chosen this
+        // specific way for writing a way for a large class of problems to be improved in the
+        // future)
+        //
+        // However, the `CallSite`'s `MethodHandle` can be changed out for a new function.
+        // A language runtime, like if you were running JRuby, might do this. It could have
+        // different functions for different types of inputs, and so it could swap out the
+        // `MethodHandle` for those.
+
+        // FIXME: We aren't checking whether this invoke dynamic instruction already has a `CallSite` instance, which is a big problem!
+
+        // Index to the data about the invoke dynamic instruction
         let index = self.index;
 
+        // Get the class file we're operating within
         let (class_id, _) = method_id.decompose();
         let class_file = env
             .class_files
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
-        let inv_dyn = class_file
-            .get_t(index)
-            .ok_or(EvalError::InvalidConstantPoolIndex(index.into_generic()))?
-            .clone();
+        // Get the information about the Invoke dynamic instruction
+        let inv_dyn = class_file.getr(index)?.clone();
 
+        // TODO: This should be a function on class file data
         // Load the boot strap methods table and parse it
         let bootstrap_attr = {
             // TODO: Cache the parsed bootstrap methods table
@@ -1019,8 +1081,9 @@ impl RunInstContinue for InvokeDynamic {
             bootstrap_attr
         };
 
-        {
-            // Get the bootstrap method from the table
+        let call_site = {
+            // Get the bootstrap method from the table, this is the function we'd invoke to get a
+            // `CallSite`
             let b_method = bootstrap_attr
                 .bootstrap_methods
                 .get(usize::from(inv_dyn.bootstrap_method_attr_index))
@@ -1028,33 +1091,21 @@ impl RunInstContinue for InvokeDynamic {
                     inv_dyn.bootstrap_method_attr_index,
                 ))?;
 
-            // The method handle instance that will serve as the bootstrap emthod
-            let method_handle_con = class_file
-                .get_t(b_method.bootstrap_method_ref)
-                .ok_or(EvalError::InvalidConstantPoolIndex(
-                    b_method.bootstrap_method_ref.into_generic(),
-                ))?
-                .clone();
+            let method_handle = {
+                // The method handle instance that will serve as the bootstrap method
+                let method_handle_con = class_file.getr(b_method.bootstrap_method_ref)?.clone();
+                // construct the bootstrap method handle instance
+                exc_value!(ret inst: make_method_handle(env, class_id, &method_handle_con)?)
+            };
+
             // TODO: method type?
-            // References to arguments
+            // References to bootstrap method arguments
             let mut bargs_rv = Vec::with_capacity(b_method.bootstrap_arguments.len());
             // TODO: Don't clone
             for barg_idx in b_method.bootstrap_arguments.clone() {
-                let class_file = env
-                    .class_files
-                    .get(&class_id)
-                    .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-                let barg = class_file
-                    .get_t(barg_idx)
-                    .ok_or(EvalError::InvalidConstantPoolIndex(barg_idx))?
-                    .clone();
-                let val = match constant_info_to_rv(env, class_id, &barg)? {
-                    ValueException::Value(val) => val,
-                    ValueException::Exception(exc) => {
-                        return Ok(RunInstContinueValue::Exception(exc))
-                    }
-                };
-                bargs_rv.push(val);
+                bargs_rv.push(
+                    exc_value!(ret inst: bootstrap_method_arg_to_rv(env, class_id, barg_idx)?),
+                );
             }
 
             // Reget the class file
@@ -1063,33 +1114,16 @@ impl RunInstContinue for InvokeDynamic {
                 .get(&class_id)
                 .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
-            // I'm relatively sure this is the method type
-            let inv_nat = class_file.get_t(inv_dyn.name_and_type_index).ok_or(
-                EvalError::InvalidConstantPoolIndex(inv_dyn.name_and_type_index.into_generic()),
-            )?;
-            let inv_name_index = inv_nat.name_index;
-            let inv_name = class_file
-                .get_text_t(inv_name_index)
-                .ok_or(EvalError::InvalidConstantPoolIndex(
-                    inv_name_index.into_generic(),
-                ))?
-                .into_owned();
-            let inv_desc_index = inv_nat.descriptor_index;
-            let inv_desc = class_file.get_text_b(inv_desc_index).ok_or(
-                EvalError::InvalidConstantPoolIndex(inv_desc_index.into_generic()),
-            )?;
-            let inv_desc = MethodDescriptor::from_text(inv_desc, &mut env.class_names)
-                .map_err(EvalError::InvalidMethodDescriptor)?;
-            let method_type = match make_method_type(env, &inv_desc)? {
-                ValueException::Value(method_type) => method_type,
-                ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
-            };
+            // I'm relatively sure this is the method type?
+            let inv_nat = class_file.getr(inv_dyn.name_and_type_index)?;
+            let inv_name = class_file.getr_text(inv_nat.name_index)?.into_owned();
 
-            // construct the bootstrap method handle instance
-            let method_handle = make_method_handle(env, class_id, &method_handle_con)?;
-            let method_handle = match method_handle {
-                ValueException::Value(handle) => handle,
-                ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
+            let method_type = {
+                let inv_desc = class_file.getr_text_b(inv_nat.descriptor_index)?;
+                let inv_desc = MethodDescriptor::from_text(inv_desc, &mut env.class_names)
+                    .map_err(EvalError::InvalidMethodDescriptor)?;
+
+                exc_value!(ret inst: make_method_type(env, &inv_desc)?)
             };
 
             // tracing::info!("Inv Name: {}, Desc: {:?}", inv_name, inv_desc);
@@ -1100,7 +1134,7 @@ impl RunInstContinue for InvokeDynamic {
 
             match mh_inst.typ {
                 MethodHandleType::InvokeStatic(method_id) => {
-                    let (class_id, _method_index) = method_id.decompose();
+                    let (class_id, _) = method_id.decompose();
                     let class_file = env.class_files.get(&class_id).unwrap();
                     let method = env.methods.get(&method_id).unwrap();
                     tracing::info!("InvokeStatic {:#?}", method);
@@ -1120,18 +1154,34 @@ impl RunInstContinue for InvokeDynamic {
                         }
                     }
 
-                    if let Some(DescriptorType::Basic(DescriptorTypeBasic::Class(class_id))) =
-                        desc.return_type()
+                    // Ensure that the bootstrap method returns a `CallSite` instance.
+                    // TODO: What if it returns something which extends a `CallSite`?
                     {
-                        tracing::info!(
-                            "Returns Class Reference: {:?}",
-                            env.class_names.tpath(*class_id)
-                        );
-                    } else {
-                        tracing::info!("Returns: {:?}", desc.return_type());
+                        let callsite_class_id = env
+                            .class_names
+                            .gcid_from_bytes(b"java/lang/invoke/CallSite");
+
+                        if let Some(DescriptorType::Basic(DescriptorTypeBasic::Class(
+                            ret_class_id,
+                        ))) = desc.return_type()
+                        {
+                            if *ret_class_id != callsite_class_id {
+                                tracing::error!("Bootstrap method handle returned a class that wasn't a callsite: {:?}", env.class_names.tpath(*ret_class_id));
+                                panic!(
+                                "Bootstrap method handle returned a class that wasn't a callsite"
+                            );
+                            }
+                        } else {
+                            tracing::error!(
+                                "Bootstrap method handle returned a non-class type {:?}",
+                                desc.return_type()
+                            );
+                            panic!("Bootstrap method handle returned a non-class type");
+                        }
                     }
 
                     // The MethodHandles$Lookup reference
+                    // This is expected to be the first argument to the bootstrap method
                     let lookup = {
                         // Load the method handles class
                         let mh_class_id = env
@@ -1162,21 +1212,17 @@ impl RunInstContinue for InvokeDynamic {
                         };
 
                         let frame = Frame::default();
-                        match eval_method(env, lookup_method_id.into(), frame)? {
-                            EvalMethodValue::Return(lookup) => lookup.into_reference().expect("Bad method handles lookup return value").expect("Null method handle lookup"),
-                            EvalMethodValue::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
-                            EvalMethodValue::ReturnVoid => unreachable!("This indicates an internal bug, such as a incompatible MethodHandles class or corruption"),
-                        }
+                        exc_eval_value!(ret inst (expect_return: reference)
+                                ("Method Handle lookup"):
+                                eval_method(env, lookup_method_id.into(), frame)?
+                        )
+                        .expect("Null method handle lookup reference")
                     };
-                    let call_site_name = match construct_string_r(env, inv_name.as_ref())? {
-                        ValueException::Value(call_site_name) => call_site_name,
-                        ValueException::Exception(exc) => {
-                            return Ok(RunInstContinueValue::Exception(exc))
-                        }
-                    };
+                    let call_site_name =
+                        exc_value!(ret inst: construct_string_r(env, inv_name.as_ref())?);
                     // we have the method type already
 
-                    // therare additional parameters
+                    // there are additional parameters
                     // ex:
                     // - (Ljava/long/Object;)Z is an erased method signature
                     // - The REF_invokeStatic Main.lambda$main$o:(Ljava/lang/String;)Z is the MethodHandle to the actual lambda logic
@@ -1199,31 +1245,68 @@ impl RunInstContinue for InvokeDynamic {
                         locals
                     });
 
-                    let call_site = match eval_method(env, method_id.into(), frame)? {
-                        EvalMethodValue::Return(call_site) => call_site,
-                        EvalMethodValue::Exception(exc) => {
-                            return Ok(RunInstContinueValue::Exception(exc))
-                        }
-                        EvalMethodValue::ReturnVoid => unreachable!(),
-                    }
-                    .into_reference()
-                    .unwrap()
+                    let call_site = exc_eval_value!(ret inst (expect_return: reference)
+                            ("Bootstrap method"):
+                            eval_method(env, method_id.into(), frame)?
+                    )
                     .unwrap();
+
+                    // TODO: Store the call site on the ?class?, ?method?, ?general cache?
+
+                    call_site
                 }
             }
-
-            // // TODO: execute method handle (aka the bootstrap method)
-            // this will give us a CallSite
-            // this has the actual logic that the jvm should execute
-            // it also has a condition representing the validity of the callsite
-            // we are intended to cache it, unsure if we are *required* to do so?
         };
 
-        todo!()
+        let call_site_class_id = env
+            .class_names
+            .gcid_from_bytes(b"java/lang/invoke/CallSite");
+
+        // Get the underlying method handle in the call site
+        let target = {
+            let get_target_method_id = {
+                let method_handle_class_id = env
+                    .class_names
+                    .gcid_from_bytes(b"java/lang/invoke/MethodHandle");
+                let method_handle_desc = MethodDescriptor::new_ret(DescriptorType::Basic(
+                    DescriptorTypeBasic::Class(method_handle_class_id),
+                ));
+                env.methods.load_method_from_desc(
+                    &mut env.class_names,
+                    &mut env.class_files,
+                    call_site_class_id,
+                    b"getTarget",
+                    &method_handle_desc,
+                )?
+            };
+
+            let frame = Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(
+                call_site.into_generic(),
+            )]));
+
+            let target = exc_eval_value!(ret inst (expect_return: reference)
+                ("CallSite getTarget"):
+                eval_method(env, get_target_method_id.into(), frame)?
+            )
+            .expect("Null call site target");
+
+            target.unchecked_as::<MethodHandleInstance>()
+        };
+
+        let Some(target_inst) = env.state.gc.deref(target) else {
+            tracing::error!("Call site target was nonexistent/null. Might be due to a bad return value?");
+            panic!("Call site target was null");
+        };
+
+        match &target_inst.typ {
+            MethodHandleType::InvokeStatic(inv_method_id) => {
+                invoke_static_method(env, frame, *inv_method_id, method_id.into(), inst_index)
+            }
+        }
     }
 }
 
-fn constant_info_to_rv(
+pub(crate) fn constant_info_to_rv(
     env: &mut Env,
     class_id: ClassId,
     inf: &ConstantInfo,
@@ -1262,10 +1345,12 @@ fn constant_info_to_rv(
     }
 }
 
+/// Make a jvm`MethodType` instance from a `MethodDescriptor`
 fn make_method_type(
     env: &mut Env,
     descriptor: &MethodDescriptor,
 ) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
+    // Get the class information
     let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
     let class_array_id = env
         .class_names
@@ -1305,7 +1390,7 @@ fn make_method_type(
                 ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
             };
 
-            locals.push_transform(form);
+            locals.push_transform(RuntimeValue::Reference(form.into_generic()));
         }
 
         let mut parameters = Vec::new();
@@ -1314,7 +1399,7 @@ fn make_method_type(
                 ValueException::Value(form) => form,
                 ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
             };
-            let form = form.into_reference().unwrap();
+            let form = Some(form.unchecked_as::<ReferenceInstance>());
 
             parameters.push(form);
         }
@@ -1362,11 +1447,21 @@ fn make_method_type(
     }
 }
 
-fn descriptor_type_to_static_form(
+pub(crate) fn opt_descriptor_type_to_static_form(
+    env: &mut Env,
+    typ: Option<DescriptorType>,
+) -> Result<ValueException<GcRef<StaticFormInstance>>, GeneralError> {
+    match typ {
+        Some(typ) => descriptor_type_to_static_form(env, typ),
+        None => make_primitive_class_form_of(env, None),
+    }
+}
+
+pub(crate) fn descriptor_type_to_static_form(
     env: &mut Env,
     typ: DescriptorType,
-) -> Result<ValueException<RuntimeValue>, GeneralError> {
-    Ok(match typ {
+) -> Result<ValueException<GcRef<StaticFormInstance>>, GeneralError> {
+    match typ {
         DescriptorType::Basic(basic) => match basic {
             DescriptorTypeBasic::Byte => todo!(),
             DescriptorTypeBasic::Char => todo!(),
@@ -1391,6 +1486,5 @@ fn descriptor_type_to_static_form(
             // TODO: Incorrect usage of make_class_form_of
             make_class_form_of(env, id, id)
         }
-    }?
-    .map(|x| RuntimeValue::Reference(x.into_generic())))
+    }
 }

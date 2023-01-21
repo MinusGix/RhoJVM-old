@@ -9,6 +9,7 @@ mod class;
 pub mod field;
 pub mod method_handle;
 pub mod method_handle_info;
+mod method_type;
 mod object;
 mod primitive;
 pub mod reflect_array;
@@ -149,9 +150,19 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_invoke_MethodHandles_revealDirect" => {
                 into_opaque3ret(method_handle::mh_lookup_reveal_direct)
             }
+            // java/lang/invoke/MethodType
+            b"Java_java_lang_invoke_MethodType_toMethodDescriptorString" => {
+                into_opaque2ret(method_type::mt_to_method_descriptor_string)
+            }
             // rho/invoke/MethodHandleInfoInst
+            b"Java_rho_invoke_MethodHandleInfoInst_getDeclaringClass" => {
+                into_opaque2ret(method_handle_info::mh_info_get_declaring_class)
+            }
             b"Java_rho_invoke_MethodHandleInfoInst_getReferenceKind" => {
                 into_opaque2ret(method_handle_info::mh_info_get_reference_kind)
+            }
+            b"Java_java_lang_invoke_MethodType_getMethodType" => {
+                into_opaque2ret(method_handle_info::mh_info_get_method_type)
             }
             // System
             b"Java_java_lang_System_setProperties" => {

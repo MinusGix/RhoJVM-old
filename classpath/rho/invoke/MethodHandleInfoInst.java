@@ -14,9 +14,7 @@ public class MethodHandleInfoInst implements MethodHandleInfo {
         throw new UnsupportedOperationException("TODO");
     }
     
-    public MethodType getMethodType() {
-        throw new UnsupportedOperationException("TODO");
-    }
+    public native MethodType getMethodType();
     
     public native int getReferenceKind();
     

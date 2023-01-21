@@ -5,11 +5,13 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use classfile_parser::field_info::FieldAccessFlags;
-use either::Either;
+
 use rhojvm::{
     class_instance::{ClassInstance, ReferenceArrayInstance, ThreadInstance},
-    eval::{eval_method, instances::make_fields, EvalMethodValue, Frame, Locals, ValueException},
+    eval::{
+        eval_method, instances::make_instance_fields, EvalMethodValue, Frame, Locals,
+        ValueException,
+    },
     gc::GcRef,
     initialize_class,
     jni::native_interface::NativeInterface,
@@ -406,18 +408,12 @@ fn execute_class_name(
         let thread_static_ref = initialize_class(env, thread_class_id).unwrap().into_value();
         let thread_static_ref = match thread_static_ref {
             ValueException::Value(re) => re,
-            ValueException::Exception(exc) => panic!("Exception initializing main thread"),
+            ValueException::Exception(_) => panic!("Exception initializing main thread"),
         };
 
-        let fields = match make_fields(env, thread_class_id, |field_info| {
-            !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-        })
-        .unwrap()
-        {
-            Either::Left(fields) => fields,
-            Either::Right(exc) => {
-                panic!("Exception initializing main thread fields")
-            }
+        let fields = make_instance_fields(env, thread_class_id).unwrap();
+        let ValueException::Value(fields) = fields else {
+            panic!("Exception initializing main thread. Failed to create fields");
         };
 
         // new does not run a constructor, it only initializes it

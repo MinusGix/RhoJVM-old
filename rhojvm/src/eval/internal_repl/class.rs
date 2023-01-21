@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
-use classfile_parser::{field_info::FieldAccessFlags, ClassAccessFlags};
-use either::Either;
+use classfile_parser::ClassAccessFlags;
 use rhojvm_base::{
     class::{ArrayComponentType, ClassVariant},
     code::{
@@ -13,10 +12,10 @@ use rhojvm_base::{
 };
 
 use crate::{
-    class_instance::{ClassInstance, Instance, ReferenceInstance, StaticFormInstance},
+    class_instance::{ClassInstance, Instance, ReferenceInstance},
     eval::{
         eval_method,
-        instances::{make_fields, try_casting, CastResult},
+        instances::{make_instance_fields, try_casting, CastResult},
         EvalMethodValue, Frame, Locals, ValueException,
     },
     gc::GcRef,
@@ -335,15 +334,10 @@ pub(crate) extern "C" fn class_get_declared_field(
             ValueException::Exception(_) => todo!(),
         };
 
-        let mut field_internal_fields =
-            match make_fields(env, field_internal_class_id, |field_info| {
-                !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-            })
-            .unwrap()
-            {
-                Either::Left(fields) => fields,
-                Either::Right(_exc) => todo!(),
-            };
+        let field_internal_fields = make_instance_fields(env, field_internal_class_id).unwrap();
+        let Some(mut field_internal_fields) = env.state.extract_value(field_internal_fields) else {
+            todo!()
+        };
 
         {
             let (f_class_id, f_field_index) = field_id.decompose();
@@ -381,13 +375,9 @@ pub(crate) extern "C" fn class_get_declared_field(
             ValueException::Exception(_) => todo!(),
         };
 
-        let mut field_fields = match make_fields(env, field_class_id, |field_info| {
-            !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-        })
-        .unwrap()
-        {
-            Either::Left(fields) => fields,
-            Either::Right(_exc) => todo!(),
+        let field_fields = make_instance_fields(env, field_class_id).unwrap();
+        let Some(mut field_fields) = env.state.extract_value(field_fields) else {
+            todo!()
         };
 
         {
@@ -447,15 +437,9 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
         todo!("InstantiationError exception");
     }
 
-    let fields = match make_fields(env, this_id, |field_info| {
-        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-    })
-    .unwrap()
-    {
-        Either::Left(fields) => fields,
-        Either::Right(_) => {
-            todo!("Exception in making fields for class")
-        }
+    let fields = make_instance_fields(env, this_id).unwrap();
+    let Some(fields) = env.state.extract_value(fields) else {
+        todo!()
     };
 
     let class = ClassInstance {
@@ -653,13 +637,9 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
         ValueException::Exception(_) => todo!("Exception initializing Package class"),
     };
 
-    let fields = match make_fields(env, package_class_id, |field_info| {
-        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-    })
-    .unwrap()
-    {
-        Either::Left(fields) => fields,
-        Either::Right(_exc) => todo!(),
+    let fields = make_instance_fields(env, package_class_id).unwrap();
+    let Some(fields) = env.state.extract_value(fields) else {
+        todo!()
     };
 
     let package_instance = ClassInstance {

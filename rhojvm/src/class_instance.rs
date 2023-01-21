@@ -3,7 +3,7 @@ use std::{collections::HashMap, hash::Hash, thread::ThreadId};
 use classfile_parser::field_info::FieldAccessFlags;
 use either::Either;
 use rhojvm_base::{
-    id::{ClassId, ExactMethodId, MethodId},
+    id::{ClassId, ExactMethodId},
     util::MemorySize,
 };
 
@@ -320,7 +320,10 @@ impl MethodHandleType {
 #[derive(Debug, Clone)]
 pub struct MethodHandleInstance {
     pub(crate) inner: ClassInstance,
+    /// This should be kept in sync with the `method_type_ref` field
     pub typ: MethodHandleType,
+    /// Lazily initialized reference to the `MethodType` instance
+    pub method_type_ref: Option<GcRef<ClassInstance>>,
 }
 impl MethodHandleInstance {
     #[must_use]
@@ -328,6 +331,7 @@ impl MethodHandleInstance {
         MethodHandleInstance {
             inner: inner_instance,
             typ,
+            method_type_ref: None,
         }
     }
 }
@@ -366,7 +370,8 @@ impl MemorySize for MethodHandleInfoInstance {
 }
 impl GcValueMarker for MethodHandleInfoInstance {}
 
-/// An instance of some class
+/// An instance of some class  
+/// Note: If you want a `Class<T>` instance, then you want [`StaticFormInstance`]
 #[derive(Debug, Clone)]
 pub struct ClassInstance {
     /// The most specific Class that this is an instance of

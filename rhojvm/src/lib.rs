@@ -38,7 +38,6 @@ use classfile_parser::{
     field_info::FieldAccessFlags,
     LoadError,
 };
-use either::Either;
 use eval::{instances::make_fields, EvalError, EvalMethodValue};
 use gc::{Gc, GcRef};
 use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibrariesStatic};
@@ -47,11 +46,7 @@ use method::MethodInfo;
 // use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
     class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassFileData, ClassVariant},
-    code::{
-        method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
-        stack_map::StackMapError,
-        types::PrimitiveType,
-    },
+    code::{method::MethodDescriptor, stack_map::StackMapError, types::PrimitiveType},
     data::{
         class_files::ClassFiles,
         class_names::ClassNames,
@@ -62,7 +57,7 @@ use rhojvm_base::{
     package::Packages,
     StepError,
 };
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
 use util::{find_field_with_name, Env};
 
@@ -670,8 +665,8 @@ pub fn initialize_class(
     let fields = match make_fields(env, class_id, |field_info| {
         field_info.access_flags.contains(FieldAccessFlags::STATIC)
     })? {
-        Either::Left(fields) => fields,
-        Either::Right(exc) => {
+        ValueException::Value(fields) => fields,
+        ValueException::Exception(exc) => {
             let info = env.state.classes_info.get_mut_init(class_id);
             info.initialized = Status::Done(ValueException::Exception(exc));
             return Ok(BegunStatus::Done(ValueException::Exception(exc)));

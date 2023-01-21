@@ -1,5 +1,3 @@
-use classfile_parser::field_info::FieldAccessFlags;
-use either::Either;
 use rhojvm_base::{
     code::method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
     data::class_file_loader::Resource::Buffer,
@@ -7,7 +5,10 @@ use rhojvm_base::{
 
 use crate::{
     class_instance::{ClassInstance, Fields},
-    eval::{eval_method, instances::make_fields, EvalMethodValue, Frame, Locals, ValueException},
+    eval::{
+        eval_method, instances::make_instance_fields, EvalMethodValue, Frame, Locals,
+        ValueException,
+    },
     initialize_class,
     jni::{JClass, JObject, JString},
     rv::RuntimeValue,
@@ -30,15 +31,9 @@ pub(crate) extern "C" fn system_class_loader_init(env: *mut Env<'_>, _this: JObj
         }
     };
 
-    let fields = match make_fields(env, scl_id, |field_info| {
-        !field_info.access_flags.contains(FieldAccessFlags::STATIC)
-    })
-    .unwrap()
-    {
-        Either::Left(fields) => fields,
-        Either::Right(_) => {
-            todo!("There was an exception when initializing the System ClassLoader's fields")
-        }
+    let fields = make_instance_fields(env, scl_id).unwrap();
+    let Some(fields) = env.state.extract_value(fields) else {
+        todo!("Return Null? Throw an exception?")
     };
 
     let inst = ClassInstance {
@@ -120,16 +115,11 @@ pub(crate) extern "C" fn system_class_loader_get_resources(
             .unwrap()
             .into_value();
         if let Some(static_ref) = env.state.extract_value(static_ref) {
-            let fields = match make_fields(env, single_enumeration_id, |field_info| {
-                field_info.access_flags.contains(FieldAccessFlags::STATIC)
-            })
-            .unwrap()
-            {
-                Either::Left(fields) => fields,
-                Either::Right(exc) => {
-                    panic!("Exception");
-                }
+            let fields = make_instance_fields(env, single_enumeration_id).unwrap();
+            let Some(fields) =env.state.extract_value(fields) else {
+                todo!("Return Null? Throw an exception?")
             };
+
             let instance = ClassInstance::new(single_enumeration_id, static_ref, fields);
             let instance_ref = env.state.gc.alloc(instance);
 
