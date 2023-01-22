@@ -2,12 +2,10 @@ use std::num::NonZeroUsize;
 
 use classfile_parser::{
     attribute_info::{bootstrap_methods_attribute_parser, InstructionIndex},
-    constant_info::{ConstantInfo, InvokeDynamicConstant, MethodHandleConstant},
-    descriptor,
-    field_info::FieldAccessFlags,
+    constant_info::ConstantInfo,
     method_info::MethodAccessFlags,
 };
-use either::Either;
+
 use rhojvm_base::{
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
@@ -21,7 +19,7 @@ use rhojvm_base::{
     },
     id::{ClassId, ExactMethodId, MethodId},
     package::Packages,
-    util::{Cesu8Str, Cesu8String},
+    util::Cesu8String,
     StepError,
 };
 use smallvec::SmallVec;
@@ -40,13 +38,13 @@ use crate::{
     initialize_class, map_interface_index_small_vec_to_ids, resolve_derive,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{
-        construct_string, construct_string_r, make_class_form_of, make_method_handle,
-        make_primitive_class_form_of, CallStackEntry, Env,
+        construct_string_r, make_class_form_of, make_method_handle, make_primitive_class_form_of,
+        CallStackEntry, Env,
     },
     GeneralError, State,
 };
 
-use super::{instances::make_fields, RunInstArgsC, RunInstContinue, RunInstContinueValue};
+use super::{RunInstArgsC, RunInstContinue, RunInstContinueValue};
 
 fn grab_runtime_value_from_stack_for_function(
     class_names: &mut ClassNames,
@@ -962,7 +960,9 @@ impl RunInstContinue for InvokeVirtual {
         let instance_ref = instance_class
             .into_reference()
             .ok_or(EvalError::ExpectedStackValueReference)?
-            .expect("TODO: NullReferenceException");
+            .expect(
+                "TODO: NullReferenceException. This happens if the `this` of a function is null.",
+            );
         let instance = env
             .state
             .gc
@@ -1284,9 +1284,19 @@ impl RunInstContinue for InvokeDynamic {
                 call_site.into_generic(),
             )]));
 
+            let cstack_entry = CallStackEntry {
+                called_method: get_target_method_id.into(),
+                called_from: method_id.into(),
+                called_at: inst_index,
+            };
+
+            env.call_stack.push(cstack_entry);
+            let target = eval_method(env, get_target_method_id.into(), frame)?;
+            env.call_stack.pop();
+
             let target = exc_eval_value!(ret inst (expect_return: reference)
                 ("CallSite getTarget"):
-                eval_method(env, get_target_method_id.into(), frame)?
+                target
             )
             .expect("Null call site target");
 

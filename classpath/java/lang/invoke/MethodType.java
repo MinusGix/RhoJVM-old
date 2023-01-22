@@ -19,8 +19,8 @@ public final class MethodType {
     }
 
     private MethodType () {
-        inst.returnTy = void.class;
-        inst.paramTys = new Class[0];
+        this.returnTy = void.class;
+        this.paramTys = new Class[0];
     }
 
     public static MethodType methodType(Class<?> returnTy, Class<?>[] paramTys) {

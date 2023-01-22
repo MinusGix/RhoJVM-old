@@ -15,8 +15,6 @@ public class MethodHandles {
 
         Lookup () {}
 
-        private Class<?> clazz;
-
         public MethodHandle findConstructor(Class<?> target, MethodType type) {
             throw new UnsupportedOperationException();
         }
@@ -73,9 +71,7 @@ public class MethodHandles {
             throw new UnsupportedOperationException();
         }
 
-        public Class<?> lookupClass() {
-            return this.clazz;
-        }
+        public native Class<?> lookupClass();
 
         public Lookup in(Class<?> target) {
             throw new UnsupportedOperationException();

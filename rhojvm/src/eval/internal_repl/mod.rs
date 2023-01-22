@@ -151,6 +151,10 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_invoke_MethodHandles_revealDirect" => {
                 into_opaque3ret(method_handle::mh_lookup_reveal_direct)
             }
+            // java/lang/invoke/MethodHandles$Lookup
+            b"Java_java_lang_invoke_MethodHandles_00024Lookup_lookupClass" => {
+                into_opaque2ret(method_handle::mhs_lookup_lookup_class)
+            }
             // java/lang/invoke/MethodType
             b"Java_java_lang_invoke_MethodType_toMethodDescriptorString" => {
                 into_opaque2ret(method_type::mt_to_method_descriptor_string)
@@ -164,6 +168,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_rho_invoke_MethodHandleInfoInst_getMethodType" => {
                 into_opaque2ret(method_handle_info::mh_info_get_method_type)
+            }
+            b"Java_rho_invoke_MethodHandleInfoInst_getName" => {
+                into_opaque2ret(method_handle_info::mh_info_get_name)
             }
             // System
             b"Java_java_lang_System_setProperties" => {

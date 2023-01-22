@@ -2,7 +2,7 @@ use crate::{
     class_instance::{Instance, MethodHandleType, ReferenceInstance},
     eval::class_util::get_init_method_type_from_mh,
     jni::{JClass, JInt, JObject},
-    util::{make_class_form_of, Env},
+    util::{construct_string_r, make_class_form_of, Env},
 };
 
 pub(crate) extern "C" fn mh_info_get_declaring_class(env: *mut Env, this: JObject) -> JClass {
@@ -80,4 +80,37 @@ pub(crate) extern "C" fn mh_info_get_reference_kind(env: *mut Env, this: JObject
     } else {
         unreachable!()
     }
+}
+
+pub(crate) extern "C" fn mh_info_get_name(env: *mut Env, this: JObject) -> JObject {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("Null reference");
+    let Some(Instance::Reference(ReferenceInstance::MethodHandleInfo(mh_info))) =
+        env.state.gc.deref(this) else { unreachable!() };
+
+    let mh = mh_info.method_handle;
+    let Some(mh) = env.state.gc.deref(mh) else { unreachable!() };
+
+    let method_id = match &mh.typ {
+        MethodHandleType::InvokeStatic(method_id) => method_id,
+    };
+
+    let (class_id, _) = method_id.decompose();
+    let class = env.class_files.get(&class_id).unwrap();
+    // TODO: We should probably load the method
+    let Some(method) = env.methods.get(method_id) else {
+        unreachable!()
+    };
+    let method_name = class.getr_text(method.name_index()).unwrap().into_owned();
+
+    let text = construct_string_r(env, &method_name).unwrap();
+    let Some(text) = env.state.extract_value(text) else {
+        return JObject::null();
+    };
+
+    unsafe { env.get_local_jobject_for(text.into_generic()) }
 }

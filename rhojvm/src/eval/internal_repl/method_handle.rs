@@ -2,9 +2,9 @@ use crate::{
     class_instance::{ClassInstance, Fields, MethodHandleInfoInstance, MethodHandleInstance},
     gc::GcRef,
     initialize_class,
-    jni::{JObject, JObjectArray},
+    jni::{JClass, JObject, JObjectArray},
     resolve_derive,
-    util::Env,
+    util::{make_class_form_of, Env},
 };
 
 // Note: Variadics in java are just transformed into arrays, which makes this significantly easier
@@ -67,4 +67,31 @@ pub(crate) extern "C" fn mh_lookup_reveal_direct(
     let mh_info_ref = env.state.gc.alloc(mh_info_instance);
 
     unsafe { env.get_local_jobject_for(mh_info_ref.into_generic()) }
+}
+
+pub(crate) extern "C" fn mhs_lookup_lookup_class(env: *mut Env, _this: JObject) -> JObject {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    if env.call_stack.len() < 2 {
+        panic!("MethodHandles.Lookup#lookupClass called from outside of a method");
+    }
+
+    let cstack_entry = &env.call_stack[env.call_stack.len() - 2];
+    let Some((caller_class_id, _)) = cstack_entry.called_from.decompose() else {
+        panic!("MethodHandles.Lookup#lookupClass called from non-normal method");
+    };
+
+    let mhl_class_id = env
+        .class_names
+        .gcid_from_bytes(b"java/lang/invoke/MethodHandles$Lookup");
+
+    let class_inst = make_class_form_of(env, mhl_class_id, caller_class_id).unwrap();
+    let Some(class_inst) = env.state.extract_value(class_inst) else {
+        // exception
+        return JClass::null();
+    };
+
+    unsafe { env.get_local_jobject_for(class_inst.into_generic()) }
 }

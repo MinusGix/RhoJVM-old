@@ -10,9 +10,7 @@ import java.lang.reflect.Member;
 public class MethodHandleInfoInst implements MethodHandleInfo {
     public native Class<?> getDeclaringClass();
     
-    public String getName() {
-        throw new UnsupportedOperationException("TODO");
-    }
+    public native String getName();
     
     public native MethodType getMethodType();
     

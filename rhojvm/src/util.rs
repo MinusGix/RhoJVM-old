@@ -397,6 +397,7 @@ pub(crate) fn to_utf16_arr(text: &str) -> Vec<RuntimeValuePrimitive> {
         .collect()
 }
 
+/// Construct a JVM String given some Rust utf8 string
 pub(crate) fn construct_string_r(
     env: &mut Env,
     text: &str,
