@@ -136,6 +136,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
                 into_opaque3ret(class::class_is_assignable_from)
             }
             b"Java_java_lang_Class_isInstance" => into_opaque3ret(class::class_is_instance),
+            b"Java_java_lang_Class_isInterface" => into_opaque2ret(class::class_is_interface),
             // reflect/Field
             b"Java_java_lang_reflect_Field_getType" => into_opaque2ret(field::field_get_type),
             // reflect/Array
@@ -161,7 +162,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_rho_invoke_MethodHandleInfoInst_getReferenceKind" => {
                 into_opaque2ret(method_handle_info::mh_info_get_reference_kind)
             }
-            b"Java_java_lang_invoke_MethodType_getMethodType" => {
+            b"Java_rho_invoke_MethodHandleInfoInst_getMethodType" => {
                 into_opaque2ret(method_handle_info::mh_info_get_method_type)
             }
             // System

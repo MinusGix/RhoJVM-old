@@ -244,9 +244,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
 
     public native boolean isInstance(Object obj);
 
-    public boolean isInterface() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native boolean isInterface();
 
     public boolean isLocalClass() {
         throw new UnsupportedOperationException("TODO: Implement this");

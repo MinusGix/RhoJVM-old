@@ -956,3 +956,23 @@ pub(crate) extern "C" fn class_is_instance(
         }
     }
 }
+
+pub(crate) extern "C" fn class_is_interface(env: *mut Env<'_>, this: JClass) -> JBoolean {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("IsAssignableFrom's class was null");
+    let Some(Instance::Reference(ReferenceInstance::StaticForm(this))) =
+        env.state.gc.deref(this) else {
+            panic!();
+        };
+    let this_id = this
+        .of
+        .into_reference()
+        .expect("Expected Class<T> to be of a Class");
+
+    // TODO: initialize the class if needed
+    let this_class = env.classes.get(&this_id).unwrap();
+    JBoolean::from(this_class.is_interface())
+}
