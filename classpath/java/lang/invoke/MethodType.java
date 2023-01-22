@@ -1,6 +1,7 @@
 package java.lang.invoke;
 
 import java.util.List;
+import java.util.Arrays;
 
 public final class MethodType {
     private Class<?> returnTy;
@@ -136,6 +137,22 @@ public final class MethodType {
     }
 
     // === Parameter ===
+    public int parameterCount() {
+        return this.paramTys.length;
+    }
+
+    public Class<?> parameterType(int idx) {
+        return this.paramTys[idx];
+    }
+
+    public List<Class<?>> parameterList() {
+        return Arrays.asList(this.paramTys.clone());
+    }
+
+    public Class<?>[] parameterArray() {
+        return this.paramTys.clone();
+    }
+
     public MethodType changeParameterType(int idx, Class<?> paramTy) {
         isValidType(paramTy);
 
@@ -203,6 +220,7 @@ public final class MethodType {
     public boolean hasWrappers() {
         throw new UnsupportedOperationException();
     }
+
 
     // === Other ===
     public MethodType wrap() {
