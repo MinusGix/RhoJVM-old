@@ -19,7 +19,7 @@ use either::Either;
 use smallvec::SmallVec;
 
 use crate::{
-    class::{ArrayComponentType, ClassFileData},
+    class::{ArrayComponentType, ClassFileInfo},
     code::{self},
     data::{class_files::ClassFiles, class_names::ClassNames},
     id::{ClassId, ExactMethodId, MethodId},
@@ -78,7 +78,7 @@ impl Method {
     /// NOTE: This should _always_ be the same as the method's actual name.
     pub(crate) fn new_from_info(
         id: ExactMethodId,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         class_names: &mut ClassNames,
         method: MethodInfoOpt,
     ) -> Result<Self, LoadMethodError> {
@@ -177,7 +177,7 @@ impl Method {
     /// The class file must be the class file that contains this method
     pub fn load_code_with_unchecked(
         &mut self,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
     ) -> Result<(), StepError> {
         if let Some(code) = self.direct_load_code_with_unchecked(class_file)? {
             self.code = Some(code);
@@ -202,7 +202,7 @@ impl Method {
 
     fn direct_load_code_with_unchecked(
         &self,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
     ) -> Result<Option<CodeInfo>, StepError> {
         debug_assert_eq!(self.id().decompose().0, class_file.id());
 

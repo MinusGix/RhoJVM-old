@@ -4,7 +4,7 @@ use classfile_parser::{
 };
 use smallvec::SmallVec;
 
-use crate::{class::ClassFileData, util::MemorySizeU16, VerifyCodeExceptionError};
+use crate::{class::ClassFileInfo, util::MemorySizeU16, VerifyCodeExceptionError};
 
 use self::{method::Method, op::Inst, op_ex::InstructionParseError};
 
@@ -106,7 +106,7 @@ impl Instructions {
 
     pub(crate) fn invokes_init_methods(
         &self,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
     ) -> Result<bool, VerifyCodeExceptionError> {
         for (_, inst) in &self.instructions {
             if let Inst::InvokeSpecial(inv) = inst {
@@ -164,7 +164,7 @@ impl Instructions {
 
     pub(crate) fn check_exception(
         &self,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         method: &Method,
         exc: &ExceptionEntry,
     ) -> Result<(), VerifyCodeExceptionError> {
@@ -241,7 +241,7 @@ impl CodeInfo {
 
 pub(crate) fn parse_code(
     mut code_attr: classfile_parser::attribute_info::CodeAttribute,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
 ) -> Result<CodeInfo, InstructionParseError> {
     // TODO: if the class file version number is >=51.0 then neither JSR or JSR_W can appear
     let code_range = code_attr.code.clone();

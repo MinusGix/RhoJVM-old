@@ -35,6 +35,7 @@ use id::ClassId;
 
 pub mod class;
 pub mod code;
+pub mod constant_pool;
 pub mod data;
 pub mod id;
 pub mod package;

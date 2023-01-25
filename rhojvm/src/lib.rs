@@ -45,7 +45,7 @@ use memblock::MemoryBlocks;
 use method::MethodInfo;
 // use dhat::{Dhat, DhatAlloc};
 use rhojvm_base::{
-    class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassFileData, ClassVariant},
+    class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassFileInfo, ClassVariant},
     code::{method::MethodDescriptor, stack_map::StackMapError, types::PrimitiveType},
     data::{
         class_files::ClassFiles,
@@ -1005,7 +1005,7 @@ fn derive_class(
 
 pub(crate) fn map_interface_index_small_vec_to_ids<const N: usize>(
     class_names: &mut ClassNames,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     interface_indexes: SmallVec<[ConstantPoolIndexRaw<ClassConstant>; N]>,
 ) -> Result<SmallVec<[ClassId; N]>, GeneralError> {
     let mut interface_ids = SmallVec::new();

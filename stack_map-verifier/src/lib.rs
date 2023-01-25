@@ -17,6 +17,7 @@ use classfile_parser::{
     constant_info::{ClassConstant, FieldRefConstant, NameAndTypeConstant, Utf8Constant},
     constant_pool::ConstantPoolIndexRaw,
 };
+use rhojvm_base::class::ClassFileInfo;
 use rhojvm_base::code::op::InstMapFunc;
 use rhojvm_base::code::stack_map::{StackMapError, StackMapFramesProcessor};
 use rhojvm_base::code::types::{
@@ -29,14 +30,13 @@ use rhojvm_base::data::classes::Classes;
 use rhojvm_base::data::methods::Methods;
 use rhojvm_base::id::{ExactMethodId, MethodIndex};
 use rhojvm_base::{
-    class::ClassFileData,
     code::{
         op::Inst,
         stack_map::StackMapType,
         types::{PopIndex, PopType, PopTypeAt, PrimitiveType, PushType, PushTypeAt, Type},
         CodeInfo,
     },
-    id::{ClassId, MethodId},
+    id::ClassId,
     package::Packages,
     StepError,
 };
@@ -277,7 +277,7 @@ impl Locals {
     fn ingest_stack_map_types(
         &mut self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         code: &CodeInfo,
         types: &[StackMapType],
     ) -> Result<(), VerifyStackMapGeneralError> {
@@ -476,7 +476,7 @@ pub fn verify_type_safe_method_stack_map(
     packages: &mut Packages,
     methods: &mut Methods,
     conf: StackMapVerificationLogging,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     method_index: MethodIndex,
     method_code: &CodeInfo,
 ) -> Result<(), VerifyStackMapGeneralError> {
@@ -546,7 +546,7 @@ pub fn verify_type_safe_method_stack_map(
             class_files: &'cf mut ClassFiles,
             classes: &'c mut Classes,
             packages: &'p mut Packages,
-            class_file: &'cfd ClassFileData,
+            class_file: &'cfd ClassFileInfo,
             conf: StackMapVerificationLogging,
             method_id: ExactMethodId,
             act_frame: &'af mut Frame,
@@ -612,7 +612,7 @@ pub fn verify_type_safe_method_stack_map(
 
 fn check_frame(
     class_names: &mut ClassNames,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     conf: &StackMapVerificationLogging,
     code: &CodeInfo,
     stack_frames: &mut StackMapFramesProcessor,
@@ -988,7 +988,7 @@ fn check_instruction<T: Instruction>(
     class_files: &mut ClassFiles,
     classes: &mut Classes,
     packages: &mut Packages,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     conf: StackMapVerificationLogging,
     method_id: ExactMethodId,
     act_frame: &mut Frame,

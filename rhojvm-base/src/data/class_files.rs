@@ -1,7 +1,7 @@
 use std::{collections::HashMap, hash::BuildHasherDefault};
 
 use crate::{
-    class::ClassFileData,
+    class::ClassFileInfo,
     id::ClassId,
     util::{self},
     StepError,
@@ -14,7 +14,7 @@ pub struct ClassFiles {
     pub loader: Box<dyn ClassFileLoader + 'static>,
     map: HashMap<
         ClassId,
-        ClassFileData,
+        ClassFileInfo,
         <util::HashWrapper as util::HashWrapperTrait<ClassId>>::HashMapHasher,
     >,
 }
@@ -44,16 +44,16 @@ impl ClassFiles {
     }
 
     #[must_use]
-    pub fn get(&self, key: &ClassId) -> Option<&ClassFileData> {
+    pub fn get(&self, key: &ClassId) -> Option<&ClassFileInfo> {
         self.map.get(key)
     }
 
     #[must_use]
-    pub fn get_mut(&mut self, key: &ClassId) -> Option<&mut ClassFileData> {
+    pub fn get_mut(&mut self, key: &ClassId) -> Option<&mut ClassFileInfo> {
         self.map.get_mut(key)
     }
 
-    pub(crate) fn set_at(&mut self, key: ClassId, val: ClassFileData) {
+    pub(crate) fn set_at(&mut self, key: ClassId, val: ClassFileInfo) {
         if self.map.insert(key, val).is_some() {
             tracing::warn!("Duplicate setting for Classes with {:?}", key);
             debug_assert!(false);
@@ -81,7 +81,7 @@ impl ClassFiles {
             .loader
             .load_class_file_by_id(class_names, class_file_id)?;
         if let Some(class_file) = class_file {
-            self.set_at(class_file_id, class_file);
+            self.set_at(class_file_id, ClassFileInfo::Data(class_file));
         }
 
         Ok(class_file_id)
@@ -103,7 +103,7 @@ impl ClassFiles {
         if let Some(class_file) = class_file {
             // If it has a class file, store it,
             // If it doesn't, whatever
-            self.set_at(class_file_id, class_file);
+            self.set_at(class_file_id, ClassFileInfo::Data(class_file));
         }
 
         Ok(())

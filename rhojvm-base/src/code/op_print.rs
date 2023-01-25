@@ -3,13 +3,13 @@ use classfile_parser::{
     constant_pool::ConstantPoolIndexRaw,
 };
 
-use crate::{class::ClassFileData, code::method::MethodDescriptor, data::class_names::ClassNames};
+use crate::{class::ClassFileInfo, code::method::MethodDescriptor, data::class_names::ClassNames};
 
 use super::op::Inst;
 
 struct FormatInst<'a, 'b> {
     class_names: &'a mut ClassNames,
-    class_file: &'b ClassFileData,
+    class_file: &'b ClassFileInfo,
 }
 impl<'a, 'b> FormatInst<'a, 'b> {
     fn single<T: TryFrom<ConstantInfo>>(
@@ -34,7 +34,7 @@ impl Inst {
     pub fn as_pretty_string(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
     ) -> String {
         let mut f = FormatInst {
             class_names,
@@ -81,7 +81,7 @@ impl Inst {
 
 fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
     class_names: &mut ClassNames,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     index: ConstantPoolIndexRaw<T>,
 ) -> String {
     let index = index.into_generic();
@@ -89,7 +89,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
         match value {
             ConstantInfo::Utf8(v) => {
                 let text = v
-                    .as_text(&class_file.class_file_data)
+                    .as_text(&class_file.class_file_data())
                     .replace('\n', "\\n")
                     .replace('\r', "\\r")
                     .replace('\t', "\\t");
@@ -232,7 +232,7 @@ fn index_as_pretty_string<T: TryFrom<ConstantInfo>>(
 
 fn method_to_string(
     class_names: &mut ClassNames,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     _index: ConstantPoolIndexRaw<ConstantInfo>,
     class_index: impl Into<Option<ConstantPoolIndexRaw<ClassConstant>>>,
     nat_index: ConstantPoolIndexRaw<NameAndTypeConstant>,

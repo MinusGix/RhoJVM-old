@@ -8,7 +8,7 @@ use classfile_parser::{
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
-    class::{ClassFileData, ClassVariant},
+    class::{ClassFileInfo, ClassVariant},
     code::{
         method::{self, Method, MethodDescriptor, MethodOverride},
         op_ex::InstructionParseError,
@@ -164,7 +164,7 @@ impl Methods {
     pub fn load_method_from_index(
         &mut self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         method_index: MethodIndex,
     ) -> Result<(), StepError> {
         let method_id = ExactMethodId::unchecked_compose(class_file.id(), method_index);
@@ -205,7 +205,7 @@ impl Methods {
     pub fn load_all_methods_from(
         &mut self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
     ) -> Result<(), LoadMethodError> {
         let class_id = class_file.id();
         let methods_opt_iter = class_file.load_method_info_opt_iter_with_index();
@@ -221,7 +221,7 @@ impl Methods {
 
 pub fn direct_load_method_from_index(
     class_names: &mut ClassNames,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     method_index: MethodIndex,
 ) -> Result<Method, StepError> {
     let method_id = ExactMethodId::unchecked_compose(class_file.id(), method_index);
@@ -235,7 +235,7 @@ pub fn direct_load_method_from_index(
 
 fn method_id_from_desc<'a>(
     class_names: &mut ClassNames,
-    class_file: &'a ClassFileData,
+    class_file: &'a ClassFileInfo,
     name: &[u8],
     desc: &MethodDescriptor,
 ) -> Result<(ExactMethodId, MethodInfoOpt), StepError> {
@@ -272,7 +272,7 @@ fn method_id_from_desc<'a>(
 
 pub fn direct_load_method_from_desc(
     class_names: &mut ClassNames,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     name: &[u8],
     desc: &MethodDescriptor,
 ) -> Result<Method, StepError> {
@@ -529,7 +529,7 @@ pub fn verify_code_exceptions(
     fn get_class(
         class_files: &ClassFiles,
         method_id: ExactMethodId,
-    ) -> Result<&ClassFileData, StepError> {
+    ) -> Result<&ClassFileInfo, StepError> {
         let (class_id, _) = method_id.decompose();
         let class_file = class_files
             .get(&class_id)

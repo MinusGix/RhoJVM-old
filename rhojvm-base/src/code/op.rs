@@ -5,7 +5,7 @@ use classfile_parser::constant_info::{
 };
 use classfile_parser::constant_pool::ConstantPoolIndexRaw;
 
-use crate::class::ClassFileData;
+use crate::class::ClassFileInfo;
 use crate::code::op_ex::InstructionParseError;
 use crate::code::types::{
     Byte, Char, ComplexType, Double, Float, HasStackInfo, Instruction, Int, LocalVariableInType,
@@ -124,7 +124,7 @@ macro_rules! define_stack_info {
             fn stack_info(
                 &self,
                 _: &mut ClassNames,
-                _: &ClassFileData,
+                _: &ClassFileInfo,
                 _: $crate::id::ExactMethodId,
                 _: StackSizes,
             ) -> Result<Self::Output, $crate::StepError> {
@@ -511,7 +511,7 @@ macro_rules! define_instructions {
 
             fn stack_info(&self,
                 class_names: &mut ClassNames,
-                class_file: &ClassFileData,
+                class_file: &ClassFileInfo,
                 method_id: $crate::id::ExactMethodId,
                 stack_sizes: StackSizes
             ) -> Result<WideStackInfosM, $crate::StepError> {
@@ -3003,7 +3003,7 @@ macro_rules! self_sinfo {
             fn stack_info(
                 &self,
                 _: &mut ClassNames,
-                _: &ClassFileData,
+                _: &ClassFileInfo,
                 _: $crate::id::ExactMethodId,
                 _: StackSizes,
             ) -> Result<Self::Output, $crate::StepError> {
@@ -3235,7 +3235,7 @@ impl HasStackInfo for Wide {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         method_id: crate::id::ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<WideStackInfosM, crate::StepError> {

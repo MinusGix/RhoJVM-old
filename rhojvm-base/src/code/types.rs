@@ -7,7 +7,7 @@ use std::{marker::PhantomData, num::NonZeroUsize};
 use classfile_parser::{constant_info::ConstantInfo, constant_pool::ConstantPoolIndexRaw};
 
 use crate::{
-    class::ClassFileData,
+    class::ClassFileInfo,
     data::class_names::ClassNames,
     id::{ClassId, ExactMethodId},
     util::{MemorySizeU16, StaticMemorySizeU16},
@@ -519,7 +519,7 @@ pub trait HasStackInfo {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError>;

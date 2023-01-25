@@ -27,7 +27,7 @@ use super::{
     op::RawOpcode,
     types::{PopIndex, PrimitiveType, Type, WithType},
 };
-use crate::class::ClassFileData;
+use crate::class::ClassFileInfo;
 use crate::code::method::MethodDescriptor;
 use crate::code::types::StackInfoError;
 use crate::data::class_names::ClassNames;
@@ -129,7 +129,7 @@ impl HasStackInfo for ANewArray {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -192,7 +192,7 @@ impl HasStackInfo for MultiANewArray {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -292,7 +292,7 @@ impl HasStackInfo for CheckCast {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -437,7 +437,7 @@ pub struct StaticMethodInfo {
 impl StaticMethodInfo {
     fn from_nat_index(
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         nat_index: ConstantPoolIndexRaw<NameAndTypeConstant>,
     ) -> Result<StaticMethodInfo, StepError> {
         let nat = class_file
@@ -499,7 +499,7 @@ pub struct RefMethodInfo {
 impl RefMethodInfo {
     fn from_nat_index(
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         rec_class_id: Option<ClassId>,
         nat_index: ConstantPoolIndexRaw<NameAndTypeConstant>,
     ) -> Result<RefMethodInfo, StepError> {
@@ -564,7 +564,7 @@ impl HasStackInfo for InvokeSpecial {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -610,7 +610,7 @@ impl HasStackInfo for InvokeInterface {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -642,7 +642,7 @@ impl HasStackInfo for InvokeDynamic {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -669,7 +669,7 @@ impl HasStackInfo for InvokeStatic {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -694,7 +694,7 @@ impl HasStackInfo for InvokeVirtual {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -777,7 +777,7 @@ impl HasStackInfo for GetField {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -817,7 +817,7 @@ impl HasStackInfo for PutStaticField {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -861,7 +861,7 @@ impl HasStackInfo for PutField {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -878,7 +878,7 @@ impl HasStackInfo for PutField {
 
 fn get_field_type(
     class_names: &mut ClassNames,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     index: ConstantPoolIndexRaw<FieldRefConstant>,
 ) -> Result<DescriptorType, StepError> {
     let field = class_file
@@ -947,7 +947,7 @@ impl HasStackInfo for GetStatic {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _method_id: ExactMethodId,
         _stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -991,7 +991,7 @@ empty_locals_in!(LoadConstantInfo);
 empty_locals_out!(LoadConstantInfo);
 fn load_constant_info(
     class_names: &mut ClassNames,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     index: ConstantPoolIndexRaw<ConstantInfo>,
 ) -> Result<Type, StepError> {
     let value = class_file
@@ -1025,7 +1025,7 @@ impl HasStackInfo for LoadConstant {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1039,7 +1039,7 @@ impl HasStackInfo for LoadConstantWide {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1082,7 +1082,7 @@ impl HasStackInfo for LoadConstant2Wide {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1140,7 +1140,7 @@ impl HasStackInfo for New {
     fn stack_info(
         &self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         _: ExactMethodId,
         _: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1204,7 +1204,7 @@ impl HasStackInfo for Pop2 {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        _: &ClassFileData,
+        _: &ClassFileInfo,
         _method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1276,7 +1276,7 @@ impl HasStackInfo for Dup2 {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        _: &ClassFileData,
+        _: &ClassFileInfo,
         _method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1349,7 +1349,7 @@ impl HasStackInfo for DupX2 {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        _: &ClassFileData,
+        _: &ClassFileInfo,
         _method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1436,7 +1436,7 @@ impl HasStackInfo for Dup2X1 {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        _: &ClassFileData,
+        _: &ClassFileInfo,
         _method_id: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {
@@ -1552,7 +1552,7 @@ impl HasStackInfo for Dup2X2 {
     fn stack_info(
         &self,
         _: &mut ClassNames,
-        _: &ClassFileData,
+        _: &ClassFileInfo,
         _: ExactMethodId,
         stack_sizes: StackSizes,
     ) -> Result<Self::Output, StepError> {

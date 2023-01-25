@@ -9,7 +9,7 @@ use classfile_parser::{
 };
 use smallvec::SmallVec;
 
-use crate::{class::ClassFileData, data::class_names::ClassNames, id::ClassId, BadIdError};
+use crate::{class::ClassFileInfo, data::class_names::ClassNames, id::ClassId, BadIdError};
 
 use super::{
     method::{DescriptorType, DescriptorTypeBasic, Method},
@@ -96,7 +96,7 @@ impl StackMapType {
     fn from_verif_type_info(
         v: VerificationTypeInfo,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
     ) -> Option<StackMapType> {
         Some(match v {
             VerificationTypeInfo::Integer => StackMapType::Integer,
@@ -161,7 +161,7 @@ pub struct StackMapFramesProcessor {
 impl StackMapFramesProcessor {
     pub fn new<'a>(
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         method: &'a Method,
         method_code: &'a CodeInfo,
     ) -> Result<StackMapFramesProcessor, StackMapError> {
@@ -324,7 +324,7 @@ impl StackMapFramesProcessor {
     pub fn next_frame(
         &mut self,
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
     ) -> Result<Option<&StackMapFrame>, StackMapError> {
         let (self_table_index, next_frame) = if let Some(index) = self.next_table_index {
             if let Some(frame) = self.table.entries.get(index) {
@@ -496,7 +496,7 @@ impl StackMapFramesProcessor {
 /// Should only be used for Locals, since that is where we expand.
 fn append_frame_verif_to_locals<const N: usize>(
     class_names: &mut ClassNames,
-    class_file: &ClassFileData,
+    class_file: &ClassFileInfo,
     data: &mut SmallVec<[StackMapType; N]>,
     verif: &[VerificationTypeInfo],
 ) -> Result<(), StackMapError> {

@@ -1,10 +1,10 @@
+use rhojvm_base::class::ClassFileInfo;
 use rhojvm_base::code::types::{LocalVariableType, PopComplexType};
 
 use rhojvm_base::data::class_files::ClassFiles;
 use rhojvm_base::data::class_names::ClassNames;
 use rhojvm_base::data::classes::Classes;
 use rhojvm_base::{
-    class::ClassFileData,
     code::{
         op::Inst,
         stack_map::StackMapType,
@@ -164,7 +164,7 @@ impl FrameType {
 
     pub(crate) fn from_stack_map_types<const N: usize>(
         class_names: &mut ClassNames,
-        class_file: &ClassFileData,
+        class_file: &ClassFileInfo,
         code: &CodeInfo,
         types: &[StackMapType],
         result: &mut SmallVec<[FrameType; N]>,

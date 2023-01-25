@@ -14,4 +14,5 @@ tracing = { version = "0.1", default-features = false }
 # TODO: Don't use our fork of the library
 #   We are currently using our fork because the version on crates.io seems to be a bit out of date
 # For loading jar files
-zip = { git = "https://github.com/MinusGix/zip" }
+# zip = { git = "https://github.com/MinusGix/zip" }
+zip = "0.6.3"
