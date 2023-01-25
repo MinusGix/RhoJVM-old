@@ -254,5 +254,5 @@ public final class Unsafe {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-
+    public native Class<?> defineAnonymousClass(Class<?> baseClass, byte[] data, Object[] patches);
 }

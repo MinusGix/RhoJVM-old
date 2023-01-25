@@ -506,6 +506,24 @@ pub struct AnonBasedClassFileData {
     shadow_text: IndexMap<ConstantPoolIndex<Utf8Constant>, Rc<[u8]>>,
 }
 impl AnonBasedClassFileData {
+    pub fn new(
+        id: ClassId,
+        based_class: ClassId,
+        class_file_data: Rc<[u8]>,
+        class_file: ClassFileOpt,
+        patches: MapConstantPool,
+        shadow_text: IndexMap<ConstantPoolIndex<Utf8Constant>, Rc<[u8]>>,
+    ) -> AnonBasedClassFileData {
+        AnonBasedClassFileData {
+            id,
+            based_class,
+            class_file_data,
+            const_pool: ShadowConstantPool::new(patches, class_file.const_pool.clone()),
+            class_file,
+            shadow_text,
+        }
+    }
+
     #[must_use]
     pub fn id(&self) -> ClassId {
         self.id

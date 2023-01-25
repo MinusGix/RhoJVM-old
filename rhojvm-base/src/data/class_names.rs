@@ -232,9 +232,18 @@ impl<'a, I: Iterator<Item = &'a [u8]> + Clone> Equivalent<RawClassName>
 #[derive(Debug, Clone)]
 pub struct ClassNameInfo {
     kind: Option<InternalKind>,
+    anonymous: bool,
     id: ClassId,
 }
 impl ClassNameInfo {
+    fn new_kind(kind: Option<InternalKind>, id: ClassId) -> Self {
+        ClassNameInfo {
+            kind,
+            anonymous: false,
+            id,
+        }
+    }
+
     #[must_use]
     pub fn has_class_file(&self) -> bool {
         if let Some(kind) = &self.kind {
@@ -247,6 +256,11 @@ impl ClassNameInfo {
     #[must_use]
     pub fn is_array(&self) -> bool {
         matches!(self.kind, Some(InternalKind::Array))
+    }
+
+    #[must_use]
+    pub fn is_anonymous(&self) -> bool {
+        self.anonymous
     }
 }
 
@@ -276,6 +290,19 @@ impl ClassNames {
         // Based on https://en.cppreference.com/w/cpp/atomic/memory_order in the Relaxed ordering
         // section, Relaxed ordering should work good for a counter that is only incrementing.
         ClassId::new_unchecked(self.next_id.fetch_add(1, atomic::Ordering::Relaxed))
+    }
+
+    pub fn init_new_id(&mut self, anonymous: bool) -> ClassId {
+        let id = self.get_new_id();
+        self.names.insert(
+            RawClassName(Vec::new()),
+            ClassNameInfo {
+                kind: None,
+                anonymous,
+                id,
+            },
+        );
+        id
     }
 
     /// Get the id of `b"java/lang/Object"`. Cached.
@@ -315,7 +342,7 @@ impl ClassNames {
 
         let id = self.get_new_id();
         self.names
-            .insert(class_path.to_owned(), ClassNameInfo { kind, id });
+            .insert(class_path.to_owned(), ClassNameInfo::new_kind(kind, id));
         id
     }
 
@@ -331,7 +358,8 @@ impl ClassNames {
         }
 
         let id = self.get_new_id();
-        self.names.insert(class_path, ClassNameInfo { kind, id });
+        self.names
+            .insert(class_path, ClassNameInfo::new_kind(kind, id));
         id
     }
 
@@ -346,7 +374,7 @@ impl ClassNames {
         let id = self.get_new_id();
         self.names.insert(
             RawClassName(class_path.into_owned()),
-            ClassNameInfo { kind, id },
+            ClassNameInfo::new_kind(kind, id),
         );
         id
     }
@@ -363,8 +391,10 @@ impl ClassNames {
         }
 
         let id = self.get_new_id();
-        self.names
-            .insert(class_path.into_raw_class_name(), ClassNameInfo { kind, id });
+        self.names.insert(
+            class_path.into_raw_class_name(),
+            ClassNameInfo::new_kind(kind, id),
+        );
         id
     }
 
@@ -381,11 +411,7 @@ impl ClassNames {
         let class_path = class_path.into_raw_class_name();
         self.names.insert(
             class_path,
-            ClassNameInfo {
-                // We already know it is an array
-                kind: Some(InternalKind::Array),
-                id,
-            },
+            ClassNameInfo::new_kind(Some(InternalKind::Array), id),
         );
 
         id
@@ -409,10 +435,7 @@ impl ClassNames {
         let class_path = class_path.into_raw_class_name();
         self.names.insert(
             class_path,
-            ClassNameInfo {
-                kind: Some(InternalKind::Array),
-                id,
-            },
+            ClassNameInfo::new_kind(Some(InternalKind::Array), id),
         );
 
         id
@@ -456,10 +479,7 @@ impl ClassNames {
         let id = self.get_new_id();
         self.names.insert(
             class_path,
-            ClassNameInfo {
-                kind: Some(InternalKind::Array),
-                id,
-            },
+            ClassNameInfo::new_kind(Some(InternalKind::Array), id),
         );
 
         Ok(id)
@@ -484,10 +504,7 @@ impl ClassNames {
         let id = self.get_new_id();
         self.names.insert(
             class_path,
-            ClassNameInfo {
-                kind: Some(InternalKind::Array),
-                id,
-            },
+            ClassNameInfo::new_kind(Some(InternalKind::Array), id),
         );
 
         Ok(id)
@@ -514,7 +531,8 @@ impl ClassNames {
             TrustedClassNameInsert::Id(id) => id,
             TrustedClassNameInsert::Data { class_name, kind } => {
                 let id = self.get_new_id();
-                self.names.insert(class_name, ClassNameInfo { kind, id });
+                self.names
+                    .insert(class_name, ClassNameInfo::new_kind(kind, id));
                 id
             }
         }

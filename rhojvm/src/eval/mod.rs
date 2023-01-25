@@ -784,7 +784,14 @@ pub fn eval_method(
                 ) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JLong, param3: JObject));
                 }
-                _ => todo!("Fully implement three parameter native methods"),
+                (
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Array { .. },
+                    DescriptorType::Array { .. },
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JObject, param3: JObject));
+                }
+                _ => todo!("Fully implement three parameter native methods: {first:?}, {second:?}, {third:?}"),
             }
         } else if param_count == 4 {
             let first = method.descriptor().parameters()[0];

@@ -243,6 +243,10 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_sun_misc_Unsafe_getAndAddInt" => {
                 into_opaque5ret(unsafe_::unsafe_get_and_add_int)
             }
+            // Unsafe class
+            b"Java_sun_misc_Unsafe_defineAnonymousClass" => {
+                into_opaque5ret(unsafe_::unsafe_define_anon_class)
+            }
 
             // sun/reflect/Reflection
             b"Java_sun_reflect_Reflection_getCallerClass" => {

@@ -1,11 +1,23 @@
-use rhojvm_base::id::ClassId;
+use std::rc::Rc;
+
+use classfile_parser::{class_parser_opt, parser::ParseData};
+use indexmap::IndexMap;
+use rhojvm_base::{
+    class::{AnonBasedClassFileData, ClassFileInfo},
+    constant_pool::MapConstantPool,
+    data::class_file_loader::LoadClassFileError,
+    id::ClassId,
+};
 
 use crate::{
-    class_instance::{ClassInstance, FieldIndex, Instance, ReferenceInstance},
+    class_instance::{
+        ClassInstance, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceArrayInstance,
+        ReferenceInstance, StaticFormInstance,
+    },
     jni::{JByte, JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JShort},
     memblock::MemoryBlockPtr,
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::Env,
+    util::{make_class_form_of, Env},
 };
 
 pub(crate) type JAddress = JLong;
@@ -579,4 +591,82 @@ pub(crate) extern "C" fn unsafe_get_and_add_int(
     } else {
         panic!();
     }
+}
+
+pub(crate) extern "C" fn unsafe_define_anon_class(
+    env: *mut Env<'_>,
+    _this: JObject,
+    base_class: JObject,
+    data: JObject,
+    patches: JObject,
+) -> JObject {
+    assert!(!env.is_null(), "Env was null when passed to sun/misc/Unsafe defineAnonymousClass, which is indicative of an internal bug.");
+    let env = unsafe { &mut *env };
+
+    let base_class = unsafe { env.get_jobject_as_gcref(base_class) };
+    let data = unsafe { env.get_jobject_as_gcref(data) };
+    let patches = unsafe { env.get_jobject_as_gcref(patches) };
+
+    let base_class = base_class.unwrap();
+    let Some(base_class) = env.state.gc.checked_as(base_class) else {
+        panic!("Base class is not a class");
+    };
+    let base_class: &StaticFormInstance = env.state.gc.deref(base_class).unwrap();
+    let base_class_of = base_class.of;
+    let base_class_of = base_class_of.into_reference().unwrap();
+
+    let data = data.unwrap();
+    let Some(data) = env.state.gc.checked_as(data) else {
+        panic!("Data is not a byte array");
+    };
+    let data: &PrimitiveArrayInstance = env.state.gc.deref(data).unwrap();
+    let data = data
+        .elements
+        .iter()
+        .map(|x| x.into_byte().unwrap())
+        .map(|x| u8::from_be_bytes(i8::to_be_bytes(x)))
+        .collect::<Vec<u8>>();
+    let data: Rc<[u8]> = Rc::from(data);
+
+    let patches = if let Some(patches) = patches {
+        let Some(patches) = env.state.gc.checked_as(patches) else {
+            panic!("Patches is not a byte array");
+        };
+
+        // TODO: Support constant pool patches
+        let patches: &ReferenceArrayInstance = env.state.gc.deref(patches).unwrap();
+        assert!(
+            patches.elements.is_empty(),
+            "Patches is not empty. Not implemented yet."
+        );
+
+        MapConstantPool::default()
+    } else {
+        MapConstantPool::default()
+    };
+
+    let new_class_id = env.class_names.init_new_id(true);
+    let shadow_text = IndexMap::default();
+    let opt = {
+        let (rem_data, class_file) = class_parser_opt(ParseData::new(&data))
+            .map_err(|x| format!("{:?}", x))
+            .map_err(LoadClassFileError::ClassFileParseError)
+            .unwrap();
+        debug_assert!(rem_data.is_empty());
+
+        class_file
+    };
+    let class_file =
+        AnonBasedClassFileData::new(new_class_id, base_class_of, data, opt, patches, shadow_text);
+
+    env.class_files
+        .set_at_unchecked(new_class_id, ClassFileInfo::AnonBased(class_file));
+
+    let unsafe_id = env.class_names.gcid_from_bytes(b"sun/misc/Unsafe");
+    let static_form = make_class_form_of(env, unsafe_id, new_class_id).unwrap();
+    let Some(static_form) = env.state.extract_value(static_form) else {
+        return JObject::null();
+    };
+
+    unsafe { env.get_local_jobject_for(static_form.into_generic()) }
 }

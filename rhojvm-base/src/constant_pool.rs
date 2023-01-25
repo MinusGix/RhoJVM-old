@@ -34,7 +34,7 @@ impl ConstantInfoPool for ConstantPool {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MapConstantPool {
     pool: IndexMap<usize, ConstantInfo>,
 }
@@ -49,6 +49,11 @@ impl ConstantInfoPool for MapConstantPool {
 pub struct ShadowConstantPool<A: ConstantInfoPool, B: ConstantInfoPool> {
     a: A,
     b: B,
+}
+impl<A: ConstantInfoPool, B: ConstantInfoPool> ShadowConstantPool<A, B> {
+    pub fn new(a: A, b: B) -> Self {
+        Self { a, b }
+    }
 }
 impl<A: ConstantInfoPool, B: ConstantInfoPool> ConstantInfoPool for ShadowConstantPool<A, B> {
     fn get<T>(&self, i: impl TryInto<ConstantPoolIndex<T>>) -> Option<&ConstantInfo> {

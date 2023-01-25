@@ -1105,14 +1105,22 @@ fn resolve_class_interface(
         }
     }
 
-    if !can_access_class_from_class(
-        class_names,
-        class_files,
-        classes,
-        packages,
-        class_id,
-        origin_class_id,
-    )? {
+    // TODO: Currently we treat anonymous classes as accessible from everywhere, but that isn't
+    // really accurate!
+    let is_anon = class_names
+        .name_from_gcid(class_id)
+        .map(|(_, info)| info.is_anonymous())
+        .map_err(StepError::BadId)?;
+    if !is_anon
+        && !can_access_class_from_class(
+            class_names,
+            class_files,
+            classes,
+            packages,
+            class_id,
+            origin_class_id,
+        )?
+    {
         return Err(ResolveError::InaccessibleClass {
             from: origin_class_id,
             target: class_id,

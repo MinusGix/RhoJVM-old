@@ -53,6 +53,13 @@ impl ClassFiles {
         self.map.get_mut(key)
     }
 
+    pub fn set_at_unchecked(&mut self, key: ClassId, val: ClassFileInfo) {
+        if self.map.insert(key, val).is_some() {
+            tracing::warn!("Duplicate setting for Classes with {:?}", key);
+            debug_assert!(false);
+        }
+    }
+
     pub(crate) fn set_at(&mut self, key: ClassId, val: ClassFileInfo) {
         if self.map.insert(key, val).is_some() {
             tracing::warn!("Duplicate setting for Classes with {:?}", key);

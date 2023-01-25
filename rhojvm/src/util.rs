@@ -616,7 +616,7 @@ pub(crate) fn make_class_form_of(
     //     ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
     // };
 
-    let mut class_info = env.state.classes_info.get_mut_init(of_class_id);
+    let class_info = env.state.classes_info.get_mut_init(of_class_id);
     // If it already exists, then return it, so that we don't recreate instances of Class<T>
     // because they should be the same instance.
     // We could have some trickery with equals to make them equivalent, but caching it is also
