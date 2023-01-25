@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use classfile_parser::{
     constant_info::ConstantInfo,
     descriptor::DescriptorType as DescriptorTypeCF,
@@ -7,12 +9,17 @@ use classfile_parser::{
 use rhojvm_base::{
     class::ArrayClass,
     code::{
-        method::DescriptorType,
+        method::{DescriptorType, DescriptorTypeBasic},
         op::{ANewArray, CheckCast, InstanceOf, MultiANewArray, New, NewArray},
         types::JavaChar,
     },
-    data::classes::load_super_classes_iter,
+    data::{
+        class_files::ClassFiles,
+        class_names::ClassNames,
+        classes::{load_super_classes_iter, Classes},
+    },
     id::ClassId,
+    package::Packages,
     StepError,
 };
 use smallvec::SmallVec;
@@ -25,7 +32,7 @@ use crate::{
     },
     eval::EvalError,
     exc_value,
-    gc::GcRef,
+    gc::{Gc, GcRef},
     initialize_class, resolve_derive,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{self, Env},
@@ -354,9 +361,183 @@ impl RunInstContinue for ANewArray {
     }
 }
 
+fn make_array_desc_type_basic(
+    classes: &mut Classes,
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    packages: &mut Packages,
+    gc: &mut Gc,
+    count: u32,
+    arr_elem: DescriptorType,
+) -> Result<GcRef<ReferenceInstance>, GeneralError> {
+    let count = count.into_usize();
+
+    let array_id = classes.load_level_array_of_desc_type(
+        class_names,
+        class_files,
+        packages,
+        NonZeroUsize::new(1).unwrap(),
+        arr_elem,
+    )?;
+
+    match arr_elem {
+        DescriptorType::Basic(b) => {
+            if let DescriptorTypeBasic::Class(class_id) = b {
+                let elements = vec![None; count];
+                let arr = ReferenceArrayInstance::new(array_id, class_id, elements);
+                let arr_ref = gc.alloc(arr);
+                Ok(gc.checked_as(arr_ref).unwrap())
+            } else {
+                let element_type = RuntimeTypePrimitive::from_desc_type_basic(b).unwrap();
+                let elements = vec![element_type.default_value(); count];
+                let arr = PrimitiveArrayInstance::new(array_id, element_type, elements);
+                let arr_ref = gc.alloc(arr);
+                Ok(gc.checked_as(arr_ref).unwrap())
+            }
+        }
+        DescriptorType::Array { level, component } => {
+            let class_id = classes.load_level_array_of_desc_type_basic(
+                class_names,
+                class_files,
+                packages,
+                level,
+                component,
+            )?;
+            let elements = vec![None; count];
+            let arr = ReferenceArrayInstance::new(array_id, class_id, elements);
+            let arr_ref = gc.alloc(arr);
+            Ok(gc.checked_as(arr_ref).unwrap())
+        }
+    }
+}
+
 impl RunInstContinue for MultiANewArray {
-    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
-        todo!()
+    fn run(
+        self,
+        RunInstArgsC {
+            env,
+            method_id,
+            frame,
+            ..
+        }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
+        let (class_id, _) = method_id.decompose();
+
+        // Dimension is the level of the array, 1 being a 1-dimensional array and 2 being a
+        // 2-dimensional array.
+        let dimension = self.dimensions;
+
+        // The sizes for the individual arrays are on the stack
+        // A smallvec due to the number of dimensions likely being quite small.
+        let mut sizes: SmallVec<[u32; 4]> = SmallVec::new();
+
+        for _ in 0..dimension {
+            let size = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+            let size = size
+                .into_int()
+                .ok_or(EvalError::ExpectedStackValueIntRepr)?;
+
+            let Ok(size) = size.try_into() else {
+                todo!("Return NegativeArraySizeException")
+            };
+
+            sizes.push(size);
+        }
+
+        let class_file = env
+            .class_files
+            .get(&class_id)
+            .ok_or(EvalError::MissingMethodClassFile(class_id))?;
+
+        let arr_class = class_file.getr(self.index)?;
+        // TODO: use smallvec here?
+        let arr_class_name = class_file.getr_text_b(arr_class.name_index)?.to_vec();
+        let arr_class_id = env.class_names.gcid_from_bytes(&arr_class_name);
+
+        resolve_derive(
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
+            arr_class_id,
+            class_id,
+        )?;
+
+        // TODO: Should I do something with the status?
+        let _status = initialize_class(env, arr_class_id)?;
+
+        // TODO: This is more expensive than it needs to be. It creates a bunch of vectors and
+        // iterates over them.
+        let mut root_array: Option<GcRef<ReferenceInstance>> = None;
+        let mut prev_arrays: Option<Vec<GcRef<ReferenceInstance>>> = None;
+        for (i, size) in sizes.into_iter().enumerate() {
+            if size == 0 {
+                break;
+            }
+
+            let arr_elem = {
+                let mut name = arr_class_name.as_slice();
+                for _ in 0..(i + 1) {
+                    name = name.strip_prefix(&[b'[']).unwrap();
+                }
+
+                let (name, _) = DescriptorTypeCF::parse(name).unwrap();
+                DescriptorType::from_class_file_desc(&mut env.class_names, name)
+            };
+
+            if let Some(prev_arrays_ref) = &prev_arrays {
+                let mut new_prev_arrays = Vec::new();
+                for prev_array_ref in prev_arrays_ref.iter().copied() {
+                    let Some(ReferenceInstance::ReferenceArray(prev_array)) = env.state.gc.deref(prev_array_ref) else { unreachable!() };
+                    let prev_array_size = prev_array.elements.len();
+
+                    let elements = std::iter::repeat(())
+                        .take(prev_array_size)
+                        .map(|_| {
+                            make_array_desc_type_basic(
+                                &mut env.classes,
+                                &mut env.class_names,
+                                &mut env.class_files,
+                                &mut env.packages,
+                                &mut env.state.gc,
+                                size,
+                                arr_elem,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    new_prev_arrays.extend(elements.iter().copied());
+
+                    let Some(ReferenceInstance::ReferenceArray(prev_array)) = env.state.gc.deref_mut(prev_array_ref) else { unreachable!() };
+                    prev_array.elements = elements.into_iter().map(Some).collect();
+                }
+
+                prev_arrays = Some(new_prev_arrays);
+            } else {
+                let re = make_array_desc_type_basic(
+                    &mut env.classes,
+                    &mut env.class_names,
+                    &mut env.class_files,
+                    &mut env.packages,
+                    &mut env.state.gc,
+                    size,
+                    arr_elem,
+                )?;
+                root_array = Some(re);
+                prev_arrays = Some(vec![re]);
+            }
+        }
+
+        // TODO: root_array could be None if the size is 0?
+        let root_array = root_array.unwrap();
+
+        frame
+            .stack
+            .push(RuntimeValue::Reference(root_array.into_generic()))?;
+
+        Ok(RunInstContinueValue::Continue)
     }
 }
 

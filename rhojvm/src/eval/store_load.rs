@@ -268,6 +268,11 @@ fn convert_field_type_store(
             if is_castable {
                 RuntimeValue::Reference(src_ref)
             } else {
+                tracing::warn!(
+                    "Failed to cast {:?} to {:?}",
+                    class_names.tpath(src.instanceof()),
+                    class_names.tpath(id)
+                );
                 todo!("Type was not castable")
             }
         }

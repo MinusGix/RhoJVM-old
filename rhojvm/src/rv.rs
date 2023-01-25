@@ -514,6 +514,22 @@ impl RuntimeTypePrimitive {
         }
     }
 
+    /// Converts descriptor type basic into a runtime type (primitive). Returns `None` if it is a
+    /// class.
+    pub fn from_desc_type_basic(desc_type: DescriptorTypeBasic) -> Option<RuntimeTypePrimitive> {
+        Some(match desc_type {
+            DescriptorTypeBasic::Byte => RuntimeTypePrimitive::I8,
+            DescriptorTypeBasic::Boolean => RuntimeTypePrimitive::Bool,
+            DescriptorTypeBasic::Short => RuntimeTypePrimitive::I16,
+            DescriptorTypeBasic::Int => RuntimeTypePrimitive::I32,
+            DescriptorTypeBasic::Long => RuntimeTypePrimitive::I64,
+            DescriptorTypeBasic::Float => RuntimeTypePrimitive::F32,
+            DescriptorTypeBasic::Double => RuntimeTypePrimitive::F64,
+            DescriptorTypeBasic::Char => RuntimeTypePrimitive::Char,
+            DescriptorTypeBasic::Class(_) => return None,
+        })
+    }
+
     #[must_use]
     pub fn is_long(&self) -> bool {
         matches!(self, RuntimeTypePrimitive::I64)
