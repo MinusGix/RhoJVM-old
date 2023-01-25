@@ -254,6 +254,36 @@ impl Classes {
         Ok(array_id)
     }
 
+    /// Load an array of the given descriptor type
+    pub fn load_level_array_of_desc_type(
+        &mut self,
+        class_names: &mut ClassNames,
+        class_files: &mut ClassFiles,
+        packages: &mut Packages,
+        level: NonZeroUsize,
+        component: DescriptorType,
+    ) -> Result<ClassId, StepError> {
+        match component {
+            DescriptorType::Basic(b) => self.load_level_array_of_desc_type_basic(
+                class_names,
+                class_files,
+                packages,
+                level,
+                b,
+            ),
+            DescriptorType::Array { level, component } => {
+                let component_id = self.load_level_array_of_desc_type_basic(
+                    class_names,
+                    class_files,
+                    packages,
+                    level,
+                    component,
+                )?;
+                self.load_array_of_instances(class_names, class_files, packages, component_id)
+            }
+        }
+    }
+
     pub fn load_level_array_of_desc_type_basic(
         &mut self,
         class_names: &mut ClassNames,
