@@ -875,6 +875,89 @@ pub(crate) fn construct_byte_array_input_stream(
     Ok(ValueException::Value(bai_ref))
 }
 
+pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
+    let Some(re) = re else {
+        return "<Null>".to_string()
+    };
+
+    let Some(inst) = env.state.gc.deref(re) else {
+        return "<Bad GCRef>".to_string()
+    };
+
+    match inst {
+        Instance::StaticClass(stat) => {
+            let id = stat.id;
+            let name = env.class_names.tpath(id);
+            format!("StaticClass({})", name)
+        }
+        Instance::Reference(re) => match re {
+            ReferenceInstance::Class(class) => {
+                let id = class.instanceof;
+                let name = env.class_names.tpath(id);
+                format!("Class({})", name)
+            }
+            ReferenceInstance::StaticForm(form) => {
+                let t = match form.of {
+                    RuntimeTypeVoid::Primitive(p) => format!("Primitive({:?})", p),
+                    RuntimeTypeVoid::Void => "Void".to_string(),
+                    RuntimeTypeVoid::Reference(id) => {
+                        let name = env.class_names.tpath(id);
+                        format!("{}", name)
+                    }
+                };
+
+                format!("Class<{}>", t)
+            }
+            ReferenceInstance::Thread(_t) => "Thread".to_string(),
+            ReferenceInstance::MethodHandle(_handle) => {
+                // TODO: include information about the method handle
+                "MethodHandle".to_string()
+            }
+            ReferenceInstance::MethodHandleInfo(_info) => "MethodHandleInfo".to_string(),
+            ReferenceInstance::PrimitiveArray(arr) => {
+                let t = match arr.element_type {
+                    RuntimeTypePrimitive::I8 => "I8",
+                    RuntimeTypePrimitive::I16 => "I16",
+                    RuntimeTypePrimitive::I32 => "I32",
+                    RuntimeTypePrimitive::I64 => "I64",
+                    RuntimeTypePrimitive::F32 => "F32",
+                    RuntimeTypePrimitive::F64 => "F64",
+                    RuntimeTypePrimitive::Bool => "Bool",
+                    RuntimeTypePrimitive::Char => "Char",
+                };
+
+                let mut res = format!("PrimitiveArray<{}>[", t);
+                for (i, x) in arr.elements.iter().enumerate() {
+                    res.push_str(&format!("{:?}", x));
+
+                    if i != arr.elements.len() - 1 {
+                        res.push_str(", ");
+                    }
+                }
+
+                res.push(']');
+                res
+            }
+            ReferenceInstance::ReferenceArray(arr) => {
+                let id = arr.element_type;
+                let t = env.class_names.tpath(id);
+
+                let mut res = format!("ReferenceArray<{}>[", t);
+                for (i, x) in arr.elements.iter().enumerate() {
+                    res.push_str(&format!("{:?}", x));
+
+                    if i != arr.elements.len() - 1 {
+                        res.push_str(", ");
+                    }
+                }
+
+                res.push(']');
+                res
+            }
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::util::get_disjoint2_mut;

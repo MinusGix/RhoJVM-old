@@ -6,6 +6,7 @@ use crate::{
 };
 
 mod class;
+mod constructor;
 pub mod field;
 pub mod method_handle;
 pub mod method_handle_info;
@@ -145,6 +146,10 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             // reflect/Array
             b"Java_java_lang_reflect_Array_newInstanceArray" => {
                 into_opaque4ret(reflect_array::array_new_instance)
+            }
+            // reflect/Constructor
+            b"Java_java_lang_reflect_Constructor_newInstance" => {
+                into_opaque3ret(constructor::constructor_new_instance)
             }
             // rho/invoke/MethodHandle
             b"Java_rho_invoke_MethodHandle_invoke" => {

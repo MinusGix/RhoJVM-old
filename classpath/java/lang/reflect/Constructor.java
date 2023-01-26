@@ -6,16 +6,14 @@ import java.lang.reflect.Type;
 
 public final class Constructor<T> extends Executable {
     private Class<T> clazz;
-    private short method_index;
+    private short methodIndex;
 
-    Constructor(Class<T> clazz, short method_index) {
+    Constructor(Class<T> clazz, short methodIndex) {
         this.clazz = clazz;
-        this.method_index = method_index;
+        this.methodIndex = methodIndex;
     }
 
-    public T newInstance(Object... args) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native T newInstance(Object... args);
 
     @Override
     public Class<T> getDeclaringClass() {
