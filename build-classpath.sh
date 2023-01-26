@@ -33,7 +33,7 @@ JFILES="$JFILES ./sun/reflect/Reflection.java"
 JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/InternalField.java"
 
 # rho/invoke
-JFILES="$JFILES ./rho/invoke/MethodHandleInst.java ./rho/invoke/MethodHandleInfoInst.java"
+JFILES="$JFILES ./rho/invoke/MethodHandleInst.java ./rho/invoke/MethodHandleInfoInst.java ./rho/invoke/ConstantMethodHandle.java"
 
 # rho/util/
 JFILES="$JFILES ./rho/util/EmptyEnumeration.java ./rho/util/SingleEnumeration.java"
