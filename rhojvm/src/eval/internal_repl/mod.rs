@@ -126,6 +126,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_Class_getDeclaredField" => {
                 into_opaque3ret(class::class_get_declared_field)
             }
+            b"Java_java_lang_Class_getDeclaredConstructors" => {
+                into_opaque2ret(class::class_get_declared_constructors)
+            }
             b"Java_java_lang_Class_newInstance" => into_opaque2ret(class::class_new_instance),
             b"Java_java_lang_Class_isPrimitive" => into_opaque2ret(class::class_is_primitive),
             b"Java_java_lang_Class_isArray" => into_opaque2ret(class::class_is_array),

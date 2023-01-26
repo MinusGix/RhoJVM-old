@@ -119,7 +119,7 @@ impl Method {
     }
 
     #[must_use]
-    /// Whether or not it is an <init> function
+    /// Whether or not it is an `<init>` function
     pub fn is_init(&self) -> bool {
         self.is_init
     }

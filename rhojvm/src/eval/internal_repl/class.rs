@@ -1,18 +1,21 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, num::NonZeroUsize};
 
 use classfile_parser::ClassAccessFlags;
 use rhojvm_base::{
     class::{ArrayComponentType, ClassVariant},
     code::{
-        method::{DescriptorTypeBasic, MethodDescriptor},
+        method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         types::JavaChar,
     },
     id::ClassId,
     util::convert_classfile_text,
 };
+use smallvec::smallvec;
 
 use crate::{
-    class_instance::{ClassInstance, Instance, ReferenceInstance},
+    class_instance::{
+        ClassInstance, Instance, ReferenceArrayInstance, ReferenceInstance, StaticFormInstance,
+    },
     eval::{
         eval_method,
         instances::{make_instance_fields, try_casting, CastResult},
@@ -398,6 +401,164 @@ pub(crate) extern "C" fn class_get_declared_field(
     };
 
     unsafe { env.get_local_jobject_for(field_ref.into_generic()) }
+}
+
+/// `() -> Constructor<?>[]`
+pub(crate) extern "C" fn class_get_declared_constructors(
+    env: *mut Env<'_>,
+    this: JObject,
+) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("Class get declared constructors's this ref was null");
+    let this = this.unchecked_as::<StaticFormInstance>();
+    let Some(this) = env.state.gc.deref(this) else {
+        unreachable!();
+    };
+
+    let constructor_id = env
+        .class_names
+        .gcid_from_bytes(b"java/lang/reflect/Constructor");
+    let constructor_arr_id = env
+        .class_names
+        .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), constructor_id)
+        .unwrap();
+
+    // If this is a primitive, void, array, or interface, then it has no constructors.
+    let is_fundamentally_empty = match this.of {
+        RuntimeTypeVoid::Primitive(_) => true,
+        RuntimeTypeVoid::Void => true,
+        RuntimeTypeVoid::Reference(id) => {
+            if env.class_names.is_array(id).unwrap() {
+                true
+            } else {
+                let this_class = env.classes.get(&id).unwrap();
+                this_class.is_interface()
+            }
+        }
+    };
+
+    if is_fundamentally_empty {
+        // TODO: Should we have a special empty array instance that works for all types?
+        // (or one for primitives, and one for references?)
+        let empty_array = env.state.gc.alloc(ReferenceArrayInstance::new(
+            constructor_arr_id,
+            constructor_id,
+            Vec::new(),
+        ));
+
+        return unsafe { env.get_local_jobject_for(empty_array.into_generic()) };
+    }
+
+    let RuntimeTypeVoid::Reference(this_of_id) = this.of else {
+        unreachable!();
+    };
+
+    let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+
+    // Get the method id for the Constructor constructor
+    let constructor_init_id = {
+        let constructor_desc = MethodDescriptor::new(
+            smallvec![
+                // Class that the constructor is on
+                DescriptorType::Basic(DescriptorTypeBasic::Class(class_class_id)),
+                // Method index
+                DescriptorType::Basic(DescriptorTypeBasic::Short),
+            ],
+            None,
+        );
+        env.methods
+            .load_method_from_desc(
+                &mut env.class_names,
+                &mut env.class_files,
+                constructor_id,
+                b"<init>",
+                &constructor_desc,
+            )
+            .unwrap()
+    };
+
+    // Get the static ref for the Constructor ClassInstance
+    let constructor_static_ref = initialize_class(env, constructor_id).unwrap().into_value();
+    let Some(constructor_static_ref) = env.state.extract_value(constructor_static_ref) else {
+        todo!()
+    };
+
+    let of_static_form = make_class_form_of(env, class_class_id, this_of_id).unwrap();
+    let Some(of_static_form) = env.state.extract_value(of_static_form) else {
+        todo!()
+    };
+
+    // Now we need to find all the constructors on the T in this Class<T> instance
+    // Constructor[]
+    let ClassVariant::Class(of_class) = env.classes.get(&this_of_id).unwrap() else {
+        unreachable!()
+    };
+
+    let mut constructors: Vec<Option<GcRef<ReferenceInstance>>> = Vec::new();
+    for method_id in of_class.iter_method_ids() {
+        // Ensure the method is loaded
+        env.methods
+            .load_method_from_id(&mut env.class_names, &mut env.class_files, method_id)
+            .unwrap();
+
+        let method = env.methods.get(&method_id).unwrap();
+        if !method.is_init() {
+            continue;
+        }
+
+        // Create the constructor instance
+        let constructor_ref = {
+            let fields = make_instance_fields(env, constructor_id).unwrap();
+            let Some(fields) = env.state.extract_value(fields) else {
+                unreachable!()
+            };
+
+            let constructor_inst = ClassInstance {
+                instanceof: constructor_id,
+                static_ref: constructor_static_ref,
+                fields,
+            };
+
+            env.state.gc.alloc(constructor_inst)
+        };
+
+        // Get the method index to store with it
+        let (_, method_index) = method_id.decompose();
+        let method_index = i16::from_be_bytes(u16::to_be_bytes(method_index));
+
+        let locals = Locals::new_with_array([
+            // `this`, aka the Constructor instance
+            RuntimeValue::Reference(constructor_ref.into_generic()),
+            // The class the Constructor refers to
+            RuntimeValue::Reference(of_static_form.into_generic()),
+            // The specific index in that class which is the Constructor method
+            RuntimeValue::Primitive(RuntimeValuePrimitive::I16(method_index)),
+        ]);
+        let frame = Frame::new_locals(locals);
+
+        // Initialize the constructor
+        match eval_method(env, constructor_init_id.into(), frame).unwrap() {
+            EvalMethodValue::ReturnVoid => {}
+            EvalMethodValue::Return(_) => tracing::warn!("Constructor init returned a value"),
+            EvalMethodValue::Exception(_) => {
+                todo!("There was an exception in the Constructor init")
+            }
+        }
+
+        constructors.push(Some(constructor_ref.into_generic()));
+    }
+
+    // Create the constructor array
+    let constructor_array = env.state.gc.alloc(ReferenceArrayInstance::new(
+        constructor_arr_id,
+        constructor_id,
+        constructors,
+    ));
+
+    unsafe { env.get_local_jobject_for(constructor_array.into_generic()) }
 }
 
 pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) -> JObject {
