@@ -39,7 +39,7 @@ use crate::{
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{
         construct_string_r, make_class_form_of, make_method_handle, make_primitive_class_form_of,
-        CallStackEntry, Env,
+        ref_info, CallStackEntry, Env,
     },
     GeneralError, State,
 };
@@ -1133,6 +1133,13 @@ impl RunInstContinue for InvokeDynamic {
             tracing::info!("MH Inst: {:?}", mh_inst);
 
             match mh_inst.typ {
+                MethodHandleType::Constant { value, .. } => {
+                    if let Some(value) = value {
+                        value
+                    } else {
+                        todo!("NPE?")
+                    }
+                }
                 MethodHandleType::InvokeStatic(method_id) => {
                     let (class_id, _) = method_id.decompose();
                     let class_file = env.class_files.get(&class_id).unwrap();
@@ -1271,10 +1278,16 @@ impl RunInstContinue for InvokeDynamic {
                 let method_handle_desc = MethodDescriptor::new_ret(DescriptorType::Basic(
                     DescriptorTypeBasic::Class(method_handle_class_id),
                 ));
-                env.methods.load_method_from_desc(
+
+                let call_site_instance_id = env.state.gc.deref(call_site).unwrap().instanceof();
+
+                find_virtual_method(
                     &mut env.class_names,
                     &mut env.class_files,
+                    &mut env.classes,
+                    &mut env.methods,
                     call_site_class_id,
+                    call_site_instance_id,
                     b"getTarget",
                     &method_handle_desc,
                 )?
@@ -1300,15 +1313,24 @@ impl RunInstContinue for InvokeDynamic {
             )
             .expect("Null call site target");
 
-            target.unchecked_as::<MethodHandleInstance>()
+            target
         };
 
+        let target = target.unchecked_as::<MethodHandleInstance>();
         let Some(target_inst) = env.state.gc.deref(target) else {
             tracing::error!("Call site target was nonexistent/null. Might be due to a bad return value?");
             panic!("Call site target was null");
         };
 
         match &target_inst.typ {
+            MethodHandleType::Constant { value, .. } => {
+                if let Some(value) = value {
+                    frame.stack.push(RuntimeValue::Reference(*value));
+                } else {
+                    frame.stack.push(RuntimeValue::NullReference);
+                }
+                Ok(RunInstContinueValue::Continue)
+            }
             MethodHandleType::InvokeStatic(inv_method_id) => {
                 invoke_static_method(env, frame, *inv_method_id, method_id.into(), inst_index)
             }

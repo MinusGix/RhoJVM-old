@@ -44,6 +44,9 @@ pub fn get_init_method_type_from_mh(
     };
 
     let method_desc = match method_type {
+        MethodHandleType::Constant { .. } => {
+            todo!("Should we handle this? As-of-this-writing, it is only used for MethodHandleInfo which needs direct method handles")
+        }
         // TODO: Do we need to initialize based on the id?
         MethodHandleType::InvokeStatic(method_id) => {
             env.methods.get(&method_id).unwrap().descriptor()

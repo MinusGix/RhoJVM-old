@@ -23,6 +23,8 @@ pub(crate) extern "C" fn mh_info_get_declaring_class(env: *mut Env, this: JObjec
 
     // Get the class the method was declared on
     let class_id = match &method_handle.typ {
+        // Non direct method handle, so it shouldn't be constructable
+        MethodHandleType::Constant { .. } => unreachable!(),
         MethodHandleType::InvokeStatic(method_id) => method_id.decompose().0,
     };
 
@@ -76,7 +78,12 @@ pub(crate) extern "C" fn mh_info_get_reference_kind(env: *mut Env, this: JObject
     {
         let mh = mh_info.method_handle;
         let mh = env.state.gc.deref(mh).unwrap();
-        mh.typ.kind().into()
+
+        if let Some(kind) = mh.typ.direct_kind() {
+            kind.into()
+        } else {
+            todo!("IllegalArgumentException due to not being a direct method handle")
+        }
     } else {
         unreachable!()
     }
@@ -96,6 +103,8 @@ pub(crate) extern "C" fn mh_info_get_name(env: *mut Env, this: JObject) -> JObje
     let Some(mh) = env.state.gc.deref(mh) else { unreachable!() };
 
     let method_id = match &mh.typ {
+        // Non direct method handle, so it shouldn't be constructable
+        MethodHandleType::Constant { .. } => unreachable!(),
         MethodHandleType::InvokeStatic(method_id) => method_id,
     };
 

@@ -2,14 +2,7 @@ package java.lang.invoke;
 
 import java.util.List;
 
-// Method handle is annoying.
-// It isn't *just* a handle to some unknown method, but rather it is a handle to a variety
-// of potential operations, each of which behaves very differently. They also tend to emulate 
-// instructions.
-// Such as there being invokestatic/invokespecial/getfield/putfield/getfieldstatic/etc.
-// This makes it more annoying to implement.
-
-// We implement it with a rho/invoke/MethodHandle (since this is abstract) which just has an enum
+// We implement it with a rho/invoke/MainMethodHandle (since this is abstract) which just has an enum
 // of the various types in the internal jvm implementation
 
 // See the official java documentation for methodhandle for various complexities that this has.

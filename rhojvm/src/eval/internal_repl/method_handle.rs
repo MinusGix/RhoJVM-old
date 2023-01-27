@@ -1,25 +1,19 @@
 use crate::{
-    class_instance::{ClassInstance, Fields, MethodHandleInfoInstance, MethodHandleInstance},
+    class_instance::{
+        ClassInstance, Fields, MethodHandleInfoInstance, MethodHandleInstance, MethodHandleType,
+        StaticFormInstance,
+    },
     gc::GcRef,
     initialize_class,
-    jni::{JClass, JObject, JObjectArray},
+    jni::{JClass, JObject},
     resolve_derive,
-    util::{make_class_form_of, Env},
+    rv::{RuntimeType, RuntimeTypeVoid},
+    util::{construct_method_handle, make_class_form_of, Env},
 };
-
-// Note: Variadics in java are just transformed into arrays, which makes this significantly easier
-// to implement than if we had to manually pop things from the frame as we need them.
-pub(crate) extern "C" fn method_handle_invoke(
-    env: *mut Env,
-    handle: JObject,
-    args: JObjectArray,
-) -> JObject {
-    todo!()
-}
 
 pub(crate) extern "C" fn mh_lookup_reveal_direct(
     env: *mut Env,
-    lookup: JObject,
+    _lookup: JObject,
     target: JObject,
 ) -> JObject {
     assert!(!env.is_null());
@@ -94,4 +88,42 @@ pub(crate) extern "C" fn mhs_lookup_lookup_class(env: *mut Env, _this: JObject) 
     };
 
     unsafe { env.get_local_jobject_for(class_inst.into_generic()) }
+}
+
+/// `MethodHandle constant(Class<?> type, Object value)`
+pub(crate) extern "C" fn mhs_constant(env: *mut Env<'_>, typ: JObject, value: JObject) -> JObject {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    let typ_ref = unsafe { env.get_jobject_as_gcref(typ) }.expect("type was null");
+    let typ_ref: GcRef<StaticFormInstance> = env.state.gc.checked_as(typ_ref).unwrap();
+
+    let value = unsafe { env.get_jobject_as_gcref(value) };
+    let value = value.map(GcRef::unchecked_as);
+
+    let typ_of = env.state.gc.deref(typ_ref).unwrap().of;
+    let typ_of = match typ_of {
+        RuntimeTypeVoid::Primitive(_) => todo!("We need to actually verify that the class is a primitive wrapper"),
+        RuntimeTypeVoid::Void => todo!("IllegalArgumentException. Cannot create a constant-returning function with return type void"),
+        RuntimeTypeVoid::Reference(class_id) => {
+            // TODO: Check that the value we have actually extends the class_id
+            RuntimeType::Reference(class_id)
+        },
+    };
+
+    let mh = construct_method_handle(
+        env,
+        MethodHandleType::Constant {
+            value,
+            return_ty: typ_of,
+        },
+    )
+    .unwrap();
+    let Some(mh) = env.state.extract_value(mh) else {
+        // exception
+        return JObject::null();
+    };
+
+    unsafe { env.get_local_jobject_for(mh.into_generic()) }
 }

@@ -244,7 +244,7 @@ impl<'a> TryFrom<&'a mut Instance> for &'a mut ReferenceInstance {
     }
 }
 
-/// A special cased structure for Class<T>
+/// A special cased structure for `Class<T>`
 #[derive(Debug, Clone)]
 pub struct StaticFormInstance {
     pub(crate) inner: ClassInstance,
@@ -304,17 +304,29 @@ impl GcValueMarker for ThreadInstance {}
 
 #[derive(Debug, Clone)]
 pub enum MethodHandleType {
-    /// 6
+    Constant {
+        value: Option<GcRef<ReferenceInstance>>,
+        /// The type that the method handle says it returns
+        return_ty: RuntimeType<ClassId>,
+    },
     InvokeStatic(ExactMethodId),
 }
 impl MethodHandleType {
-    pub fn kind(&self) -> u8 {
-        match self {
+    pub fn direct_kind(&self) -> Option<u8> {
+        Some(match self {
+            MethodHandleType::Constant { .. } => return None,
             MethodHandleType::InvokeStatic(_) => 6,
+        })
+    }
+
+    pub fn is_direct(&self) -> bool {
+        match self {
+            MethodHandleType::Constant { .. } => false,
+            MethodHandleType::InvokeStatic(_) => true,
         }
     }
 }
-/// An instance of `rho/invoke/MethodHandle`
+/// An instance of `rho/invoke/MainMethodHandle`
 /// This is legal since by the official java docs, users cannot extend `MethodHandle` so we can
 /// strictly rely upon our own implementation.
 #[derive(Debug, Clone)]

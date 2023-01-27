@@ -5,7 +5,6 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 
 import rho.invoke.MethodHandleInfoInst;
-import rho.invoke.ConstantMethodHandle;
 
 public class MethodHandles {
     public static final class Lookup {
@@ -100,14 +99,5 @@ public class MethodHandles {
     
     private static native MethodHandleInfo revealDirect(MethodHandle target);
 
-    public static MethodHandle constant(Class<?> type, Object value) {
-        if (type == void.class) {
-            throw new IllegalArgumentException("Cannot create a constant-returning function with return type void");
-        } else if (type.isPrimitive()) {
-            throw new UnsupportedOperationException("TODO: Support primitives in MethodHandles#constant");
-        }
-
-        // TODO: This is supposed to care about the type we give it, aka reporting it as the return type!
-        return new ConstantMethodHandle(value);
-    }
+    public native static MethodHandle constant(Class<?> type, Object value);
 }
