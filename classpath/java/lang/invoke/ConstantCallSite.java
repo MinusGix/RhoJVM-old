@@ -22,6 +22,7 @@ public class ConstantCallSite extends CallSite {
         return this.target;
     }
 
+    @Override
     public void setTarget(MethodHandle newTarget) {
         throw new UnsupportedOperationException();
     }
