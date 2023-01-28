@@ -28,11 +28,8 @@ pub(crate) extern "C" fn mh_info_get_declaring_class(env: *mut Env, this: JObjec
         MethodHandleType::InvokeStatic(method_id) => method_id.decompose().0,
     };
 
-    let mh_info_id = env
-        .class_names
-        .gcid_from_bytes(b"java/lang/invoke/MethodHandleInfo");
-
-    let class_form = make_class_form_of(env, mh_info_id, class_id).unwrap();
+    // TODO: using the same id for this is bad
+    let class_form = make_class_form_of(env, class_id, class_id).unwrap();
     let Some(class_form) = env.state.extract_value(class_form) else {
         return JClass::null();
     };
