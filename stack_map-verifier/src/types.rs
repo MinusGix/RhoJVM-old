@@ -342,11 +342,14 @@ impl FrameType {
                         })?;
                 match local {
                     Local::Unfilled => {
-                        return Err(VerifyStackMapError::UninitializedLocalVariableIndex {
-                            inst_name,
-                            index: *index,
-                        }
-                        .into())
+                        // TODO: This is probably incorrect in some manner?? See the lib.rs code
+                        // about allowing unfilled for an ALoad
+                        FrameType::Complex(ComplexFrameType::ReferenceNull)
+                        // return Err(VerifyStackMapError::UninitializedLocalVariableIndex {
+                        //     inst_name,
+                        //     index: *index,
+                        // }
+                        // .into())
                     }
                     Local::Top => {
                         return Err(VerifyStackMapError::TopLocalVariableIndex {

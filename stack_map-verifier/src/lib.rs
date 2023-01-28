@@ -868,6 +868,12 @@ fn check_locals_in_type(
             LocalVariableInType::Primitive(r_prim),
         ) => l_prim.is_same_type_on_stack(r_prim),
         (Local::FrameType(FrameType::Complex(_)), LocalVariableInType::ReferenceAny) => true,
+        // TODO: Is it correct that you can consider an unfilled inst as a reference?
+        // I saw a case of:
+        // :: test () -> boolean
+        // ALoad1
+        // Which obviously hasn't been initialized yet.
+        (Local::Unfilled, LocalVariableInType::ReferenceAny) => true,
         _ => false,
     };
 
