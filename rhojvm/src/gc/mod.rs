@@ -482,10 +482,10 @@ fn trace_instance(
                 let class_ref = thread.inner.static_ref;
                 gc.mark(class_ref.into_generic());
             }
-            ReferenceInstance::MethodHandle(handle) => {
+            ReferenceInstance::MethodHandle(_handle) => {
                 // TODO:
             }
-            ReferenceInstance::MethodHandleInfo(handle_info) => {
+            ReferenceInstance::MethodHandleInfo(_handle_info) => {
                 // TODO:
             }
             ReferenceInstance::PrimitiveArray(_) => (),

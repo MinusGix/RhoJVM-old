@@ -65,14 +65,10 @@ impl CliArgs {
     pub fn log_class_names(&self) -> bool {
         match &self.command {
             CliCommands::Run {
-                class_name,
-                abort_on_unsupported,
-                log_class_names,
+                log_class_names, ..
             } => *log_class_names,
             CliCommands::RunJar {
-                jar,
-                abort_on_unsupported,
-                log_class_names,
+                log_class_names, ..
             } => *log_class_names,
         }
     }

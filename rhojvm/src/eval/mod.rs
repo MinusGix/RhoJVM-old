@@ -367,6 +367,7 @@ macro_rules! impl_call_native_method {
         } else {
             1
         };
+        #[allow(unused_mut, unused_variables)]
         let mut param_index = param_base_index;
         $(
             let $pname = $frame

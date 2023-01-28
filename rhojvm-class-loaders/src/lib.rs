@@ -96,7 +96,7 @@ impl ClassFileLoader for ClassDirectories {
         Err(LoadResourceError::Nonexistent)
     }
 
-    fn has_resource(&mut self, resource_name: &str) -> bool {
+    fn has_resource(&mut self, _resource_name: &str) -> bool {
         false
     }
 }

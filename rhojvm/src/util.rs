@@ -29,7 +29,7 @@ use crate::{
         eval_method, instances::make_instance_fields, EvalError, EvalMethodValue, Frame, Locals,
         ValueException,
     },
-    gc::GcRef,
+    gc::{Gc, GcRef},
     initialize_class,
     jni::{native_interface::NativeInterface, JObject},
     resolve_derive,
@@ -875,25 +875,25 @@ pub(crate) fn construct_byte_array_input_stream(
     Ok(ValueException::Value(bai_ref))
 }
 
-pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
+pub(crate) fn ref_info(class_names: &ClassNames, gc: &Gc, re: Option<GcRef<Instance>>) -> String {
     let Some(re) = re else {
         return "<Null>".to_string()
     };
 
-    let Some(inst) = env.state.gc.deref(re) else {
+    let Some(inst) = gc.deref(re) else {
         return "<Bad GCRef>".to_string()
     };
 
     match inst {
         Instance::StaticClass(stat) => {
             let id = stat.id;
-            let name = env.class_names.tpath(id);
+            let name = class_names.tpath(id);
             format!("StaticClass({})", name)
         }
         Instance::Reference(re) => match re {
             ReferenceInstance::Class(class) => {
                 let id = class.instanceof;
-                let name = env.class_names.tpath(id);
+                let name = class_names.tpath(id);
                 format!("Class({})", name)
             }
             ReferenceInstance::StaticForm(form) => {
@@ -901,7 +901,7 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
                     RuntimeTypeVoid::Primitive(p) => format!("Primitive({:?})", p),
                     RuntimeTypeVoid::Void => "Void".to_string(),
                     RuntimeTypeVoid::Reference(id) => {
-                        let name = env.class_names.tpath(id);
+                        let name = class_names.tpath(id);
                         format!("{}", name)
                     }
                 };
@@ -940,7 +940,7 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
             }
             ReferenceInstance::ReferenceArray(arr) => {
                 let id = arr.element_type;
-                let t = env.class_names.tpath(id);
+                let t = class_names.tpath(id);
 
                 let mut res = format!("ReferenceArray<{}>[", t);
                 for (i, x) in arr.elements.iter().enumerate() {

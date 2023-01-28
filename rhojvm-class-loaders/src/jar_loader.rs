@@ -87,7 +87,6 @@ impl ClassFileLoader for JarClassFileLoader {
         let path = access_path_iter(&path);
 
         let path = class_path_iter_to_relative_path_string(path);
-
         let mut file = self
             .archive
             .by_name(&path)

@@ -588,9 +588,9 @@ pub(crate) enum CastResult {
 }
 
 fn classcast_exception(
-    env: &mut Env,
-    from: ClassId,
-    to: ClassId,
+    _env: &mut Env,
+    _from: ClassId,
+    _to: ClassId,
     message: &str,
 ) -> GcRef<ClassInstance> {
     panic!("Construct CheckCast exception, msg: {}", message);

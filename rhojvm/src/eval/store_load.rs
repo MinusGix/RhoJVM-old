@@ -3,9 +3,8 @@
 use classfile_parser::{
     constant_info::{ConstantInfo, FieldRefConstant},
     constant_pool::ConstantPoolIndexRaw,
-    field_info::FieldAccessFlags,
 };
-use either::Either;
+
 use rhojvm_base::{
     code::{
         op::{
@@ -31,7 +30,6 @@ use rhojvm_base::{
         class_files::ClassFiles,
         class_names::ClassNames,
         classes::{load_super_classes_iter, Classes},
-        methods::Methods,
     },
     id::ClassId,
     package::Packages,
@@ -39,13 +37,9 @@ use rhojvm_base::{
 use usize_cast::IntoUsize;
 
 use crate::{
-    class_instance::{
-        ClassInstance, Field, FieldAccess, FieldId, FieldIndex, FieldType, ReferenceInstance,
-        StaticClassInstance, StaticFormInstance,
-    },
-    eval::instances::make_fields,
+    class_instance::{FieldId, FieldType, ReferenceInstance, StaticClassInstance},
     gc::GcRef,
-    initialize_class, resolve_derive,
+    initialize_class,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{self, find_field_with_name, Env},
     GeneralError, State,
@@ -583,10 +577,10 @@ fn load_constant(
                 ValueException::Exception(exc) => return Ok(RunInstContinueValue::Exception(exc)),
             }
         }
-        ConstantInfo::MethodHandle(method_handle) => {
+        ConstantInfo::MethodHandle(_method_handle) => {
             todo!()
         }
-        ConstantInfo::MethodType(method_type) => {
+        ConstantInfo::MethodType(_method_type) => {
             todo!()
         }
         _ => return Err(EvalError::InvalidConstantPoolIndex(index.into_generic()).into()),
@@ -1594,7 +1588,7 @@ fn array_load_filter(
             }
         }
         ReferenceInstance::PrimitiveArray(array) => {
-            if let RuntimeType::Primitive(prim_type) = element_type {
+            if let RuntimeType::Primitive(_) = element_type {
                 if !is_valid(array.element_type) {
                     return Err(EvalError::ExpectedArrayInstanceOf(element_type).into());
                 }
@@ -1612,18 +1606,6 @@ fn array_load_filter(
     };
 
     Ok(RunInstContinueValue::Continue)
-}
-
-fn arraystore_exception(
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
-    message: &str,
-) -> GcRef<ClassInstance> {
-    todo!("Construct ArrayStore exception")
 }
 
 fn array_store(

@@ -153,9 +153,9 @@ pub(crate) extern "C" fn class_get_class_for_name_with_class_loader(
 }
 
 pub(crate) extern "C" fn class_get_class_for_name(
-    env: *mut Env<'_>,
+    _env: *mut Env<'_>,
     _this: JObject,
-    name: JString,
+    _name: JString,
 ) -> JObject {
     todo!()
 }
@@ -195,7 +195,7 @@ pub(crate) extern "C" fn class_get_name(env: *mut Env<'_>, this: JObject) -> JSt
         }),
         RuntimeTypeVoid::Void => Cow::Borrowed("void"),
         RuntimeTypeVoid::Reference(this_id) => {
-            let (name, info) = env.class_names.name_from_gcid(this_id).unwrap();
+            let (name, _) = env.class_names.name_from_gcid(this_id).unwrap();
             let name = name.get();
             // TODO: Don't use this
             let name = convert_classfile_text(name);
@@ -250,7 +250,7 @@ pub(crate) extern "C" fn class_get_simple_name(env: *mut Env<'_>, this: JObject)
         RuntimeTypeVoid::Void => Cow::Borrowed("void"),
         RuntimeTypeVoid::Reference(this_id) => {
             // TODO: anonymous classes shouldn't have a simple name
-            let (name, info) = env.class_names.name_from_gcid(this_id).unwrap();
+            let (name, _) = env.class_names.name_from_gcid(this_id).unwrap();
             let name = name.get();
             // TODO: Don't use this
             let name = convert_classfile_text(name);

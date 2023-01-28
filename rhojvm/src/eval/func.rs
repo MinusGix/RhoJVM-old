@@ -747,7 +747,7 @@ pub fn find_virtual_method(
             .get(&instance_id)
             .ok_or(GeneralError::MissingLoadedClassFile(instance_id))?;
         let interfaces: SmallVec<[_; 8]> = instance_class_file.interfaces_indices_iter().collect();
-        let mut interfaces: SmallVec<[_; 8]> =
+        let interfaces: SmallVec<[_; 8]> =
             map_interface_index_small_vec_to_ids(class_names, instance_class_file, interfaces)?;
 
         for interface_id in interfaces {

@@ -243,13 +243,6 @@ impl ClassFileInfo {
         }
     }
 
-    pub(crate) fn get_super_class_name(&self) -> Result<Option<&[u8]>, ClassFileIndexError> {
-        match self {
-            ClassFileInfo::Data(v) => v.get_super_class_name(),
-            ClassFileInfo::AnonBased(v) => v.get_super_class_name(),
-        }
-    }
-
     pub(crate) fn get_super_class_id(
         &self,
         class_names: &mut ClassNames,
