@@ -37,7 +37,7 @@ impl InternalKind {
     }
 
     fn from_raw_class_name(class_path: RawClassNameSlice<'_>) -> Option<InternalKind> {
-        Self::from_bytes(class_path.0)
+        Self::from_bytes(class_path.name)
     }
 
     fn from_str(class_path: &str) -> Option<InternalKind> {
@@ -69,32 +69,52 @@ pub(crate) enum TrustedClassNameInsert {
 // TODO: Should this be using a smallvec? Probably a lot of them are less than 32 bytes, but 64
 // would probably be a safer size?
 #[derive(Clone)]
-pub struct RawClassName(pub Vec<u8>);
+pub struct RawClassName {
+    pub name: Vec<u8>,
+    // TODO: Is there a nicer design for this that we could do? This could be an enum instead?
+    /// Whether it should be uniquely separated from other entries with the same name by its class
+    /// id. This is intended for anonymous fields.
+    pub uniq: Option<ClassId>,
+}
 impl RawClassName {
+    pub(crate) fn new(name: Vec<u8>) -> Self {
+        Self { name, uniq: None }
+    }
+
+    pub(crate) fn new_uniq(name: Vec<u8>, uniq: ClassId) -> Self {
+        Self {
+            name,
+            uniq: Some(uniq),
+        }
+    }
+
     #[must_use]
     pub fn get(&self) -> &[u8] {
-        &self.0
+        &self.name
     }
 
     #[must_use]
     pub fn as_slice(&self) -> RawClassNameSlice<'_> {
-        RawClassNameSlice(self.0.as_slice())
+        RawClassNameSlice {
+            name: self.name.as_slice(),
+            uniq: self.uniq,
+        }
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.name.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.name.is_empty()
     }
 }
 impl Eq for RawClassName {}
 impl PartialEq for RawClassName {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        self.name == other.name && self.uniq == other.uniq
     }
 }
 impl Hash for RawClassName {
@@ -106,37 +126,47 @@ impl std::fmt::Debug for RawClassName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "\"{}\"",
-            util::convert_classfile_text(&self.0)
+            util::convert_classfile_text(&self.name)
         ))
     }
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub struct RawClassNameSlice<'a>(&'a [u8]);
+pub struct RawClassNameSlice<'a> {
+    name: &'a [u8],
+    uniq: Option<ClassId>,
+}
 impl<'a> RawClassNameSlice<'a> {
+    pub(crate) fn new(name: &'a [u8]) -> Self {
+        Self { name, uniq: None }
+    }
+
     #[must_use]
     pub fn get(&self) -> &'a [u8] {
-        self.0
+        self.name
     }
 
     #[must_use]
     pub fn to_owned(&self) -> RawClassName {
-        RawClassName(self.0.to_owned())
+        RawClassName {
+            name: self.name.to_owned(),
+            uniq: self.uniq,
+        }
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.name.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.name.is_empty()
     }
 }
 impl<'a> Equivalent<RawClassName> for RawClassNameSlice<'a> {
     fn equivalent(&self, key: &RawClassName) -> bool {
-        self.0 == key.0
+        self.name == key.name && self.uniq == key.uniq
     }
 }
 impl<'a> Hash for RawClassNameSlice<'a> {
@@ -145,15 +175,18 @@ impl<'a> Hash for RawClassNameSlice<'a> {
         // This is because in our iterator version, we can't rely on the hash_slice
         // iterating over each piece individually, so
         // [0, 1, 2, 3] might not be the same as hashing [0, 1] and then [2, 3]
-        self.0.len().hash(state);
-        for piece in self.0 {
+        self.name.len().hash(state);
+        for piece in self.name {
             piece.hash(state);
         }
     }
 }
 impl<'a> std::fmt::Debug for RawClassNameSlice<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("\"{}\"", util::convert_classfile_text(self.0)))
+        f.write_fmt(format_args!(
+            "\"{}\"",
+            util::convert_classfile_text(self.name)
+        ))
     }
 }
 
@@ -190,7 +223,10 @@ impl<'a, I: Iterator<Item = &'a [u8]> + Clone> RawClassNameBuilderator<I> {
     }
 
     pub(crate) fn into_raw_class_name(self) -> RawClassName {
-        RawClassName(self.iter.flatten().copied().collect::<Vec<u8>>())
+        RawClassName {
+            name: self.iter.flatten().copied().collect::<Vec<u8>>(),
+            uniq: None,
+        }
     }
 }
 impl<'a, I: Iterator<Item = &'a [u8]> + Clone> Hash for RawClassNameBuilderator<I> {
@@ -294,8 +330,13 @@ impl ClassNames {
 
     pub fn init_new_id(&mut self, anonymous: bool) -> ClassId {
         let id = self.get_new_id();
+        let name = if anonymous {
+            RawClassName::new_uniq(Vec::new(), id)
+        } else {
+            RawClassName::new(Vec::new())
+        };
         self.names.insert(
-            RawClassName(Vec::new()),
+            name,
             ClassNameInfo {
                 kind: None,
                 anonymous,
@@ -333,7 +374,7 @@ impl ClassNames {
     }
 
     pub fn gcid_from_bytes(&mut self, class_path: &[u8]) -> ClassId {
-        let class_path = RawClassNameSlice(class_path);
+        let class_path = RawClassNameSlice::new(class_path);
         let kind = InternalKind::from_raw_class_name(class_path);
 
         if let Some(entry) = self.names.get(&class_path) {
@@ -350,7 +391,7 @@ impl ClassNames {
     /// construct a vec (but perhaps you should be using a smallvec?) since it can then immediately
     /// store that in the hashmap.
     pub fn gcid_from_vec(&mut self, class_path: Vec<u8>) -> ClassId {
-        let class_path = RawClassName(class_path);
+        let class_path = RawClassName::new(class_path);
         let kind = InternalKind::from_raw_class_name(class_path.as_slice());
 
         if let Some(entry) = self.names.get(&class_path) {
@@ -366,14 +407,14 @@ impl ClassNames {
     pub fn gcid_from_cow(&mut self, class_path: Cow<[u8]>) -> ClassId {
         let kind = InternalKind::from_bytes(&class_path);
 
-        let class_name = RawClassNameSlice(class_path.as_ref());
+        let class_name = RawClassNameSlice::new(class_path.as_ref());
         if let Some(entry) = self.names.get(&class_name) {
             return entry.id;
         }
 
         let id = self.get_new_id();
         self.names.insert(
-            RawClassName(class_path.into_owned()),
+            RawClassName::new(class_path.into_owned()),
             ClassNameInfo::new_kind(kind, id),
         );
         id
@@ -544,7 +585,7 @@ impl ClassNames {
     pub fn tpath(&self, id: ClassId) -> &str {
         self.name_from_gcid(id)
             .map(|x| x.0)
-            .map(|x| std::str::from_utf8(x.0))
+            .map(|x| std::str::from_utf8(x.name))
             // It is fine for it to be invalid utf8, but at the current moment we don't bother
             // converting it
             .unwrap_or(Ok("[UNKNOWN CLASS NAME]"))
