@@ -23,11 +23,15 @@ use rhojvm::{
 use rhojvm_base::{
     code::method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
     data::{
-        class_file_loader::ClassFileLoader, class_files::ClassFiles, class_names::ClassNames,
-        classes::Classes, methods::Methods,
+        class_file_loader::ClassFileLoader,
+        class_files::ClassFiles,
+        class_names::ClassNames,
+        classes::Classes,
+        methods::{LoadMethodError, Methods},
     },
     id::ClassId,
     package::Packages,
+    StepError,
 };
 use rhojvm_class_loaders::{jar_loader::JarClassFileLoader, util::CombineLoader, ClassDirectories};
 use stack_map_verifier::StackMapVerificationLogging;
@@ -509,14 +513,33 @@ fn execute_class_name(
                 }
             },
             Err(err) => {
-                tracing::error!("There was an error in running the method: {:?}", err);
-                eprintln!("There was an internal error in running code: {:?}", err);
+                let res = make_error_pretty(env, err);
+                tracing::error!("There was an error in running the method: {res}");
+                eprintln!("There was an internal error in running code: {res}");
             }
         }
 
         if env.state.conf.log_class_names {
             tracing::info!("Class Names: {:#?}", env.class_names);
         }
+    }
+}
+
+fn make_error_pretty(env: &Env, err: GeneralError) -> String {
+    match &err {
+        GeneralError::Step(step) => match step {
+            StepError::LoadMethod(m) => match m {
+                LoadMethodError::NonexistentMethodName { class_id, name } => {
+                    let class_name = env.class_names.tpath(*class_id);
+                    format!("Failed to find method {class_name}#{name} (Class Id: {class_id:?})")
+                }
+                _ => format!("{:?}", err),
+            },
+            // TODO
+            _ => format!("{:?}", err),
+        },
+        // TODO
+        _ => format!("{:?}", err),
     }
 }
 
