@@ -1493,12 +1493,24 @@ pub(crate) fn descriptor_type_to_static_form(
 ) -> Result<ValueException<GcRef<StaticFormInstance>>, GeneralError> {
     match typ {
         DescriptorType::Basic(basic) => match basic {
-            DescriptorTypeBasic::Byte => todo!(),
-            DescriptorTypeBasic::Char => todo!(),
-            DescriptorTypeBasic::Double => todo!(),
-            DescriptorTypeBasic::Float => todo!(),
-            DescriptorTypeBasic::Int => todo!(),
-            DescriptorTypeBasic::Long => todo!(),
+            DescriptorTypeBasic::Byte => {
+                make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I8))
+            }
+            DescriptorTypeBasic::Char => {
+                make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::Char))
+            }
+            DescriptorTypeBasic::Double => {
+                make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::F64))
+            }
+            DescriptorTypeBasic::Float => {
+                make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::F32))
+            }
+            DescriptorTypeBasic::Int => {
+                make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I32))
+            }
+            DescriptorTypeBasic::Long => {
+                make_primitive_class_form_of(env, Some(RuntimeTypePrimitive::I64))
+            }
             DescriptorTypeBasic::Class(class_id) => {
                 // TODO: Incorrect usage of make_class_form_of
                 make_class_form_of(env, class_id, class_id)
