@@ -136,6 +136,7 @@ public final class Long extends Number implements Comparable<Long> {
         return defaultValue;
     }
 
+    // === Operations ===
     public native static int numberOfLeadingZeros(long value);
 
     public static int signum(long value) {
@@ -146,6 +147,18 @@ public final class Long extends Number implements Comparable<Long> {
         } else {
             return -1;
         }
+    }
+
+    public static long sum(long a, long b) {
+        return a + b;
+    }
+
+    public static long max(long a, long b) {
+        return Math.max(a, b);
+    }
+
+    public static long min(long a, long b) {
+        return Math.min(a, b);
     }
 
     // TODO: Parse unsigned long
