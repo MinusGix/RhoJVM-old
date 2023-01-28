@@ -75,8 +75,6 @@ pub(crate) extern "C" fn constructor_new_instance(
 
     let method_id = ExactMethodId::unchecked_compose(class_id, method_idx);
 
-    tracing::info!("Args: {}", ref_info(env, args));
-
     let args = args
         .map(GcRef::unchecked_as::<ReferenceArrayInstance>)
         .map(|args| env.state.gc.deref(args).unwrap())
@@ -114,6 +112,16 @@ pub(crate) extern "C" fn constructor_new_instance(
         EvalMethodValue::Return(_) => tracing::warn!("Init method returned a value"),
         EvalMethodValue::Exception(_) => todo!(),
     }
+
+    tracing::info!(
+        "New instance: {} (id: {:?})",
+        ref_info(
+            &env.class_names,
+            &env.state.gc,
+            Some(instance.into_generic())
+        ),
+        class_id
+    );
 
     unsafe { env.get_local_jobject_for(instance.into_generic()) }
 }

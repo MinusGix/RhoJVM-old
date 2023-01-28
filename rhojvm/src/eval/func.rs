@@ -118,7 +118,11 @@ fn grab_runtime_value_from_stack_for_function(
                     if is_castable {
                         RuntimeValue::Reference(p_ref)
                     } else {
-                        todo!("Type was not castable");
+                        todo!(
+                            "Type was not castable: {} -> {}",
+                            ref_info(class_names, &state.gc, Some(p_ref.into_generic())),
+                            class_names.tpath(*target_id)
+                        );
                     }
                 }
 
@@ -1126,8 +1130,6 @@ impl RunInstContinue for InvokeDynamic {
                 exc_value!(ret inst: make_method_type(env, &inv_desc)?)
             };
 
-            // tracing::info!("Inv Name: {}, Desc: {:?}", inv_name, inv_desc);
-
             // Get the instance of the bootstrap method
             let mh_inst = env.state.gc.deref(method_handle).unwrap();
             tracing::info!("MH Inst: {:?}", mh_inst);
@@ -1141,25 +1143,9 @@ impl RunInstContinue for InvokeDynamic {
                     }
                 }
                 MethodHandleType::InvokeStatic(method_id) => {
-                    let (class_id, _) = method_id.decompose();
-                    let class_file = env.class_files.get(&class_id).unwrap();
                     let method = env.methods.get(&method_id).unwrap();
-                    tracing::info!("InvokeStatic {:#?}", method);
-                    let method_name = class_file.get_text_t(method.name_index()).unwrap();
-                    tracing::info!("\tMethodName: {}", method_name);
 
                     let desc = method.descriptor();
-                    tracing::info!("Parameters:");
-                    for param in desc.parameters() {
-                        if let DescriptorType::Basic(DescriptorTypeBasic::Class(class_id)) = param {
-                            tracing::info!(
-                                "\tClass Reference: {:?}",
-                                env.class_names.tpath(*class_id)
-                            );
-                        } else {
-                            tracing::info!("\tParam: {:?}", param);
-                        }
-                    }
 
                     // Ensure that the bootstrap method returns a `CallSite` instance.
                     // TODO: What if it returns something which extends a `CallSite`?
@@ -1324,15 +1310,27 @@ impl RunInstContinue for InvokeDynamic {
 
         match &target_inst.typ {
             MethodHandleType::Constant { value, .. } => {
+                tracing::info!(
+                    "Invoking constant method handle: {}",
+                    ref_info(
+                        &env.class_names,
+                        &env.state.gc,
+                        value.map(GcRef::unchecked_as)
+                    )
+                );
                 if let Some(value) = value {
-                    frame.stack.push(RuntimeValue::Reference(*value));
+                    frame.stack.push(RuntimeValue::Reference(*value))?;
                 } else {
-                    frame.stack.push(RuntimeValue::NullReference);
+                    frame.stack.push(RuntimeValue::NullReference)?;
                 }
                 Ok(RunInstContinueValue::Continue)
             }
             MethodHandleType::InvokeStatic(inv_method_id) => {
-                invoke_static_method(env, frame, *inv_method_id, method_id.into(), inst_index)
+                tracing::info!("Invoking static method");
+                let res =
+                    invoke_static_method(env, frame, *inv_method_id, method_id.into(), inst_index);
+                tracing::info!("Finished static method");
+                res
             }
         }
     }

@@ -156,7 +156,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
                 into_opaque3ret(method_handle::mh_lookup_reveal_direct)
             }
             b"Java_java_lang_invoke_MethodHandles_constant" => {
-                into_opaque3ret(method_handle::mhs_constant)
+                into_opaque4ret(method_handle::mhs_constant)
             }
             // java/lang/invoke/MethodHandles$Lookup
             b"Java_java_lang_invoke_MethodHandles_00024Lookup_lookupClass" => {

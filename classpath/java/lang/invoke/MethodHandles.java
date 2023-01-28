@@ -99,5 +99,5 @@ public class MethodHandles {
     
     private static native MethodHandleInfo revealDirect(MethodHandle target);
 
-    public native static MethodHandle constant(Class<?> type, Object value);
+    public static native MethodHandle constant(Class<?> type, Object value);
 }

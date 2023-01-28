@@ -91,7 +91,12 @@ pub(crate) extern "C" fn mhs_lookup_lookup_class(env: *mut Env, _this: JObject) 
 }
 
 /// `MethodHandle constant(Class<?> type, Object value)`
-pub(crate) extern "C" fn mhs_constant(env: *mut Env<'_>, typ: JObject, value: JObject) -> JObject {
+pub(crate) extern "C" fn mhs_constant(
+    env: *mut Env<'_>,
+    _this: JClass,
+    typ: JObject,
+    value: JObject,
+) -> JObject {
     assert!(!env.is_null());
 
     let env = unsafe { &mut *env };
