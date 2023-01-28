@@ -10,7 +10,7 @@ use crate::{
     initialize_class,
     jni::JObject,
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{find_field_with_name, ref_info, Env},
+    util::{find_field_with_name, Env},
 };
 
 const CLASS_FIELD_NAME: &[u8] = b"clazz";
@@ -112,16 +112,6 @@ pub(crate) extern "C" fn constructor_new_instance(
         EvalMethodValue::Return(_) => tracing::warn!("Init method returned a value"),
         EvalMethodValue::Exception(_) => todo!(),
     }
-
-    tracing::info!(
-        "New instance: {} (id: {:?})",
-        ref_info(
-            &env.class_names,
-            &env.state.gc,
-            Some(instance.into_generic())
-        ),
-        class_id
-    );
 
     unsafe { env.get_local_jobject_for(instance.into_generic()) }
 }
