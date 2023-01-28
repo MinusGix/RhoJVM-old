@@ -1086,6 +1086,7 @@ impl RunInstContinue for InvokeDynamic {
         };
 
         let call_site = {
+            tracing::info!("== Creating CallSite for InvokeDynamic ==");
             // Get the bootstrap method from the table, this is the function we'd invoke to get a
             // `CallSite`
             let b_method = bootstrap_attr
@@ -1257,6 +1258,7 @@ impl RunInstContinue for InvokeDynamic {
 
         // Get the underlying method handle in the call site
         let target = {
+            tracing::info!("== Getting CallSite target for invocation ==");
             let get_target_method_id = {
                 let method_handle_class_id = env
                     .class_names
@@ -1308,6 +1310,7 @@ impl RunInstContinue for InvokeDynamic {
             panic!("Call site target was null");
         };
 
+        tracing::info!("== Invoking CallSite method ==");
         match &target_inst.typ {
             MethodHandleType::Constant { value, .. } => {
                 tracing::info!(
