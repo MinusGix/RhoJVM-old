@@ -874,14 +874,30 @@ pub fn eval_method(
 
         {
             let (class_id, _) = method_id.decompose();
-            if let Some(class_file) = env.class_files.get(&class_id) {
-                tracing::info!(
-                    "# ({}) {}",
-                    pc.0,
-                    inst.as_pretty_string(&mut env.class_names, class_file)
-                );
+
+            let should_log = if env.state.conf.log_only_control_flow_insts {
+                matches!(
+                    inst,
+                    Inst::InvokeDynamic(_)
+                        | Inst::InvokeStatic(_)
+                        | Inst::InvokeInterface(_)
+                        | Inst::InvokeVirtual(_)
+                        | Inst::InvokeSpecial(_)
+                )
             } else {
-                tracing::info!("# ({}) {:?}", pc.0, inst);
+                true
+            };
+
+            if should_log {
+                if let Some(class_file) = env.class_files.get(&class_id) {
+                    tracing::info!(
+                        "# ({}) {}",
+                        pc.0,
+                        inst.as_pretty_string(&mut env.class_names, class_file)
+                    );
+                } else {
+                    tracing::info!("# ({}) {:?}", pc.0, inst);
+                }
             }
         }
 

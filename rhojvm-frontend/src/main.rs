@@ -76,6 +76,19 @@ impl CliArgs {
             } => *log_class_names,
         }
     }
+
+    pub fn log_only_control_flow_insts(&self) -> bool {
+        match &self.command {
+            CliCommands::Run {
+                log_only_control_flow_insts,
+                ..
+            } => *log_only_control_flow_insts,
+            CliCommands::RunJar {
+                log_only_control_flow_insts,
+                ..
+            } => *log_only_control_flow_insts,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -89,6 +102,8 @@ enum CliCommands {
         abort_on_unsupported: bool,
         #[clap(long)]
         log_class_names: bool,
+        #[clap(long)]
+        log_only_control_flow_insts: bool,
     },
     RunJar {
         #[clap(parse(from_os_str), value_name = "JAR_FILE")]
@@ -97,6 +112,8 @@ enum CliCommands {
         abort_on_unsupported: bool,
         #[clap(long)]
         log_class_names: bool,
+        #[clap(long)]
+        log_only_control_flow_insts: bool,
     },
 }
 
@@ -297,6 +314,7 @@ fn make_state_conf(args: &CliArgs) -> StateConfig {
     };
     conf.abort_on_unsupported = args.abort_on_unsupported();
     conf.log_class_names = args.log_class_names();
+    conf.log_only_control_flow_insts = args.log_only_control_flow_insts();
     conf
 }
 

@@ -132,6 +132,8 @@ pub struct StateConfig {
     /// Whether it should log class names after execution of the code
     /// This makes it somewhat easier to diagnose issues where a class is not loaded when it should be
     pub log_class_names: bool,
+    /// Whether we should log only control flow instructions, like invokestatic and friends.
+    pub log_only_control_flow_insts: bool,
 }
 impl StateConfig {
     #[must_use]
@@ -143,6 +145,7 @@ impl StateConfig {
             max_stack_size: Some(MaxStackSize::default()),
             abort_on_unsupported: false,
             log_class_names: false,
+            log_only_control_flow_insts: false,
         }
     }
 
