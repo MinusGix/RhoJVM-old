@@ -7,6 +7,7 @@ use classfile_parser::{
     field_info::FieldInfoOpt,
 };
 use rhojvm_base::{
+    class,
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         types::{JavaChar, PrimitiveType},
@@ -714,58 +715,55 @@ pub(crate) fn make_invoke_static_method_handle(
         .get_t(reference_index)
         .ok_or(EvalError::InvalidConstantPoolIndex(reference_index))?;
 
-    if let ConstantInfo::MethodRef(method) = reference_value {
-        let name_and_type_index = method.name_and_type_index;
-        let class =
-            class_file
-                .get_t(method.class_index)
-                .ok_or(EvalError::InvalidConstantPoolIndex(
-                    method.class_index.into_generic(),
-                ))?;
-        // Get the name of the class the method is on
-        let target_class_id = {
-            let target_class_name = class_file.get_text_b(class.name_index).ok_or(
-                EvalError::InvalidConstantPoolIndex(class.name_index.into_generic()),
-            )?;
-            env.class_names.gcid_from_bytes(target_class_name)
+    let (nat_index, class_index) = match reference_value {
+        ConstantInfo::MethodRef(method) => (method.name_and_type_index, method.class_index),
+        ConstantInfo::InterfaceMethodRef(method) => {
+            if let Some(version) = class_file.version() {
+                if version.major < 52 {
+                    panic!("InterfaceMethodRef found for pre version 52 class file")
+                }
+            }
+
+            (method.name_and_type_index, method.class_index)
+        }
+        _ => panic!("MethodHandle constant info reference index was not a method ref"),
+    };
+
+    let class = class_file.getr(class_index)?;
+    // Get the name of the class/interface the method is on
+    let target_class_id = {
+        let target_class_name = class_file.getr_text_b(class.name_index)?;
+        env.class_names.gcid_from_bytes(target_class_name)
+    };
+    // Get the name of the method and the descriptor of it
+    let (target_method_name, target_desc) = {
+        let nat = class_file.getr(nat_index)?;
+        let target_method_name = class_file.getr_text_b(nat.name_index)?;
+
+        let target_desc = {
+            let target_desc = class_file.getr_text_b(nat.descriptor_index)?;
+            MethodDescriptor::from_text(target_desc, &mut env.class_names)
+                .map_err(EvalError::InvalidMethodDescriptor)?
         };
-        // Get the name of the method and the descriptor of it
-        let (target_method_name, target_desc) = {
-            let nat = class_file.get_t(name_and_type_index).ok_or(
-                EvalError::InvalidConstantPoolIndex(name_and_type_index.into_generic()),
-            )?;
-            let target_method_name = class_file.get_text_b(nat.name_index).ok_or(
-                EvalError::InvalidConstantPoolIndex(nat.name_index.into_generic()),
-            )?;
 
-            let target_desc = {
-                let target_desc = class_file.get_text_b(nat.descriptor_index).ok_or(
-                    EvalError::InvalidConstantPoolIndex(nat.descriptor_index.into_generic()),
-                )?;
-                MethodDescriptor::from_text(target_desc, &mut env.class_names)
-                    .map_err(EvalError::InvalidMethodDescriptor)?
-            };
+        (target_method_name, target_desc)
+    };
 
-            (target_method_name, target_desc)
-        };
-        // Unfortunately we have to collect since we need mutable access to class_files
-        let target_method_name: SmallVec<[_; 16]> = target_method_name.to_smallvec();
-        // Find the method
-        let target_method_id = env.methods.load_method_from_desc(
-            &mut env.class_names,
-            &mut env.class_files,
-            target_class_id,
-            &target_method_name,
-            &target_desc,
-        )?;
+    // Unfortunately we have to collect since we need mutable access to class_files
+    let target_method_name: SmallVec<[_; 16]> = target_method_name.to_smallvec();
+    // Find the method
+    let target_method_id = env.methods.load_method_from_desc(
+        &mut env.class_names,
+        &mut env.class_files,
+        target_class_id,
+        &target_method_name,
+        &target_desc,
+    )?;
 
-        let method_handle =
-            construct_method_handle(env, MethodHandleType::InvokeStatic(target_method_id))?;
+    let method_handle =
+        construct_method_handle(env, MethodHandleType::InvokeStatic(target_method_id))?;
 
-        Ok(method_handle)
-    } else {
-        panic!();
-    }
+    Ok(method_handle)
 }
 
 pub(crate) fn construct_method_handle(
