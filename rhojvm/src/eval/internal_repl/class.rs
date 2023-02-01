@@ -1,6 +1,6 @@
 use std::{borrow::Cow, num::NonZeroUsize};
 
-use classfile_parser::ClassAccessFlags;
+use classfile_parser::{field_info::FieldInfoOpt, ClassAccessFlags};
 use rhojvm_base::{
     class::{ArrayComponentType, ClassVariant},
     code::{
@@ -10,11 +10,12 @@ use rhojvm_base::{
     id::ClassId,
     util::convert_classfile_text,
 };
-use smallvec::smallvec;
+use smallvec::{smallvec, SmallVec};
 
 use crate::{
     class_instance::{
-        ClassInstance, Instance, ReferenceArrayInstance, ReferenceInstance, StaticFormInstance,
+        ClassInstance, FieldId, FieldIndex, Instance, ReferenceArrayInstance, ReferenceInstance,
+        StaticFormInstance,
     },
     eval::{
         eval_method,
@@ -323,6 +324,56 @@ pub(crate) extern "C" fn class_get_declared_field(
             .unwrap()
             .unwrap();
 
+    let field_ref = make_field(env, field_id, field_info);
+
+    unsafe { env.get_local_jobject_for(field_ref.into_generic()) }
+}
+
+/// `Field[] getDeclaredFields()`
+pub(crate) extern "C" fn class_get_declared_fields(env: *mut Env<'_>, this: JObject) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) };
+    let this = this.expect("Class get declared fields's this ref was null");
+    let this = this.unchecked_as::<StaticFormInstance>();
+
+    let this_id = env
+        .state
+        .gc
+        .deref(this)
+        .unwrap()
+        .of
+        .into_reference()
+        .unwrap();
+
+    let field_class_id = env.class_names.gcid_from_bytes(b"java/lang/reflect/Field");
+    let field_arr_id = env
+        .class_names
+        .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), field_class_id)
+        .unwrap();
+
+    let class_file = env.class_files.get(&this_id).unwrap();
+    let fields: SmallVec<[_; 10]> = class_file.load_field_values_iter().collect();
+
+    let mut decl_fields = Vec::new();
+    for (i, field_data) in fields.into_iter().enumerate() {
+        let field_idx = FieldIndex::new_unchecked(i as u16);
+        let field_id = FieldId::unchecked_compose(this_id, field_idx);
+        let (field_info, _) = field_data.map_err(GeneralError::ClassFileLoad).unwrap();
+
+        let field = make_field(env, field_id, field_info);
+        decl_fields.push(Some(field.into_generic()));
+    }
+
+    let decl_fields = ReferenceArrayInstance::new(field_arr_id, field_class_id, decl_fields);
+    let decl_fields = env.state.gc.alloc(decl_fields);
+
+    unsafe { env.get_local_jobject_for(decl_fields.into_generic()) }
+}
+
+fn make_field(env: &mut Env, field_id: FieldId, field_info: FieldInfoOpt) -> GcRef<ClassInstance> {
     let field_class_id = env.class_names.gcid_from_bytes(b"java/lang/reflect/Field");
     let field_internal_class_id = env.class_names.gcid_from_bytes(b"rho/InternalField");
 
@@ -400,7 +451,7 @@ pub(crate) extern "C" fn class_get_declared_field(
         env.state.gc.alloc(field)
     };
 
-    unsafe { env.get_local_jobject_for(field_ref.into_generic()) }
+    field_ref
 }
 
 /// `() -> Constructor<?>[]`

@@ -110,12 +110,9 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
 
     public native Constructor<?>[] getDeclaredConstructors();
 
-    // Defined by rhojvm
     public native Field getDeclaredField(String name);
 
-    public Field[] getDeclaredFields() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native Field[] getDeclaredFields();
 
     public Method getDeclaredMethod(String name, Class<?>... parameterTypes) {
         throw new UnsupportedOperationException("TODO: Implement this");
