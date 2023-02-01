@@ -1105,13 +1105,19 @@ fn resolve_class_interface(
         }
     }
 
-    // TODO: Currently we treat anonymous classes as accessible from everywhere, but that isn't
-    // really accurate!
+    // TODO: Currently we treat anonymous classes as being able to access anywhere and also being accessible from anywhere, which isn't accurate! I believe it should be using its base class
+    // for the accessing
+    let is_origin_anon = class_names
+        .name_from_gcid(origin_class_id)
+        .map(|(_, info)| info.is_anonymous())
+        .map_err(StepError::BadId)?;
     let is_anon = class_names
         .name_from_gcid(class_id)
         .map(|(_, info)| info.is_anonymous())
         .map_err(StepError::BadId)?;
+
     if !is_anon
+        && !is_origin_anon
         && !can_access_class_from_class(
             class_names,
             class_files,
