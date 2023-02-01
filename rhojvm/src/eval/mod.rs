@@ -591,10 +591,12 @@ pub fn eval_method(
         if let Some(class_file) = env.class_files.get(&class_id) {
             let method_name = class_file.get_text_b(method.name_index()).unwrap();
             let class_name = env.class_names.tpath(class_id);
+            let desc = method.descriptor().as_pretty_string(&env.class_names);
             tracing::info!(
-                "Executing Method: {}::{}",
+                "Executing Method: {}::{} {}",
                 class_name,
-                convert_classfile_text(method_name)
+                convert_classfile_text(method_name),
+                desc,
             );
         } else {
             tracing::info!("Executing Method (No Backing Class File):");
