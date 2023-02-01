@@ -755,6 +755,13 @@ pub fn eval_method(
             let third = method.descriptor().parameters()[2];
             match (first, second, third) {
                 (
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                    DescriptorType::Basic(DescriptorTypeBasic::Byte),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JLong, param2: JLong, param3: JByte));
+                }
+                (
                     DescriptorType::Array { .. }
                     | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
                     DescriptorType::Basic(DescriptorTypeBasic::Int),

@@ -73,6 +73,22 @@ impl MemoryBlocks {
         }
     }
 
+    #[allow(clippy::unused_self)]
+    pub unsafe fn write_repeat(&mut self, ptr: MemoryBlockPtr, count: usize, val: u8) {
+        let ptr = ptr.get();
+
+        assert!(
+            isize::try_from(count).is_ok(),
+            "Count was too big for proper pointer arithmetic"
+        );
+        for offset in 0..count {
+            #[allow(clippy::cast_possible_wrap)]
+            let offset = offset as isize;
+            let ptr_at = ptr.offset(offset);
+            *ptr_at = val;
+        }
+    }
+
     // TODO: Debug checks that ensure that pointers that we are writing to are inside our memory
     // blocks
 

@@ -21,6 +21,8 @@ public final class Unsafe {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
+    public native void setMemory(long address, long count, byte value);
+
     public native void freeMemory(long address);
 
     public native byte getByte(long address);

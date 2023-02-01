@@ -85,6 +85,36 @@ pub(crate) extern "C" fn unsafe_free_memory(env: *mut Env<'_>, _this: JObject, a
     env.state.mem_blocks.deallocate_block(address);
 }
 
+/// `void setMemory(long address, long count, byte value)`
+pub(crate) extern "C" fn unsafe_set_memory_n(
+    env: *mut Env<'_>,
+    _this: JObject,
+    address: JLong,
+    count: JLong,
+    value: JByte,
+) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    // Safety: We basically have to trust that it is valid.
+    let address = unsafe { conv_address(address) };
+
+    if count <= 0 {
+        return;
+    }
+
+    let count = count as u64;
+    let count: usize = count.try_into().unwrap();
+
+    let value = u8::from_be_bytes(i8::to_be_bytes(value));
+
+    // TODO: atomic
+    unsafe {
+        env.state.mem_blocks.write_repeat(address, count, value);
+    }
+}
+
 pub(crate) extern "C" fn unsafe_get_byte_ptr(
     env: *mut Env<'_>,
     _this: JObject,
