@@ -57,9 +57,7 @@ public final class Field extends AccessibleObject implements Member {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public Object get(Object obj) throws IllegalArgumentException, IllegalAccessException {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native Object get(Object obj) throws IllegalArgumentException, IllegalAccessException;
 
     public AnnotatedType getAnnotatedType() {
         throw new UnsupportedOperationException("TODO: Implement this");

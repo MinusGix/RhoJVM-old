@@ -7,7 +7,6 @@ use classfile_parser::{
     field_info::FieldInfoOpt,
 };
 use rhojvm_base::{
-    class,
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         types::{JavaChar, PrimitiveType},
@@ -17,7 +16,7 @@ use rhojvm_base::{
     package::Packages,
     util::MemorySize,
 };
-use smallvec::{SmallVec, ToSmallVec};
+use smallvec::{smallvec, SmallVec, ToSmallVec};
 use sysinfo::{RefreshKind, SystemExt};
 
 use crate::{
@@ -68,6 +67,15 @@ macro_rules! exc_value {
 /// A macro intended to make extracting a value from a `EvalMethodValue` easier.
 #[macro_export]
 macro_rules! exc_eval_value {
+    (ret (expect_void: ) ($name:expr): $v:expr) => {
+        match $v {
+            EvalMethodValue::ReturnVoid => (),
+            EvalMethodValue::Exception(exc) => return Ok(ValueException::Exception(exc)),
+            EvalMethodValue::Return(_) => {
+                unreachable!("Return value from function ({:?}), expected void", $name)
+            }
+        }
+    };
     (ret inst (expect_return: ) ($name:expr): $v:expr) => {
         match $v {
             EvalMethodValue::Return(x) => x,
@@ -667,6 +675,77 @@ pub(crate) fn make_class_form_of(
     debug_assert!(class_info.class_ref.is_none(), "If this is false then we've initialized it in between our check, which could be an issue? Though it also seems completely possible.");
     class_info.class_ref = Some(static_form_ref);
     Ok(ValueException::Value(static_form_ref))
+}
+
+/// Convert the runtimevalue into object form.  
+/// Primtives are boxed into their respective classes.
+pub(crate) fn rv_into_object(
+    env: &mut Env,
+    rv: RuntimeValue,
+) -> Result<ValueException<Option<GcRef<ReferenceInstance>>>, GeneralError> {
+    match rv {
+        RuntimeValue::Primitive(p) => {
+            let class_id = match p {
+                RuntimeValuePrimitive::I64(_) => env.class_names.gcid_from_bytes(b"java/lang/Long"),
+                RuntimeValuePrimitive::I32(_) => {
+                    env.class_names.gcid_from_bytes(b"java/lang/Integer")
+                }
+                RuntimeValuePrimitive::I16(_) => {
+                    env.class_names.gcid_from_bytes(b"java/lang/Short")
+                }
+                RuntimeValuePrimitive::I8(_) => env.class_names.gcid_from_bytes(b"java/lang/Byte"),
+                RuntimeValuePrimitive::F64(_) => {
+                    env.class_names.gcid_from_bytes(b"java/lang/Double")
+                }
+                RuntimeValuePrimitive::F32(_) => {
+                    env.class_names.gcid_from_bytes(b"java/lang/Float")
+                }
+                RuntimeValuePrimitive::Bool(_) => {
+                    env.class_names.gcid_from_bytes(b"java/lang/Boolean")
+                }
+                RuntimeValuePrimitive::Char(_) => {
+                    env.class_names.gcid_from_bytes(b"java/lang/Character")
+                }
+            };
+
+            let static_ref = initialize_class(env, class_id)?.into_value();
+            let static_ref = exc_value!(ret: static_ref);
+
+            // Get the method
+            let descriptor = MethodDescriptor::new(
+                smallvec![
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(class_id)),
+                    DescriptorType::Basic(p.runtime_type().to_desc_type_basic()),
+                ],
+                None,
+            );
+            let constructor_id = env.methods.load_method_from_desc(
+                &mut env.class_names,
+                &mut env.class_files,
+                class_id,
+                b"<init>",
+                &descriptor,
+            )?;
+
+            // Create the instance
+            let fields = exc_value!(ret: make_instance_fields(env, class_id)?);
+            let instance = ClassInstance::new(class_id, static_ref, fields);
+
+            let instance_ref = env.state.gc.alloc(instance);
+
+            // Call the method
+            let locals =
+                Locals::new_with_array([RuntimeValue::Reference(instance_ref.into_generic()), rv]);
+            let frame = Frame::new_locals(locals);
+
+            let res = eval_method(env, constructor_id.into(), frame)?;
+            exc_eval_value!(ret (expect_void: )("primitive constructor"): res);
+
+            Ok(ValueException::Value(Some(instance_ref.into_generic())))
+        }
+        RuntimeValue::NullReference => Ok(ValueException::Value(None)),
+        RuntimeValue::Reference(r) => Ok(ValueException::Value(Some(r))),
+    }
 }
 
 pub(crate) fn make_method_handle(

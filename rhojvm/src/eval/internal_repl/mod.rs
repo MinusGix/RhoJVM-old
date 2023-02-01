@@ -146,6 +146,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_Class_isInterface" => into_opaque2ret(class::class_is_interface),
             // reflect/Field
             b"Java_java_lang_reflect_Field_getType" => into_opaque2ret(field::field_get_type),
+            b"Java_java_lang_reflect_Field_get" => into_opaque3ret(field::field_get),
             // reflect/Array
             b"Java_java_lang_reflect_Array_newInstanceArray" => {
                 into_opaque4ret(reflect_array::array_new_instance)

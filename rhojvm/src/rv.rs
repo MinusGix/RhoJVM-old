@@ -530,6 +530,19 @@ impl RuntimeTypePrimitive {
         })
     }
 
+    pub fn to_desc_type_basic(self) -> DescriptorTypeBasic {
+        match self {
+            RuntimeTypePrimitive::I8 => DescriptorTypeBasic::Byte,
+            RuntimeTypePrimitive::Bool => DescriptorTypeBasic::Boolean,
+            RuntimeTypePrimitive::I16 => DescriptorTypeBasic::Short,
+            RuntimeTypePrimitive::I32 => DescriptorTypeBasic::Int,
+            RuntimeTypePrimitive::I64 => DescriptorTypeBasic::Long,
+            RuntimeTypePrimitive::F32 => DescriptorTypeBasic::Float,
+            RuntimeTypePrimitive::F64 => DescriptorTypeBasic::Double,
+            RuntimeTypePrimitive::Char => DescriptorTypeBasic::Char,
+        }
+    }
+
     #[must_use]
     pub fn is_long(&self) -> bool {
         matches!(self, RuntimeTypePrimitive::I64)
