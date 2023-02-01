@@ -51,6 +51,7 @@ fn grab_runtime_value_from_stack_for_function(
     class_files: &mut ClassFiles,
     classes: &mut Classes,
     packages: &mut Packages,
+    methods: &Methods,
     state: &mut State,
     frame: &mut Frame,
     target: &DescriptorType,
@@ -120,7 +121,13 @@ fn grab_runtime_value_from_stack_for_function(
                     } else {
                         todo!(
                             "Type was not castable: {} -> {}",
-                            ref_info(class_names, &state.gc, Some(p_ref.into_generic())),
+                            ref_info(
+                                class_names,
+                                class_files,
+                                methods,
+                                state,
+                                Some(p_ref.into_generic())
+                            ),
                             class_names.tpath(*target_id)
                         );
                     }
@@ -261,6 +268,7 @@ fn invoke_static_method(
             &mut env.class_files,
             &mut env.classes,
             &mut env.packages,
+            &mut env.methods,
             &mut env.state,
             frame,
             parameter,
@@ -462,11 +470,13 @@ impl RunInstContinue for InvokeInterface {
 
         let mut locals = Locals::default();
         for parameter in method_descriptor.parameters().iter().rev() {
+            tracing::info!("Loading local from stack");
             let value = grab_runtime_value_from_stack_for_function(
                 &mut env.class_names,
                 &mut env.class_files,
                 &mut env.classes,
                 &mut env.packages,
+                &mut env.methods,
                 &mut env.state,
                 frame,
                 parameter,
@@ -625,6 +635,7 @@ impl RunInstContinue for InvokeSpecial {
                 &mut env.class_files,
                 &mut env.classes,
                 &mut env.packages,
+                &mut env.methods,
                 &mut env.state,
                 frame,
                 parameter,
@@ -950,6 +961,7 @@ impl RunInstContinue for InvokeVirtual {
                 &mut env.class_files,
                 &mut env.classes,
                 &mut env.packages,
+                &mut env.methods,
                 &mut env.state,
                 frame,
                 parameter,
@@ -1133,7 +1145,6 @@ impl RunInstContinue for InvokeDynamic {
 
             // Get the instance of the bootstrap method
             let mh_inst = env.state.gc.deref(method_handle).unwrap();
-            tracing::info!("MH Inst: {:?}", mh_inst);
 
             match mh_inst.typ {
                 MethodHandleType::Constant { value, .. } => {
@@ -1311,18 +1322,20 @@ impl RunInstContinue for InvokeDynamic {
         };
 
         tracing::info!("== Invoking CallSite method ==");
-        match &target_inst.typ {
+        match target_inst.typ.clone() {
             MethodHandleType::Constant { value, .. } => {
                 tracing::info!(
                     "Invoking constant method handle: {}",
                     ref_info(
-                        &env.class_names,
-                        &env.state.gc,
+                        &mut env.class_names,
+                        &env.class_files,
+                        &env.methods,
+                        &mut env.state,
                         value.map(GcRef::unchecked_as)
                     )
                 );
                 if let Some(value) = value {
-                    frame.stack.push(RuntimeValue::Reference(*value))?;
+                    frame.stack.push(RuntimeValue::Reference(value))?;
                 } else {
                     frame.stack.push(RuntimeValue::NullReference)?;
                 }
@@ -1331,7 +1344,7 @@ impl RunInstContinue for InvokeDynamic {
             MethodHandleType::InvokeStatic(inv_method_id) => {
                 tracing::info!("Invoking static method");
                 let res =
-                    invoke_static_method(env, frame, *inv_method_id, method_id.into(), inst_index);
+                    invoke_static_method(env, frame, inv_method_id, method_id.into(), inst_index);
                 tracing::info!("Finished static method");
                 res
             }

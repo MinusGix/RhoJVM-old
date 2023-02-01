@@ -26,10 +26,11 @@ use crate::{
         StaticFormInstance,
     },
     eval::{
-        eval_method, instances::make_instance_fields, EvalError, EvalMethodValue, Frame, Locals,
-        ValueException,
+        eval_method, instances::make_instance_fields,
+        internal_repl::method_type::method_type_to_desc_string, EvalError, EvalMethodValue, Frame,
+        Locals, ValueException,
     },
-    gc::{Gc, GcRef},
+    gc::GcRef,
     initialize_class,
     jni::{native_interface::NativeInterface, JObject},
     resolve_derive,
@@ -875,12 +876,63 @@ pub(crate) fn construct_byte_array_input_stream(
     Ok(ValueException::Value(bai_ref))
 }
 
-pub(crate) fn ref_info(class_names: &ClassNames, gc: &Gc, re: Option<GcRef<Instance>>) -> String {
+pub(crate) fn mh_info(
+    class_names: &mut ClassNames,
+    class_files: &ClassFiles,
+    methods: &Methods,
+    state: &mut State,
+    re: GcRef<MethodHandleInstance>,
+) -> String {
+    let method = state.gc.deref(re).unwrap();
+    match method.typ {
+        MethodHandleType::Constant { value, return_ty } => {
+            format!(
+                "MethodHandle(Constant(Value: {}, Return As: {:?}))",
+                ref_info(
+                    class_names,
+                    class_files,
+                    methods,
+                    state,
+                    value.map(GcRef::unchecked_as)
+                ),
+                return_ty
+            )
+        }
+        MethodHandleType::InvokeStatic(id) => {
+            let Some(method) = methods.get(&id) else {
+                return "MethodHandle(InvokeStatic(<Bad MethodId>))".to_string();
+            };
+
+            let class_id = method.id().decompose().0;
+            let desc = method.descriptor();
+            let name = class_files
+                .get(&class_id)
+                .unwrap()
+                .get_text_t(method.name_index())
+                .unwrap();
+
+            format!(
+                "MethodHandle(InvokeStatic({}::{}, {}))",
+                class_names.tpath(class_id),
+                name,
+                desc.as_pretty_string(class_names)
+            )
+        }
+    }
+}
+
+pub(crate) fn ref_info(
+    class_names: &mut ClassNames,
+    class_files: &ClassFiles,
+    methods: &Methods,
+    state: &mut State,
+    re: Option<GcRef<Instance>>,
+) -> String {
     let Some(re) = re else {
         return "<Null>".to_string()
     };
 
-    let Some(inst) = gc.deref(re) else {
+    let Some(inst) = state.gc.deref(re) else {
         return "<Bad GCRef>".to_string()
     };
 
@@ -890,11 +942,30 @@ pub(crate) fn ref_info(class_names: &ClassNames, gc: &Gc, re: Option<GcRef<Insta
             let name = class_names.tpath(id);
             format!("StaticClass({})", name)
         }
-        Instance::Reference(re) => match re {
+        Instance::Reference(inst) => match inst {
             ReferenceInstance::Class(class) => {
                 let id = class.instanceof;
-                let name = class_names.tpath(id);
-                format!("Class({})", name)
+                let name = class_names.tpath(id).to_string();
+                if name.is_empty() {
+                    format!("Class(ANON:{})", id.get())
+                } else if id == class_names.gcid_from_bytes(b"java/lang/String") {
+                    let text =
+                        get_string_contents_as_rust_string(class_files, class_names, state, re)
+                            .unwrap();
+                    format!("Class(java/lang/String = {:?})", text)
+                } else if id == class_names.gcid_from_bytes(b"java/lang/invoke/MethodType") {
+                    format!(
+                        "Class(java/lang/invoke/MethodType = {})",
+                        method_type_to_desc_string(
+                            class_names,
+                            class_files,
+                            &state.gc,
+                            re.unchecked_as()
+                        )
+                    )
+                } else {
+                    format!("Class({})", name)
+                }
             }
             ReferenceInstance::StaticForm(form) => {
                 let t = match form.of {
@@ -910,8 +981,7 @@ pub(crate) fn ref_info(class_names: &ClassNames, gc: &Gc, re: Option<GcRef<Insta
             }
             ReferenceInstance::Thread(_t) => "Thread".to_string(),
             ReferenceInstance::MethodHandle(_handle) => {
-                // TODO: include information about the method handle
-                "MethodHandle".to_string()
+                mh_info(class_names, class_files, methods, state, re.unchecked_as())
             }
             ReferenceInstance::MethodHandleInfo(_info) => "MethodHandleInfo".to_string(),
             ReferenceInstance::PrimitiveArray(arr) => {

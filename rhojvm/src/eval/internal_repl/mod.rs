@@ -10,7 +10,7 @@ mod constructor;
 pub mod field;
 pub mod method_handle;
 pub mod method_handle_info;
-mod method_type;
+pub mod method_type;
 mod object;
 mod primitive;
 pub mod reflect_array;

@@ -14,6 +14,7 @@ use crate::{
         ClassInstance, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceArrayInstance,
         ReferenceInstance, StaticFormInstance,
     },
+    initialize_class,
     jni::{JByte, JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JShort},
     memblock::MemoryBlockPtr,
     rv::{RuntimeValue, RuntimeValuePrimitive},
@@ -656,8 +657,14 @@ pub(crate) extern "C" fn unsafe_define_anon_class(
 
         class_file
     };
-    let class_file =
-        AnonBasedClassFileData::new(new_class_id, base_class_of, data, opt, patches, shadow_text);
+    let class_file = AnonBasedClassFileData::new(
+        new_class_id,
+        base_class_of,
+        data.clone(),
+        opt,
+        patches,
+        shadow_text,
+    );
 
     env.class_files
         .set_at_unchecked(new_class_id, ClassFileInfo::AnonBased(class_file));
@@ -667,6 +674,12 @@ pub(crate) extern "C" fn unsafe_define_anon_class(
     let Some(static_form) = env.state.extract_value(static_form) else {
         return JObject::null();
     };
+
+    let res = initialize_class(env, new_class_id).unwrap().into_value();
+    let _res = env.state.extract_value(res).unwrap();
+
+    tracing::info!("Defined anonymous class: {:?}", new_class_id);
+    // std::fs::write(format!("./anon_{}.class", new_class_id.get()), &data).unwrap();
 
     unsafe { env.get_local_jobject_for(static_form.into_generic()) }
 }
