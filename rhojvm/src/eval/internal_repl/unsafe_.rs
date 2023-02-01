@@ -602,11 +602,42 @@ pub(crate) extern "C" fn unsafe_get_and_add_int(
     // safety for this to be fine to turn into a reference
     let env = unsafe { &mut *env };
 
+    // TODO: atomically
     let mut gotten_value = None;
     modify_field_value(env, target, offset, |val| {
         let current_val = val.into_i32().expect("Field value should be int");
         gotten_value = Some(current_val);
         RuntimeValuePrimitive::I32(current_val.overflowing_add(add_val).0).into()
+    });
+
+    if let Some(gotten_value) = gotten_value {
+        gotten_value
+    } else {
+        panic!();
+    }
+}
+
+/// sun/misc/Unsafe
+/// `long getAndAddLong(Object src, long offset, long delta);`
+pub(crate) extern "C" fn unsafe_get_and_add_long(
+    env: *mut Env<'_>,
+    _this: JObject,
+    target: JObject,
+    offset: JLong,
+    add_val: JLong,
+) -> JLong {
+    assert!(!env.is_null(), "Env was null when passed to sun/misc/Unsafe objectFieldOffset, which is indicative of an internal bug.");
+
+    // SAFETY: We already checked that it is not null, and we rely on native method calling's
+    // safety for this to be fine to turn into a reference
+    let env = unsafe { &mut *env };
+
+    // TODO: atomically
+    let mut gotten_value = None;
+    modify_field_value(env, target, offset, |val| {
+        let current_val = val.into_i64().expect("Field value should be long");
+        gotten_value = Some(current_val);
+        RuntimeValuePrimitive::I64(current_val.overflowing_add(add_val).0).into()
     });
 
     if let Some(gotten_value) = gotten_value {

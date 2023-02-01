@@ -115,6 +115,8 @@ public final class Unsafe {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
+    public native long getAndAddLong(Object src, long offset, long val);
+
     public int getInt(Object o, long offset) {
         return this.getIntField(o, offset);
     }
