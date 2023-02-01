@@ -18,7 +18,7 @@ use rhojvm::{
     rv::RuntimeValue,
     string_intern::StringInterner,
     util::{get_string_contents_as_rust_string, Env},
-    verify_from_entrypoint, GeneralError, State, StateConfig, ThreadData,
+    verify_from_entrypoint, GeneralError, ResolveError, State, StateConfig, ThreadData,
 };
 use rhojvm_base::{
     code::method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
@@ -528,6 +528,14 @@ fn execute_class_name(
 fn make_error_pretty(env: &Env, err: GeneralError) -> String {
     match &err {
         GeneralError::Step(step) => match step {
+            StepError::BadId(id) => {
+                format!(
+                    "Bad Id: {:?} for '{}'; Raw: {:?};",
+                    id.id,
+                    env.class_names.tpath(id.id),
+                    env.class_names.name_from_gcid(id.id)
+                )
+            }
             StepError::LoadMethod(m) => match m {
                 LoadMethodError::NonexistentMethodName { class_id, name } => {
                     let class_name = env.class_names.tpath(*class_id);
@@ -537,6 +545,17 @@ fn make_error_pretty(env: &Env, err: GeneralError) -> String {
             },
             // TODO
             _ => format!("{:?}", err),
+        },
+        GeneralError::Resolve(resolve) => match resolve {
+            ResolveError::InaccessibleClass { from, target } => {
+                format!(
+                    "Inaccessible class: '{}' ({:?}) -> '{}' ({:?})",
+                    env.class_names.tpath(*from),
+                    from,
+                    env.class_names.tpath(*target),
+                    target
+                )
+            }
         },
         // TODO
         _ => format!("{:?}", err),
