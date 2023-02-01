@@ -214,6 +214,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_java_lang_Long_toString" => into_opaque4ret(primitive::long_to_string),
             b"Java_java_lang_Long_parseInt" => into_opaque4ret(primitive::long_parse_int),
+            // Unsafe info
+            b"Java_sun_misc_Unsafe_addressSize" => into_opaque2ret(unsafe_::unsafe_address_size),
+            b"Java_sun_misc_Unsafe_pageSize" => into_opaque2ret(unsafe_::unsafe_page_size),
             // Unsafe allocation
             b"Java_sun_misc_Unsafe_allocateMemory" => {
                 into_opaque3ret(unsafe_::unsafe_allocate_memory)

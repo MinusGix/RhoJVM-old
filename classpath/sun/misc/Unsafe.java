@@ -11,6 +11,10 @@ public final class Unsafe {
         return instance;
     }
 
+    public native int addressSize();
+
+    public native int pageSize();
+
     public native long allocateMemory(long bytes);
 
     public void setMemory(Object base, long offset, long count, byte value) {

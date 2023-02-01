@@ -23,6 +23,28 @@ use crate::{
 
 pub(crate) type JAddress = JLong;
 
+pub(crate) extern "C" fn unsafe_address_size(env: *mut Env<'_>, _this: JObject) -> JInt {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let _env = unsafe { &mut *env };
+
+    if cfg!(target_pointer_width = "64") {
+        8
+    } else if cfg!(target_pointer_width = "32") {
+        4
+    } else {
+        panic!("Unsupported pointer width");
+    }
+}
+
+pub(crate) extern "C" fn unsafe_page_size(env: *mut Env<'_>, _this: JObject) -> JInt {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let _env = unsafe { &mut *env };
+
+    page_size::get().try_into().unwrap()
+}
+
 pub(crate) extern "C" fn unsafe_allocate_memory(
     env: *mut Env<'_>,
     _this: JObject,
