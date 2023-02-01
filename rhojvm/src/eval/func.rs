@@ -1115,6 +1115,17 @@ impl RunInstContinue for InvokeDynamic {
                 exc_value!(ret inst: make_method_handle(env, class_id, &method_handle_con)?)
             };
 
+            tracing::info!(
+                "MethodHandle: {}",
+                ref_info(
+                    &mut env.class_names,
+                    &env.class_files,
+                    &env.methods,
+                    &mut env.state,
+                    Some(method_handle.unchecked_as())
+                )
+            );
+
             // TODO: method type?
             // References to bootstrap method arguments
             let mut bargs_rv = Vec::with_capacity(b_method.bootstrap_arguments.len());
@@ -1124,6 +1135,8 @@ impl RunInstContinue for InvokeDynamic {
                     exc_value!(ret inst: bootstrap_method_arg_to_rv(env, class_id, barg_idx)?),
                 );
             }
+
+            tracing::info!("Bootstrap args: {:?}", bargs_rv);
 
             // Reget the class file
             let class_file = env
@@ -1142,6 +1155,17 @@ impl RunInstContinue for InvokeDynamic {
 
                 exc_value!(ret inst: make_method_type(env, &inv_desc)?)
             };
+
+            tracing::info!(
+                "MethodType: {}",
+                ref_info(
+                    &mut env.class_names,
+                    &env.class_files,
+                    &env.methods,
+                    &mut env.state,
+                    Some(method_type.unchecked_as())
+                )
+            );
 
             // Get the instance of the bootstrap method
             let mh_inst = env.state.gc.deref(method_handle).unwrap();
@@ -1342,6 +1366,7 @@ impl RunInstContinue for InvokeDynamic {
                 Ok(RunInstContinueValue::Continue)
             }
             MethodHandleType::InvokeStatic(inv_method_id) => {
+                // TODO: Does this work for inv method ids that are for interfaces???
                 tracing::info!("Invoking static method");
                 let res =
                     invoke_static_method(env, frame, inv_method_id, method_id.into(), inst_index);
@@ -1437,6 +1462,11 @@ fn make_method_type(
             };
 
             locals.push_transform(RuntimeValue::Reference(form.into_generic()));
+        } else {
+            // Get void.class
+            let void_class = make_primitive_class_form_of(env, None)?;
+            let void_class = exc_value!(ret: void_class);
+            locals.push_transform(RuntimeValue::Reference(void_class.into_generic()));
         }
 
         let mut parameters = Vec::new();
