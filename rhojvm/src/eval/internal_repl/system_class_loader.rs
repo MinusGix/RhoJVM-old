@@ -174,3 +174,34 @@ pub(crate) extern "C" fn system_class_loader_get_resources(
         }
     }
 }
+
+pub(crate) extern "C" fn system_class_loader_get_resource(
+    env: *mut Env<'_>,
+    _: JObject,
+    name: JString,
+) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let name = unsafe { env.get_jobject_as_gcref(name) };
+    let Some(resource_name_ref) = name else {
+        todo!("NPE")
+    };
+
+    let resource_name = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        resource_name_ref,
+    )
+    .unwrap();
+
+    tracing::info!("Get resource: {}", resource_name);
+
+    if env.class_files.loader.has_resource(&resource_name) {
+        tracing::info!("Found resource: {}", resource_name);
+        unsafe { env.get_local_jobject_for(resource_name_ref.into_generic()) }
+    } else {
+        JObject::null()
+    }
+}

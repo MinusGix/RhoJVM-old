@@ -69,7 +69,7 @@ public abstract class ClassLoader {
     }
 
     public URL getResource(String name) {
-        throw new UnsupportedOperationException("TODO");
+        return SystemClassLoader.systemLoader.getResource(name);
     }
 
     public InputStream getResourceAsStream(String name) {
