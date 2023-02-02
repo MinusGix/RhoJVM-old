@@ -112,6 +112,7 @@ struct Properties {
 
     username: Cow<'static, str>,
     user_home: Cow<'static, str>,
+    user_language: Cow<'static, str>,
     java_library_path: Cow<'static, str>,
 }
 impl Properties {
@@ -177,6 +178,8 @@ impl Properties {
             user_home: dirs::home_dir()
                 .and_then(|x| x.to_str().map(ToString::to_string))
                 .map_or(Cow::Borrowed("?"), Cow::Owned),
+            // TODO: Detect this from system? Provide a setting to override it?
+            user_language: Cow::Borrowed("en"),
             // TODO: Give a good value?
             java_library_path: Cow::Borrowed(""),
         }
@@ -205,6 +208,8 @@ impl Properties {
             user_home: dirs::home_dir()
                 .and_then(|x| x.to_str().map(ToString::to_string))
                 .map_or(Cow::Borrowed("?"), Cow::Owned),
+            // TODO: Detect this from system? Provide a setting to override it?
+            user_language: Cow::Borrowed("en"),
             // TODO: Give a good value?
             java_library_path: Cow::Borrowed(""),
         }
@@ -213,7 +218,7 @@ impl Properties {
 impl IntoIterator for Properties {
     type Item = (&'static str, Cow<'static, str>);
 
-    type IntoIter = std::array::IntoIter<Self::Item, 12>;
+    type IntoIter = std::array::IntoIter<Self::Item, 13>;
 
     fn into_iter(self) -> Self::IntoIter {
         [
@@ -228,6 +233,7 @@ impl IntoIterator for Properties {
             ("java.io.tmpdir", self.tmpdir),
             ("user.name", self.username),
             ("user.home", self.user_home),
+            ("user.language", self.user_language),
             ("java.library.path", self.java_library_path),
         ]
         .into_iter()
