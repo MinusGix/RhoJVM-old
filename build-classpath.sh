@@ -36,7 +36,7 @@ JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/I
 JFILES="$JFILES ./rho/invoke/MethodHandleInst.java ./rho/invoke/MethodHandleInfoInst.java ./rho/invoke/MainMethodHandle.java"
 
 # rho/util/
-JFILES="$JFILES ./rho/util/EmptyEnumeration.java ./rho/util/SingleEnumeration.java"
+JFILES="$JFILES ./rho/util/EmptyEnumeration.java ./rho/util/SingleEnumeration.java ./rho/util/Log.java"
 
 echo $JFILES
 # Compile them all

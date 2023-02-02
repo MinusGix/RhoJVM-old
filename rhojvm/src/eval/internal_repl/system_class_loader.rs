@@ -66,6 +66,8 @@ pub(crate) extern "C" fn system_class_loader_get_system_resouce_as_stream(
     )
     .unwrap();
 
+    tracing::info!("get_system_resource_as_stream: {}", resource_name);
+
     let resource = env
         .class_files
         .loader

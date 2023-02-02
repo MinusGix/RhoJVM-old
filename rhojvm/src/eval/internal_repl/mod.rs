@@ -8,6 +8,7 @@ use crate::{
 mod class;
 mod constructor;
 pub mod field;
+pub mod log;
 pub mod method_handle;
 pub mod method_handle_info;
 pub mod method_type;
@@ -183,6 +184,10 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_rho_invoke_MethodHandleInfoInst_getName" => {
                 into_opaque2ret(method_handle_info::mh_info_get_name)
             }
+            // rho/util/Log
+            b"Java_rho_util_Log_info" => into_opaque3ret(log::info),
+            b"Java_rho_util_Log_warn" => into_opaque3ret(log::warn),
+            b"Java_rho_util_Log_error" => into_opaque3ret(log::error),
             // System
             b"Java_java_lang_System_setProperties" => {
                 into_opaque3ret(system::system_set_properties)
