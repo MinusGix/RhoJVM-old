@@ -89,11 +89,15 @@ pub(crate) extern "C" fn system_set_properties(env: *mut Env<'_>, _this: JObject
     }
 }
 
+const RUNTIME_NAME: &str = "RhoJVM";
+
 // Disallow dead code so that no properties are ignored!
 // This guards against us adding a property but forgetting to add it to the iterator which will
 // initialize them all
 #[deny(dead_code)]
 struct Properties {
+    runtime_name: &'static str,
+
     file_sep: &'static str,
     line_sep: &'static str,
     /// Separate paths in a list
@@ -154,6 +158,7 @@ impl Properties {
 
     fn windows_properties() -> Properties {
         Properties {
+            runtime_name: RUNTIME_NAME,
             file_sep: "\\",
             line_sep: "\n",
             path_sep: ";",
@@ -179,6 +184,7 @@ impl Properties {
 
     fn unix_properties(sys: &sysinfo::System) -> Properties {
         Properties {
+            runtime_name: RUNTIME_NAME,
             file_sep: "/",
             line_sep: "\n",
             path_sep: ":",
@@ -207,11 +213,11 @@ impl Properties {
 impl IntoIterator for Properties {
     type Item = (&'static str, Cow<'static, str>);
 
-    type IntoIter = std::array::IntoIter<Self::Item, 11>;
+    type IntoIter = std::array::IntoIter<Self::Item, 12>;
 
     fn into_iter(self) -> Self::IntoIter {
-        // TODO: Could we provide a compile error if we don't use all the fields?
         [
+            ("java.runtime.name", Cow::Borrowed(self.runtime_name)),
             ("file.separator", Cow::Borrowed(self.file_sep)),
             ("line.separator", Cow::Borrowed(self.line_sep)),
             ("path.separator", Cow::Borrowed(self.path_sep)),
