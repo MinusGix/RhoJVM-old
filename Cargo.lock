@@ -671,6 +671,7 @@ dependencies = [
  "clap",
  "classfile-parser",
  "either",
+ "indexmap",
  "rhojvm",
  "rhojvm-base",
  "rhojvm-class-loaders",

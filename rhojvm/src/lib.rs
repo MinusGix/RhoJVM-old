@@ -40,6 +40,7 @@ use classfile_parser::{
 };
 use eval::{instances::make_fields, EvalError, EvalMethodValue};
 use gc::{Gc, GcRef};
+use indexmap::IndexMap;
 use jni::native_lib::{FindSymbolError, LoadLibraryError, NativeLibrariesStatic};
 use memblock::MemoryBlocks;
 use method::MethodInfo;
@@ -134,6 +135,8 @@ pub struct StateConfig {
     pub log_class_names: bool,
     /// Whether we should log only control flow instructions, like invokestatic and friends.
     pub log_only_control_flow_insts: bool,
+    /// Custom set properties, like through `-D key=value`
+    pub properties: IndexMap<String, String>,
 }
 impl StateConfig {
     #[must_use]
@@ -146,6 +149,7 @@ impl StateConfig {
             abort_on_unsupported: false,
             log_class_names: false,
             log_only_control_flow_insts: false,
+            properties: IndexMap::new(),
         }
     }
 

@@ -36,8 +36,10 @@ use rhojvm_base::{
 use rhojvm_class_loaders::{jar_loader::JarClassFileLoader, util::CombineLoader, ClassDirectories};
 use stack_map_verifier::StackMapVerificationLogging;
 use tracing_subscriber::layer::SubscriberExt;
+use util::parse_key_val_properties;
 
 mod formatter;
+pub mod util;
 
 // TODO: We should provide some separate binary wrapper
 //   (or maybe a command line argument? but that isn't as portable to a wide variety of programs)
@@ -89,6 +91,13 @@ impl CliArgs {
             } => *log_only_control_flow_insts,
         }
     }
+
+    pub fn properties(&self) -> &[String] {
+        match &self.command {
+            CliCommands::Run { properties, .. } => properties,
+            CliCommands::RunJar { properties, .. } => properties,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -104,6 +113,8 @@ enum CliCommands {
         log_class_names: bool,
         #[clap(long)]
         log_only_control_flow_insts: bool,
+        #[clap(value_name = "PROPERTY=VALUE", short = 'D')]
+        properties: Vec<String>,
     },
     RunJar {
         #[clap(parse(from_os_str), value_name = "JAR_FILE")]
@@ -114,6 +125,8 @@ enum CliCommands {
         log_class_names: bool,
         #[clap(long)]
         log_only_control_flow_insts: bool,
+        #[clap(value_name = "PROPERTY=VALUE", short = 'D')]
+        properties: Vec<String>,
     },
 }
 
@@ -315,6 +328,7 @@ fn make_state_conf(args: &CliArgs) -> StateConfig {
     conf.abort_on_unsupported = args.abort_on_unsupported();
     conf.log_class_names = args.log_class_names();
     conf.log_only_control_flow_insts = args.log_only_control_flow_insts();
+    conf.properties = parse_key_val_properties(args.properties());
     conf
 }
 

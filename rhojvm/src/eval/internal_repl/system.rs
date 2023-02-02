@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use indexmap::IndexMap;
 use rhojvm_base::code::{
     method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
     types::JavaChar,
@@ -14,6 +15,7 @@ use crate::{
     jni::{JClass, JInt, JLong, JObject, JString},
     rv::{RuntimeValue, RuntimeValuePrimitive},
     util::{construct_string, get_string_contents_as_rust_string, Env},
+    StateConfig,
 };
 
 /// Initialize properties based on operating system
@@ -53,7 +55,7 @@ pub(crate) extern "C" fn system_set_properties(env: *mut Env<'_>, _this: JObject
 
     // TODO: We could lessen the work a bit by writing as ascii
     // or directly as utf-16
-    for (property_name, property_value) in properties {
+    for (property_name, property_value) in properties.into_iter() {
         let property_name = property_name
             .encode_utf16()
             .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
@@ -114,20 +116,22 @@ struct Properties {
     user_home: Cow<'static, str>,
     user_language: Cow<'static, str>,
     java_library_path: Cow<'static, str>,
+
+    extra: IndexMap<String, String>,
 }
 impl Properties {
     // TODO: Can we warn/error at compile time if there is unknown data?
     fn get_properties(env: &mut Env) -> Properties {
         // TODO: Is line sep correct?
         if cfg!(target_os = "windows") || cfg!(target_family = "windows") {
-            Properties::windows_properties()
+            Properties::windows_properties(&env.state.conf)
         } else if cfg!(unix) {
             // FIXME: Provide more detailed names and information
             // for MacOS
-            Properties::unix_properties(&env.system_info)
+            Properties::unix_properties(&env.state.conf, &env.system_info)
         } else {
             tracing::warn!("No target os/family detected, assuming unix");
-            Properties::unix_properties(&env.system_info)
+            Properties::unix_properties(&env.state.conf, &env.system_info)
         }
     }
 
@@ -157,7 +161,7 @@ impl Properties {
         }
     }
 
-    fn windows_properties() -> Properties {
+    fn windows_properties(conf: &StateConfig) -> Properties {
         Properties {
             runtime_name: RUNTIME_NAME,
             file_sep: "\\",
@@ -182,10 +186,11 @@ impl Properties {
             user_language: Cow::Borrowed("en"),
             // TODO: Give a good value?
             java_library_path: Cow::Borrowed(""),
+            extra: conf.properties.clone(),
         }
     }
 
-    fn unix_properties(sys: &sysinfo::System) -> Properties {
+    fn unix_properties(conf: &StateConfig, sys: &sysinfo::System) -> Properties {
         Properties {
             runtime_name: RUNTIME_NAME,
             file_sep: "/",
@@ -212,31 +217,47 @@ impl Properties {
             user_language: Cow::Borrowed("en"),
             // TODO: Give a good value?
             java_library_path: Cow::Borrowed(""),
+            extra: conf.properties.clone(),
         }
     }
-}
-impl IntoIterator for Properties {
-    type Item = (&'static str, Cow<'static, str>);
 
-    type IntoIter = std::array::IntoIter<Self::Item, 13>;
-
-    fn into_iter(self) -> Self::IntoIter {
+    fn into_iter(self) -> impl Iterator<Item = (Cow<'static, str>, Cow<'static, str>)> {
         [
-            ("java.runtime.name", Cow::Borrowed(self.runtime_name)),
-            ("file.separator", Cow::Borrowed(self.file_sep)),
-            ("line.separator", Cow::Borrowed(self.line_sep)),
-            ("path.separator", Cow::Borrowed(self.path_sep)),
-            ("file.encoding", Cow::Borrowed(self.file_encoding)),
-            ("os.name", self.os_name),
-            ("os.arch", Cow::Borrowed(self.os_arch)),
-            ("user.dir", self.user_dir),
-            ("java.io.tmpdir", self.tmpdir),
-            ("user.name", self.username),
-            ("user.home", self.user_home),
-            ("user.language", self.user_language),
-            ("java.library.path", self.java_library_path),
+            (
+                Cow::Borrowed("java.runtime.name"),
+                Cow::Borrowed(self.runtime_name),
+            ),
+            (
+                Cow::Borrowed("file.separator"),
+                Cow::Borrowed(self.file_sep),
+            ),
+            (
+                Cow::Borrowed("line.separator"),
+                Cow::Borrowed(self.line_sep),
+            ),
+            (
+                Cow::Borrowed("path.separator"),
+                Cow::Borrowed(self.path_sep),
+            ),
+            (
+                Cow::Borrowed("file.encoding"),
+                Cow::Borrowed(self.file_encoding),
+            ),
+            (Cow::Borrowed("os.name"), self.os_name),
+            (Cow::Borrowed("os.arch"), Cow::Borrowed(self.os_arch)),
+            (Cow::Borrowed("user.dir"), self.user_dir),
+            (Cow::Borrowed("java.io.tmpdir"), self.tmpdir),
+            (Cow::Borrowed("user.name"), self.username),
+            (Cow::Borrowed("user.home"), self.user_home),
+            (Cow::Borrowed("user.language"), self.user_language),
+            (Cow::Borrowed("java.library.path"), self.java_library_path),
         ]
         .into_iter()
+        .chain(
+            self.extra
+                .into_iter()
+                .map(|(k, v)| (Cow::Owned(k), Cow::Owned(v))),
+        )
     }
 }
 
