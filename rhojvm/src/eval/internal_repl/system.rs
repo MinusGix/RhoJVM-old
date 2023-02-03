@@ -142,7 +142,8 @@ impl Properties {
         if cfg!(target_arch = "x86") {
             "x86"
         } else if cfg!(target_arch = "x86_64") {
-            "x86_64"
+            // "x86_64"
+            "amd64"
         } else if cfg!(target_arch = "mips") {
             // TODO: Correct?
             "mips"
@@ -202,10 +203,7 @@ impl Properties {
             line_sep: "\n",
             path_sep: ":",
             file_encoding: "UTF-8",
-            // TODO: os name is not completely correct!
-            os_name: sys
-                .long_os_version()
-                .map_or(Cow::Borrowed("Unix"), Cow::Owned),
+            os_name: Cow::Owned(whoami::platform().to_string()),
             os_version: sys
                 .kernel_version()
                 .map_or(Cow::Borrowed("Unknown"), Cow::Owned),
