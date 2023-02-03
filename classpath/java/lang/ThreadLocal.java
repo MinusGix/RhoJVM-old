@@ -3,11 +3,13 @@ package java.lang;
 import java.util.function.Supplier;
 import java.lang.Thread;
 
+import rho.SupplierThreadLocal;
+
 public class ThreadLocal<T> {
     public ThreadLocal() {}
 
     public static<S> ThreadLocal<S> withInitial(Supplier<S> supplier) {
-        throw new UnsupportedOperationException();
+        return new SupplierThreadLocal<S>(supplier);
     }
 
     public native T get();

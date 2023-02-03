@@ -30,7 +30,7 @@ JFILES="$JFILES ./sun/misc/VM.java ./sun/misc/Unsafe.java"
 JFILES="$JFILES ./sun/reflect/Reflection.java"
 
 # rho/
-JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/InternalField.java"
+JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/InternalField.java ./rho/SupplierThreadLocal.java"
 
 # rho/invoke
 JFILES="$JFILES ./rho/invoke/MethodHandleInst.java ./rho/invoke/MethodHandleInfoInst.java ./rho/invoke/MainMethodHandle.java"
