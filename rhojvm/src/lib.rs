@@ -135,8 +135,10 @@ pub struct StateConfig {
     pub log_class_names: bool,
     /// Whether we should log only control flow instructions, like invokestatic and friends.
     pub log_only_control_flow_insts: bool,
-    ///
-    pub log_skip_internal: bool,
+    /// Whether we should skip logging about methods in classes that start with prefixes
+    pub log_skip_from_prefixes: bool,
+    /// The prefixes to skip over
+    pub log_skip_prefixes: Vec<Vec<u8>>,
     /// Custom set properties, like through `-D key=value`
     pub properties: IndexMap<String, String>,
     /// Directories to search for native libraries, on top of the defaults
@@ -153,31 +155,35 @@ impl StateConfig {
             abort_on_unsupported: false,
             log_class_names: false,
             log_only_control_flow_insts: false,
-            log_skip_internal: true,
+            log_skip_from_prefixes: true,
+            log_skip_prefixes: Vec::new(),
             properties: IndexMap::new(),
             native_lib_dirs: Vec::new(),
         }
     }
 
     pub fn should_skip_logging(&self, class_names: &ClassNames, class_id: ClassId) -> bool {
-        if !self.log_skip_internal {
+        if !self.log_skip_from_prefixes {
             return false;
         }
 
-        self.is_internal(class_names, class_id)
+        self.has_prefix(class_names, class_id)
     }
 
-    fn is_internal(&self, class_names: &ClassNames, class_id: ClassId) -> bool {
+    fn has_prefix(&self, class_names: &ClassNames, class_id: ClassId) -> bool {
         let Ok((name, _)) = class_names.name_from_gcid(class_id) else {
             return false;
         };
 
         let name = name.get();
 
-        name.starts_with(b"java/")
-            || name.starts_with(b"sun/")
-            || name.starts_with(b"jdk/")
-            || name.starts_with(b"rho/")
+        for prefix in &self.log_skip_prefixes {
+            if name.starts_with(prefix) {
+                return true;
+            }
+        }
+
+        false
     }
 
     #[must_use]

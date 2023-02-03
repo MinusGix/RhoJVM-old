@@ -92,12 +92,32 @@ impl CliArgs {
         }
     }
 
+    pub fn log_skip_prefixes(&self) -> Option<&[String]> {
+        match &self.command {
+            CliCommands::Run {
+                log_skip_prefixes, ..
+            } => log_skip_prefixes.as_deref(),
+            CliCommands::RunJar {
+                log_skip_prefixes, ..
+            } => Some(log_skip_prefixes),
+        }
+    }
+
     pub fn properties(&self) -> &[String] {
         match &self.command {
             CliCommands::Run { properties, .. } => properties,
             CliCommands::RunJar { properties, .. } => properties,
         }
     }
+}
+
+fn log_skip_prefixes_default() -> Vec<Vec<u8>> {
+    vec![
+        b"java".to_vec(),
+        b"sun".to_vec(),
+        b"jdk".to_vec(),
+        b"rho".to_vec(),
+    ]
 }
 
 #[derive(Debug, Subcommand)]
@@ -113,6 +133,8 @@ enum CliCommands {
         log_class_names: bool,
         #[clap(long)]
         log_only_control_flow_insts: bool,
+        #[clap(long)]
+        log_skip_prefixes: Option<Vec<String>>,
         #[clap(value_name = "PROPERTY=VALUE", short = 'D')]
         properties: Vec<String>,
     },
@@ -125,6 +147,8 @@ enum CliCommands {
         log_class_names: bool,
         #[clap(long)]
         log_only_control_flow_insts: bool,
+        #[clap(long)]
+        log_skip_prefixes: Vec<String>,
         #[clap(value_name = "PROPERTY=VALUE", short = 'D')]
         properties: Vec<String>,
     },
@@ -329,6 +353,16 @@ fn make_state_conf(args: &CliArgs) -> StateConfig {
     conf.log_class_names = args.log_class_names();
     conf.log_only_control_flow_insts = args.log_only_control_flow_insts();
     conf.properties = parse_key_val_properties(args.properties());
+    conf.log_skip_prefixes = args
+        .log_skip_prefixes()
+        .map(|x| x.to_vec())
+        .map(|x| {
+            x.into_iter()
+                .map(|v| v.into_bytes())
+                .collect::<Vec<Vec<u8>>>()
+        })
+        .filter(|x| !x.is_empty())
+        .unwrap_or_else(log_skip_prefixes_default);
     // TODO: This is platform specific
     // TODO: This should be wherever rhojvm is installed
     conf.native_lib_dirs
