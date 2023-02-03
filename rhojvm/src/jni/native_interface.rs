@@ -181,7 +181,7 @@ pub struct NativeInterface {
     pub call_static_object_method_v: CallStaticObjectMethodVFn,
     pub call_static_object_method_a: MethodNoArguments,
     pub call_static_boolean_method: MethodNoArguments,
-    pub call_static_boolean_method_v: MethodNoArguments,
+    pub call_static_boolean_method_v: CallStaticBooleanMethodVFn,
     pub call_static_boolean_method_a: MethodNoArguments,
     pub call_static_byte_method: MethodNoArguments,
     pub call_static_byte_method_v: MethodNoArguments,
@@ -442,7 +442,7 @@ impl NativeInterface {
             call_static_object_method_v,
             call_static_object_method_a: unimpl_none_name!("call_static_object_method_a"),
             call_static_boolean_method: unimpl_none_name!("call_static_boolean_method"),
-            call_static_boolean_method_v: unimpl_none_name!("call_static_boolean_method_v"),
+            call_static_boolean_method_v,
             call_static_boolean_method_a: unimpl_none_name!("call_static_boolean_method_a"),
             call_static_byte_method: unimpl_none_name!("call_static_byte_method"),
             call_static_byte_method_v: unimpl_none_name!("call_static_byte_method_v"),
@@ -1714,6 +1714,51 @@ unsafe fn get_jmethod_id(
     }
 }
 
+unsafe fn promote_param(
+    env: &mut Env,
+    args: &mut std::ffi::VaList,
+    param: DescriptorType,
+) -> RuntimeValue {
+    match param {
+        DescriptorType::Basic(basic) => match basic {
+            DescriptorTypeBasic::Byte => RuntimeValuePrimitive::I8(args.arg::<JByte>()).into(),
+            DescriptorTypeBasic::Char => {
+                RuntimeValuePrimitive::Char(JavaChar(args.arg::<JChar>())).into()
+            }
+            DescriptorTypeBasic::Double => RuntimeValuePrimitive::F64(args.arg::<JDouble>()).into(),
+            // It seems like C variadics promote f32 to f64, so we have to get the f64 then
+            // cast down
+            DescriptorTypeBasic::Float =>
+            {
+                #[allow(clippy::cast_possible_truncation)]
+                RuntimeValuePrimitive::F32(args.arg::<JDouble>() as JFloat).into()
+            }
+            DescriptorTypeBasic::Int => RuntimeValuePrimitive::I32(args.arg::<JInt>()).into(),
+            DescriptorTypeBasic::Long => RuntimeValuePrimitive::I64(args.arg::<JLong>()).into(),
+            DescriptorTypeBasic::Short => RuntimeValuePrimitive::I16(args.arg::<JShort>()).into(),
+            DescriptorTypeBasic::Boolean => {
+                RuntimeValuePrimitive::Bool(args.arg::<JBoolean>()).into()
+            }
+            DescriptorTypeBasic::Class(_) => {
+                // Requires JObject to be transparent, which it is
+                let arg = args.arg::<*const ()>();
+                let arg = JObject::new_unchecked(arg);
+                if let Some(arg) = env.get_jobject_as_gcref(arg) {
+                    assert!(
+                        env.state.gc.deref(arg).is_some(),
+                        "Invalid GcRef ({:?}) gotten from variadic list",
+                        arg
+                    );
+                    // TODO: Check that the type is valid
+                    RuntimeValue::Reference(arg.unchecked_as())
+                } else {
+                    RuntimeValue::NullReference
+                }
+            }
+        },
+        DescriptorType::Array { level, component } => todo!(),
+    }
+}
 pub type CallStaticObjectMethodVFn = unsafe extern "C" fn(
     env: *mut Env,
     class: JClass,
@@ -1736,49 +1781,7 @@ unsafe extern "C" fn call_static_object_method_v(
         method.descriptor().parameters().iter().copied().collect();
     let mut locals = Locals::default();
     for param in desc_parameters {
-        let value: RuntimeValue = match param {
-            DescriptorType::Basic(basic) => match basic {
-                DescriptorTypeBasic::Byte => RuntimeValuePrimitive::I8(args.arg::<JByte>()).into(),
-                DescriptorTypeBasic::Char => {
-                    RuntimeValuePrimitive::Char(JavaChar(args.arg::<JChar>())).into()
-                }
-                DescriptorTypeBasic::Double => {
-                    RuntimeValuePrimitive::F64(args.arg::<JDouble>()).into()
-                }
-                // It seems like C variadics promote f32 to f64, so we have to get the f64 then
-                // cast down
-                DescriptorTypeBasic::Float =>
-                {
-                    #[allow(clippy::cast_possible_truncation)]
-                    RuntimeValuePrimitive::F32(args.arg::<JDouble>() as JFloat).into()
-                }
-                DescriptorTypeBasic::Int => RuntimeValuePrimitive::I32(args.arg::<JInt>()).into(),
-                DescriptorTypeBasic::Long => RuntimeValuePrimitive::I64(args.arg::<JLong>()).into(),
-                DescriptorTypeBasic::Short => {
-                    RuntimeValuePrimitive::I16(args.arg::<JShort>()).into()
-                }
-                DescriptorTypeBasic::Boolean => {
-                    RuntimeValuePrimitive::Bool(args.arg::<JBoolean>()).into()
-                }
-                DescriptorTypeBasic::Class(_) => {
-                    // Requires JObject to be transparent, which it is
-                    let arg = args.arg::<*const ()>();
-                    let arg = JObject::new_unchecked(arg);
-                    if let Some(arg) = env.get_jobject_as_gcref(arg) {
-                        assert!(
-                            env.state.gc.deref(arg).is_some(),
-                            "Invalid GcRef ({:?}) gotten from variadic list",
-                            arg
-                        );
-                        // TODO: Check that the type is valid
-                        RuntimeValue::Reference(arg.unchecked_as())
-                    } else {
-                        RuntimeValue::NullReference
-                    }
-                }
-            },
-            DescriptorType::Array { level, component } => todo!(),
-        };
+        let value: RuntimeValue = promote_param(env, &mut args, param);
 
         locals.push_transform(value);
     }
@@ -1799,6 +1802,47 @@ unsafe extern "C" fn call_static_object_method_v(
         EvalMethodValue::Exception(exc) => {
             env.state.fill_native_exception(exc);
             JObject::null()
+        }
+    }
+}
+
+pub type CallStaticBooleanMethodVFn = unsafe extern "C" fn(
+    env: *mut Env,
+    class: JClass,
+    method_id: JMethodId,
+    args: std::ffi::VaList,
+) -> JBoolean;
+unsafe extern "C" fn call_static_boolean_method_v(
+    env: *mut Env,
+    _class: JClass,
+    method_id: JMethodId,
+    mut args: std::ffi::VaList,
+) -> JBoolean {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    let method_id = method_id.into_method_id().unwrap();
+    let method = env.methods.get(&method_id).unwrap();
+    // Have to allocate due to needing env mutably in loop
+    let desc_parameters: SmallVec<[_; 8]> =
+        method.descriptor().parameters().iter().copied().collect();
+    let mut locals = Locals::default();
+    for param in desc_parameters {
+        let value: RuntimeValue = promote_param(env, &mut args, param);
+
+        locals.push_transform(value);
+    }
+
+    let frame = Frame::new_locals(locals);
+
+    match eval_method(env, method_id.into(), frame).unwrap() {
+        EvalMethodValue::ReturnVoid => {
+            panic!("Static method which was intended to return a boolean returned void")
+        }
+        EvalMethodValue::Return(value) => value.into_bool_loose().unwrap(),
+        EvalMethodValue::Exception(exc) => {
+            env.state.fill_native_exception(exc);
+            0
         }
     }
 }
