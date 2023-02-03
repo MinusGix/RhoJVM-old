@@ -107,6 +107,7 @@ struct Properties {
     file_encoding: &'static str,
     os_name: Cow<'static, str>,
     os_arch: &'static str,
+    os_version: Cow<'static, str>,
 
     user_dir: Cow<'static, str>,
 
@@ -124,7 +125,7 @@ impl Properties {
     fn get_properties(env: &mut Env) -> Properties {
         // TODO: Is line sep correct?
         if cfg!(target_os = "windows") || cfg!(target_family = "windows") {
-            Properties::windows_properties(&env.state.conf)
+            Properties::windows_properties(&env.state.conf, &env.system_info)
         } else if cfg!(unix) {
             // FIXME: Provide more detailed names and information
             // for MacOS
@@ -161,7 +162,7 @@ impl Properties {
         }
     }
 
-    fn windows_properties(conf: &StateConfig) -> Properties {
+    fn windows_properties(conf: &StateConfig, sys: &sysinfo::System) -> Properties {
         Properties {
             runtime_name: RUNTIME_NAME,
             file_sep: "\\",
@@ -169,6 +170,10 @@ impl Properties {
             path_sep: ";",
             file_encoding: "UTF-8",
             os_name: Cow::Borrowed("Windows"),
+            os_version: sys
+                .kernel_version()
+                .map(|x| Cow::Owned(x.to_string()))
+                .unwrap_or(Cow::Borrowed("Unknown")),
             os_arch: Properties::os_arch(),
             // TODO: Can we do better?
             user_dir: std::env::current_dir()
@@ -201,6 +206,9 @@ impl Properties {
             os_name: sys
                 .long_os_version()
                 .map_or(Cow::Borrowed("Unix"), Cow::Owned),
+            os_version: sys
+                .kernel_version()
+                .map_or(Cow::Borrowed("Unknown"), Cow::Owned),
             os_arch: Properties::os_arch(),
             // TODO: Can we do better?
             user_dir: std::env::current_dir()
@@ -245,6 +253,7 @@ impl Properties {
                 Cow::Borrowed(self.file_encoding),
             ),
             (Cow::Borrowed("os.name"), self.os_name),
+            (Cow::Borrowed("os.version"), self.os_version),
             (Cow::Borrowed("os.arch"), Cow::Borrowed(self.os_arch)),
             (Cow::Borrowed("user.dir"), self.user_dir),
             (Cow::Borrowed("java.io.tmpdir"), self.tmpdir),
