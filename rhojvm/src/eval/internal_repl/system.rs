@@ -374,12 +374,54 @@ pub(crate) extern "C" fn system_load_library(env: *mut Env<'_>, _: JClass, path:
     .unwrap();
 
     // Safety: We have to trust the java code to not load arbitrary code that is bad for our health
-    unsafe {
-        env.state
-            .native
-            .load_library_blocking(path)
-            .expect("Failed to load native library");
+    let res = unsafe { env.state.native.load_library_blocking(&path) };
+
+    if let Err(_) = res {
+        let path = {
+            if cfg!(target_os = "windows") && !path.ends_with(".dll") {
+                format!("{}.dll", path)
+            } else if cfg!(target_os = "macos") && !path.ends_with(".dylib") {
+                format!("lib{}.dylib", path)
+            } else if cfg!(target_family = "unix") && !path.ends_with(".so") {
+                format!("lib{}.so", path)
+            } else {
+                tracing::warn!("Unsure what suffix for libraries to use for this platform");
+                path.clone()
+            }
+        };
+
+        // Try to load `lib{name}` instead
+        let libpath = format!("lib{}", path);
+        let res = unsafe { env.state.native.load_library_blocking(&libpath) };
+
+        if let Err(_) = res {
+            // Prefix it with each of the paths
+            for folder in env.state.conf.native_lib_dirs.iter() {
+                // `{folder}/{name}`
+                let folder_path = format!("{}/{}", folder, path);
+                if let Err(_) = unsafe { env.state.native.load_library_blocking(&folder_path) } {
+                    // It failed, try loading `{folder}/lib{name}` instead
+                    let path = format!("{}/lib{}", folder, path);
+                    if let Err(_) = unsafe { env.state.native.load_library_blocking(&path) } {
+                        continue;
+                    } else {
+                        // It succeeded, we're done
+                        return;
+                    }
+                } else {
+                    // It succeeded, we're done
+                    return;
+                }
+            }
+        } else {
+            return;
+        }
+    } else {
+        return;
     }
+
+    // If we got here, we failed to load the library
+    panic!("Failed to load native library: {}", path);
 }
 
 /// java/lang/System

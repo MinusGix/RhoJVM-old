@@ -329,6 +329,10 @@ fn make_state_conf(args: &CliArgs) -> StateConfig {
     conf.log_class_names = args.log_class_names();
     conf.log_only_control_flow_insts = args.log_only_control_flow_insts();
     conf.properties = parse_key_val_properties(args.properties());
+    // TODO: This is platform specific
+    // TODO: This should be wherever rhojvm is installed
+    conf.native_lib_dirs
+        .push("./rhojvm/ex/lib/amd64".to_string());
     conf
 }
 

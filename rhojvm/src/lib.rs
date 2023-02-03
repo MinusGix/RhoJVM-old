@@ -137,6 +137,8 @@ pub struct StateConfig {
     pub log_only_control_flow_insts: bool,
     /// Custom set properties, like through `-D key=value`
     pub properties: IndexMap<String, String>,
+    /// Directories to search for native libraries, on top of the defaults
+    pub native_lib_dirs: Vec<String>,
 }
 impl StateConfig {
     #[must_use]
@@ -150,6 +152,7 @@ impl StateConfig {
             log_class_names: false,
             log_only_control_flow_insts: false,
             properties: IndexMap::new(),
+            native_lib_dirs: Vec::new(),
         }
     }
 
