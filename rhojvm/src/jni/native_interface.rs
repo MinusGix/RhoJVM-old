@@ -21,7 +21,10 @@ use crate::{
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{construct_string, get_string_contents, make_class_form_of, Env},
+    util::{
+        construct_string, get_string_contents, get_string_contents_as_rust_string,
+        make_class_form_of, Env,
+    },
     GeneralError,
 };
 
@@ -235,8 +238,8 @@ pub struct NativeInterface {
 
     pub new_string_utf: NewStringUtfFn,
     pub get_string_utf_length: MethodNoArguments,
-    pub get_string_utf_chars: MethodNoArguments,
-    pub release_string_utf_chars: MethodNoArguments,
+    pub get_string_utf_chars: GetStringUtfCharsFn,
+    pub release_string_utf_chars: ReleaseStringUtfCharsFn,
 
     pub get_array_length: GetArrayLengthFn,
 
@@ -490,8 +493,8 @@ impl NativeInterface {
             release_string_chars: unimpl_none_name!("release_string_chars"),
             new_string_utf,
             get_string_utf_length: unimpl_none_name!("get_string_utf_length"),
-            get_string_utf_chars: unimpl_none_name!("get_string_utf_chars"),
-            release_string_utf_chars: unimpl_none_name!("release_string_utf_chars"),
+            get_string_utf_chars,
+            release_string_utf_chars,
             get_array_length,
             new_object_array: unimpl_none_name!("new_object_array"),
             get_object_array_element: unimpl_none_name!("get_object_array_element"),
@@ -579,6 +582,8 @@ fn assert_valid_env(env: *const Env) {
 fn assert_non_aliasing<T, U>(l: *const T, r: *const U) {
     assert!(l as usize != r as usize, "Two pointers that should not alias in a native method aliased. This might be indicative of a bug within the JVM where it should allow that rather than a bug with the calling code");
 }
+
+// TODO: Type-safe versions of these function for Rust usage
 
 // We don't say these functions take a reference since we don't control the C code that will call it
 // and they may pass a null pointer
@@ -1505,6 +1510,79 @@ unsafe extern "C" fn new_string_utf(env: *mut Env, chars: *const c_char) -> JStr
     }
 }
 
+pub type GetStringUtfCharsFn =
+    unsafe extern "C" fn(env: *mut Env, string: JString, is_copy: *mut JBoolean) -> *const c_char;
+unsafe extern "C" fn get_string_utf_chars(
+    env: *mut Env,
+    string: JString,
+    is_copy: *mut JBoolean,
+) -> *const c_char {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    let string = unsafe { env.get_jobject_as_gcref(string) };
+    let string = string.expect("TODO: NPE");
+
+    // TODO: This should be Cesu8?
+    let string = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        string,
+    )
+    .unwrap();
+
+    let string = string.into_bytes();
+
+    let layout = std::alloc::Layout::array::<c_char>(string.len() + 1).unwrap();
+    let output: *mut u8 = std::alloc::alloc_zeroed(layout);
+    assert!(!output.is_null(), "Failed to allocate memory for string");
+
+    let output: *mut c_char = output as *mut c_char;
+
+    for (i, v) in string.iter().enumerate() {
+        let output = output.add(i);
+        *output = *v as c_char;
+    }
+
+    if !is_copy.is_null() {
+        *is_copy = JBoolean::from(true);
+    }
+
+    output
+}
+
+pub type ReleaseStringUtfCharsFn =
+    unsafe extern "C" fn(env: *mut Env, string: JString, chars: *const c_char);
+unsafe extern "C" fn release_string_utf_chars(
+    env: *mut Env,
+    string: JString,
+    chars: *const c_char,
+) {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    // TODO: We could guard against invalid pointers
+
+    // We have to reget the string to get the correct layout.
+    // TODO: Is this valid? What if the string has changed?
+    let string = unsafe { env.get_jobject_as_gcref(string) };
+    let string = string.expect("TODO: NPE");
+
+    let string = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        string,
+    )
+    .unwrap();
+
+    let string = string.into_bytes();
+
+    let layout = std::alloc::Layout::array::<c_char>(string.len() + 1).unwrap();
+    std::alloc::dealloc(chars as *mut u8, layout);
+}
+
 pub type GetStringLengthFn = unsafe extern "C" fn(env: *mut Env, string: JString) -> JSize;
 unsafe extern "C" fn get_string_length(env: *mut Env, string: JString) -> JSize {
     assert_valid_env(env);
@@ -1762,7 +1840,7 @@ unsafe extern "C" fn get_string_critical(
 
         // I didn't see a good way to do this with Box and vec/slices?
         // Like, I could get Box<[u16]> and get *const u16, but
-        // it would necessarily be valid to use it in from_raw..
+        // it wouldn't necessarily be valid to use it in from_raw..
         // which is what I need.
         // Thus we allocate manually
         let layout = std::alloc::Layout::array::<JChar>(len).unwrap();
@@ -1780,7 +1858,7 @@ unsafe extern "C" fn get_string_critical(
         }
 
         if !is_copy.is_null() {
-            *is_copy = u8::from(true);
+            *is_copy = JBoolean::from(true);
         }
 
         // Safety: This won't be deallocated until we get it back later
