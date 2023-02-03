@@ -94,6 +94,12 @@ pub(crate) extern "C" fn system_set_properties(env: *mut Env<'_>, _this: JObject
 const RUNTIME_NAME: &str = "RhoJVM";
 const JNU_ENCODING: &str = "UTF-8";
 const FILE_ENCODING: &str = "UTF-8";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const VENDOR: &str = "RhoJVM Contributors";
+const VENDOR_URL: &str = "https://github.com/MinusGix/rhojvm";
+const VENDOR_URL_BUG: &str = "https://github.com/MinusGix/rhojvm/issues";
+// TODO: Include architecture it was compiled for?
+const VM_NAME: &str = "RhoJVM";
 
 // Disallow dead code so that no properties are ignored!
 // This guards against us adding a property but forgetting to add it to the iterator which will
@@ -120,6 +126,12 @@ struct Properties {
     user_home: Cow<'static, str>,
     user_language: Cow<'static, str>,
     java_library_path: Cow<'static, str>,
+
+    java_vm_version: &'static str,
+    java_vm_vendor: &'static str,
+    java_vendor_url: &'static str,
+    java_vendor_url_bug: &'static str,
+    java_vm_name: &'static str,
 
     extra: IndexMap<String, String>,
 }
@@ -196,6 +208,13 @@ impl Properties {
             user_language: Cow::Borrowed("en"),
             // TODO: Give a good value?
             java_library_path: Cow::Borrowed(""),
+            // TODO: Typically the java.vm.version/java.runtime.version have more information
+            // such as the build date
+            java_vm_version: VERSION,
+            java_vm_vendor: VENDOR,
+            java_vendor_url: VENDOR_URL,
+            java_vendor_url_bug: VENDOR_URL_BUG,
+            java_vm_name: VM_NAME,
             extra: conf.properties.clone(),
         }
     }
@@ -229,6 +248,11 @@ impl Properties {
             user_language: Cow::Borrowed("en"),
             // TODO: Give a good value?
             java_library_path: Cow::Borrowed(""),
+            java_vm_version: VERSION,
+            java_vm_vendor: VENDOR,
+            java_vendor_url: VENDOR_URL,
+            java_vendor_url_bug: VENDOR_URL_BUG,
+            java_vm_name: VM_NAME,
             extra: conf.properties.clone(),
         }
     }
@@ -268,6 +292,38 @@ impl Properties {
             (Cow::Borrowed("user.home"), self.user_home),
             (Cow::Borrowed("user.language"), self.user_language),
             (Cow::Borrowed("java.library.path"), self.java_library_path),
+            (
+                Cow::Borrowed("java.vm.version"),
+                Cow::Borrowed(self.java_vm_version),
+            ),
+            (
+                Cow::Borrowed("java.vm.vendor"),
+                Cow::Borrowed(self.java_vm_vendor),
+            ),
+            (
+                Cow::Borrowed("java.vendor"),
+                Cow::Borrowed(self.java_vm_vendor),
+            ),
+            (
+                Cow::Borrowed("java.vendor.url"),
+                Cow::Borrowed(self.java_vendor_url),
+            ),
+            (
+                Cow::Borrowed("java.vendor.url.bug"),
+                Cow::Borrowed(self.java_vendor_url_bug),
+            ),
+            (
+                Cow::Borrowed("java.vm.name"),
+                Cow::Borrowed(self.java_vm_name),
+            ),
+            (
+                Cow::Borrowed("java.runtime.version"),
+                Cow::Borrowed(self.java_vm_version),
+            ),
+            (
+                Cow::Borrowed("java.version"),
+                Cow::Borrowed(self.java_vm_version),
+            ),
         ]
         .into_iter()
         .chain(
