@@ -529,6 +529,46 @@ pub fn get_string_contents_as_rust_string(
     String::from_utf16(&contents).map_err(GeneralError::StringConversionFailure)
 }
 
+pub(crate) fn construct_url_from_string(
+    env: &mut Env,
+    text: GcRef<ClassInstance>,
+) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
+    let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
+    let desc = MethodDescriptor::new(
+        smallvec![DescriptorType::Basic(DescriptorTypeBasic::Class(string_id))],
+        None,
+    );
+
+    let url_id = env.class_names.gcid_from_bytes(b"java/net/URL");
+
+    let url_static_ref = initialize_class(env, url_id)?.into_value();
+    let url_static_ref = exc_value!(ret: url_static_ref);
+
+    let method_id = env.methods.load_method_from_desc(
+        &mut env.class_names,
+        &mut env.class_files,
+        url_id,
+        b"<init>",
+        &desc,
+    )?;
+
+    let fields = make_instance_fields(env, url_id)?;
+    let fields = exc_value!(ret: fields);
+
+    let inst = ClassInstance::new(url_id, url_static_ref, fields);
+    let inst_ref = env.state.gc.alloc(inst);
+
+    let frame = Frame::new_locals(Locals::new_with_array([
+        RuntimeValue::Reference(inst_ref.into_generic()),
+        RuntimeValue::Reference(text.into_generic()),
+    ]));
+
+    let res = eval_method(env, method_id.into(), frame)?;
+    exc_eval_value!(ret (expect_void: ) ("URL constructor"): res);
+
+    Ok(ValueException::Value(inst_ref))
+}
+
 pub(crate) fn state_target_primitive_field(
     state: &mut State,
     typ: Option<RuntimeTypePrimitive>,

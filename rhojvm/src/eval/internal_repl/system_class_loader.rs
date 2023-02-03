@@ -12,7 +12,10 @@ use crate::{
     initialize_class,
     jni::{JClass, JObject, JString},
     rv::RuntimeValue,
-    util::{construct_byte_array_input_stream, get_string_contents_as_rust_string, Env},
+    util::{
+        construct_byte_array_input_stream, construct_url_from_string,
+        get_string_contents_as_rust_string, Env,
+    },
 };
 
 pub(crate) extern "C" fn system_class_loader_init(env: *mut Env<'_>, _this: JObject) -> JObject {
@@ -199,8 +202,12 @@ pub(crate) extern "C" fn system_class_loader_get_resource(
     tracing::info!("Get resource: {}", resource_name);
 
     if env.class_files.loader.has_resource(&resource_name) {
-        tracing::info!("Found resource: {}", resource_name);
-        unsafe { env.get_local_jobject_for(resource_name_ref.into_generic()) }
+        let url = construct_url_from_string(env, resource_name_ref.unchecked_as()).unwrap();
+        let Some(url) = env.state.extract_value(url) else {
+            return JObject::null()
+        };
+
+        unsafe { env.get_local_jobject_for(url.into_generic()) }
     } else {
         JObject::null()
     }
