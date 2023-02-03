@@ -101,9 +101,7 @@ public final class System {
 
     public static native long nanoTime();
 
-    public static String mapLibraryName(String name) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native static String mapLibraryName(String name);
 
     public static native void load(String path);
 

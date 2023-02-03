@@ -198,6 +198,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_java_lang_System_load" => into_opaque3ret(system::system_load),
             b"Java_java_lang_System_loadLibrary" => into_opaque3ret(system::system_load_library),
+            b"Java_java_lang_System_mapLibraryName" => {
+                into_opaque3ret(system::system_map_library_name)
+            }
             b"Java_java_lang_System_arraycopy" => into_opaque7ret(system::system_arraycopy),
             b"Java_java_lang_System_currentTimeMillis" => {
                 into_opaque2ret(system::system_current_time_milliseconds)

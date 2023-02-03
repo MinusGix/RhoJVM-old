@@ -14,7 +14,7 @@ use crate::{
     gc::GcRef,
     jni::{JClass, JInt, JLong, JObject, JString},
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{construct_string, get_string_contents_as_rust_string, Env},
+    util::{construct_string, construct_string_r, get_string_contents_as_rust_string, Env},
     StateConfig,
 };
 
@@ -422,6 +422,49 @@ pub(crate) extern "C" fn system_load_library(env: *mut Env<'_>, _: JClass, path:
 
     // If we got here, we failed to load the library
     panic!("Failed to load native library: {}", path);
+}
+
+pub(crate) extern "C" fn system_map_library_name(
+    env: *mut Env<'_>,
+    _this: JObject,
+    name: JString,
+) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+
+    let env = unsafe { &mut *env };
+
+    let name = unsafe { env.get_jobject_as_gcref(name) };
+    let name = name.expect("NPE");
+
+    let name = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        name,
+    )
+    .unwrap();
+
+    tracing::info!("Mapping library name: {}", name);
+
+    let name = {
+        if cfg!(target_os = "windows") && !name.ends_with(".dll") {
+            format!("{}.dll", name)
+        } else if cfg!(target_os = "macos") && !name.ends_with(".dylib") {
+            format!("lib{}.dylib", name)
+        } else if cfg!(target_family = "unix") && !name.ends_with(".so") {
+            format!("lib{}.so", name)
+        } else {
+            tracing::warn!("Unsure what suffix for libraries to use for this platform");
+            name.clone()
+        }
+    };
+
+    let name = construct_string_r(env, &name).unwrap();
+    let Some(name) = env.state.extract_value(name) else {
+        return JObject::null();
+    };
+
+    unsafe { env.get_local_jobject_for(name.into_generic()) }
 }
 
 /// java/lang/System
