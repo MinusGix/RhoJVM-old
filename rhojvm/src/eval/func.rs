@@ -452,7 +452,6 @@ impl RunInstContinue for InvokeInterface {
 
         let mut locals = Locals::default();
         for parameter in method_descriptor.parameters().iter().rev() {
-            tracing::info!("Loading local from stack");
             let value = grab_runtime_value_from_stack_for_function(env, frame, parameter)?;
 
             locals.prepush_transform(value);
