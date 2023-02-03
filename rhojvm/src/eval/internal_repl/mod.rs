@@ -21,6 +21,7 @@ pub mod string;
 mod system;
 mod system_class_loader;
 mod thread;
+pub mod thread_local;
 mod unsafe_;
 
 /// A garbage value intended for use in returns that shouldn't be used, because an exception was
@@ -282,6 +283,12 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             // Thread
             b"Java_java_lang_Thread_currentThread" => {
                 into_opaque2ret(thread::thread_get_current_thread)
+            }
+            // ThreadLocal
+            b"Java_java_lang_ThreadLocal_get" => into_opaque2ret(thread_local::thread_local_get),
+            b"Java_java_lang_ThreadLocal_set" => into_opaque3ret(thread_local::thread_local_set),
+            b"Java_java_lang_ThreadLocal_remove" => {
+                into_opaque2ret(thread_local::thread_local_remove)
             }
 
             // String

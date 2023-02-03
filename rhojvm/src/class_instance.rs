@@ -2,6 +2,7 @@ use std::{collections::HashMap, hash::Hash, thread::ThreadId};
 
 use classfile_parser::field_info::FieldAccessFlags;
 use either::Either;
+use indexmap::IndexMap;
 use rhojvm_base::{
     id::{ClassId, ExactMethodId},
     util::MemorySize,
@@ -250,8 +251,6 @@ pub struct StaticFormInstance {
     pub(crate) inner: ClassInstance,
     /// The T in Class<T>
     pub(crate) of: RuntimeTypeVoid<ClassId>,
-    // The T in Class<T>
-    // pub(crate) of_ref: Option<GcRef<StaticClassInstance>>,
 }
 impl StaticFormInstance {
     #[must_use]
@@ -263,7 +262,6 @@ impl StaticFormInstance {
         StaticFormInstance {
             inner: inner_instance,
             of: of.into(),
-            // of,
         }
     }
 }
@@ -276,9 +274,15 @@ impl MemorySize for StaticFormInstance {
 impl GcValueMarker for StaticFormInstance {}
 
 #[derive(Debug, Clone)]
+pub struct ThreadLocalData {
+    pub value: Option<GcRef<ReferenceInstance>>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ThreadInstance {
     pub(crate) inner: ClassInstance,
     pub thread_id: Option<ThreadId>,
+    pub thread_locals: IndexMap<GcRef<ClassInstance>, ThreadLocalData>,
 }
 impl ThreadInstance {
     #[must_use]
@@ -286,6 +290,7 @@ impl ThreadInstance {
         ThreadInstance {
             inner: inner_instance,
             thread_id,
+            thread_locals: IndexMap::new(),
         }
     }
 

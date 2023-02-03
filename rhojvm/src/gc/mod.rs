@@ -14,7 +14,11 @@
 //! to allow usage from Rust itself.
 //! This initial implementation is very much inspired by:
 //! <https://github.com/ceronman/loxido/blob/master/src/gc.rs>
-use std::{collections::VecDeque, marker::PhantomData};
+use std::{
+    collections::VecDeque,
+    hash::{Hash, Hasher},
+    marker::PhantomData,
+};
 
 use rhojvm_base::{
     data::{class_files::ClassFiles, class_names::ClassNames, classes::Classes, methods::Methods},
@@ -405,11 +409,17 @@ impl<T> Clone for GcRef<T> {
     }
 }
 
-// This can be wrong if there is moe than one Gc instance
+// This can be wrong if there is more than one Gc instance
 impl<T> Eq for GcRef<T> {}
 impl<T> PartialEq for GcRef<T> {
     fn eq(&self, other: &GcRef<T>) -> bool {
         self.index == other.index
+    }
+}
+
+impl<T> Hash for GcRef<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.index.hash(state);
     }
 }
 
