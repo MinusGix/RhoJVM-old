@@ -92,6 +92,8 @@ pub(crate) extern "C" fn system_set_properties(env: *mut Env<'_>, _this: JObject
 }
 
 const RUNTIME_NAME: &str = "RhoJVM";
+const JNU_ENCODING: &str = "UTF-8";
+const FILE_ENCODING: &str = "UTF-8";
 
 // Disallow dead code so that no properties are ignored!
 // This guards against us adding a property but forgetting to add it to the iterator which will
@@ -105,6 +107,7 @@ struct Properties {
     /// Separate paths in a list
     path_sep: &'static str,
     file_encoding: &'static str,
+    jnu_encoding: &'static str,
     os_name: Cow<'static, str>,
     os_arch: &'static str,
     os_version: Cow<'static, str>,
@@ -169,7 +172,8 @@ impl Properties {
             file_sep: "\\",
             line_sep: "\n",
             path_sep: ";",
-            file_encoding: "UTF-8",
+            file_encoding: FILE_ENCODING,
+            jnu_encoding: JNU_ENCODING,
             os_name: Cow::Borrowed("Windows"),
             os_version: sys
                 .kernel_version()
@@ -202,7 +206,8 @@ impl Properties {
             file_sep: "/",
             line_sep: "\n",
             path_sep: ":",
-            file_encoding: "UTF-8",
+            file_encoding: FILE_ENCODING,
+            jnu_encoding: JNU_ENCODING,
             os_name: Cow::Owned(whoami::platform().to_string()),
             os_version: sys
                 .kernel_version()
@@ -249,6 +254,10 @@ impl Properties {
             (
                 Cow::Borrowed("file.encoding"),
                 Cow::Borrowed(self.file_encoding),
+            ),
+            (
+                Cow::Borrowed("sun.jnu.encoding"),
+                Cow::Borrowed(self.jnu_encoding),
             ),
             (Cow::Borrowed("os.name"), self.os_name),
             (Cow::Borrowed("os.version"), self.os_version),
