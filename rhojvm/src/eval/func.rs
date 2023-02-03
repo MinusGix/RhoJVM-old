@@ -18,7 +18,6 @@ use rhojvm_base::{
         methods::{LoadMethodError, Methods},
     },
     id::{ClassId, ExactMethodId, MethodId},
-    package::Packages,
     util::Cesu8String,
     StepError,
 };
@@ -41,18 +40,13 @@ use crate::{
         construct_string_r, make_class_form_of, make_method_handle, make_primitive_class_form_of,
         ref_info, CallStackEntry, Env,
     },
-    GeneralError, State,
+    GeneralError,
 };
 
 use super::{RunInstArgsC, RunInstContinue, RunInstContinueValue};
 
 fn grab_runtime_value_from_stack_for_function(
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &Methods,
-    state: &mut State,
+    env: &mut Env,
     frame: &mut Frame,
     target: &DescriptorType,
 ) -> Result<RuntimeValue, GeneralError> {
@@ -89,30 +83,31 @@ fn grab_runtime_value_from_stack_for_function(
             .into(),
             DescriptorTypeBasic::Class(target_id) => match v {
                 RuntimeValue::Reference(p_ref) => {
-                    let p = state
+                    let p = env
+                        .state
                         .gc
                         .deref(p_ref)
                         .ok_or(EvalError::InvalidGcRef(p_ref.into_generic()))?;
                     let instance_id = p.instanceof();
 
                     let is_castable = instance_id == *target_id
-                        || classes.is_super_class(
-                            class_names,
-                            class_files,
-                            packages,
+                        || env.classes.is_super_class(
+                            &mut env.class_names,
+                            &mut env.class_files,
+                            &mut env.packages,
                             instance_id,
                             *target_id,
                         )?
-                        || classes.implements_interface(
-                            class_names,
-                            class_files,
+                        || env.classes.implements_interface(
+                            &mut env.class_names,
+                            &mut env.class_files,
                             instance_id,
                             *target_id,
                         )?
-                        || classes.is_castable_array(
-                            class_names,
-                            class_files,
-                            packages,
+                        || env.classes.is_castable_array(
+                            &mut env.class_names,
+                            &mut env.class_files,
+                            &mut env.packages,
                             instance_id,
                             *target_id,
                         )?;
@@ -121,14 +116,8 @@ fn grab_runtime_value_from_stack_for_function(
                     } else {
                         todo!(
                             "Type was not castable: {} -> {}",
-                            ref_info(
-                                class_names,
-                                class_files,
-                                methods,
-                                state,
-                                Some(p_ref.into_generic())
-                            ),
-                            class_names.tpath(*target_id)
+                            ref_info(env, Some(p_ref.into_generic())),
+                            env.class_names.tpath(*target_id)
                         );
                     }
                 }
@@ -140,35 +129,37 @@ fn grab_runtime_value_from_stack_for_function(
             },
         },
         DescriptorType::Array { level, component } => {
-            let target_id = class_names
+            let target_id = env
+                .class_names
                 .gcid_from_level_array_of_desc_type_basic(*level, *component)
                 .map_err(StepError::BadId)?;
             match v {
                 RuntimeValue::Reference(p_ref) => {
-                    let p = state
+                    let p = env
+                        .state
                         .gc
                         .deref(p_ref)
                         .ok_or(EvalError::InvalidGcRef(p_ref.into_generic()))?;
                     let instance_id = p.instanceof();
 
                     let is_castable = instance_id == target_id
-                        || classes.is_super_class(
-                            class_names,
-                            class_files,
-                            packages,
+                        || env.classes.is_super_class(
+                            &mut env.class_names,
+                            &mut env.class_files,
+                            &mut env.packages,
                             instance_id,
                             target_id,
                         )?
-                        || classes.implements_interface(
-                            class_names,
-                            class_files,
+                        || env.classes.implements_interface(
+                            &mut env.class_names,
+                            &mut env.class_files,
                             instance_id,
                             target_id,
                         )?
-                        || classes.is_castable_array(
-                            class_names,
-                            class_files,
-                            packages,
+                        || env.classes.is_castable_array(
+                            &mut env.class_names,
+                            &mut env.class_files,
+                            &mut env.packages,
                             instance_id,
                             target_id,
                         )?;
@@ -263,16 +254,7 @@ fn invoke_static_method(
 
     let mut locals = Locals::default();
     for parameter in method_descriptor.parameters().iter().rev() {
-        let value = grab_runtime_value_from_stack_for_function(
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
-            frame,
-            parameter,
-        )?;
+        let value = grab_runtime_value_from_stack_for_function(env, frame, parameter)?;
 
         locals.prepush_transform(value);
     }
@@ -471,16 +453,7 @@ impl RunInstContinue for InvokeInterface {
         let mut locals = Locals::default();
         for parameter in method_descriptor.parameters().iter().rev() {
             tracing::info!("Loading local from stack");
-            let value = grab_runtime_value_from_stack_for_function(
-                &mut env.class_names,
-                &mut env.class_files,
-                &mut env.classes,
-                &mut env.packages,
-                &mut env.methods,
-                &mut env.state,
-                frame,
-                parameter,
-            )?;
+            let value = grab_runtime_value_from_stack_for_function(env, frame, parameter)?;
 
             locals.prepush_transform(value);
         }
@@ -630,16 +603,7 @@ impl RunInstContinue for InvokeSpecial {
         let mut locals = Locals::default();
 
         for parameter in method_descriptor.parameters().iter().rev() {
-            let value = grab_runtime_value_from_stack_for_function(
-                &mut env.class_names,
-                &mut env.class_files,
-                &mut env.classes,
-                &mut env.packages,
-                &mut env.methods,
-                &mut env.state,
-                frame,
-                parameter,
-            )?;
+            let value = grab_runtime_value_from_stack_for_function(env, frame, parameter)?;
 
             locals.prepush_transform(value);
         }
@@ -956,16 +920,7 @@ impl RunInstContinue for InvokeVirtual {
         let mut locals = Locals::default();
 
         for parameter in method_descriptor.parameters().iter().rev() {
-            let value = grab_runtime_value_from_stack_for_function(
-                &mut env.class_names,
-                &mut env.class_files,
-                &mut env.classes,
-                &mut env.packages,
-                &mut env.methods,
-                &mut env.state,
-                frame,
-                parameter,
-            )?;
+            let value = grab_runtime_value_from_stack_for_function(env, frame, parameter)?;
 
             locals.prepush_transform(value);
         }
@@ -1117,13 +1072,7 @@ impl RunInstContinue for InvokeDynamic {
 
             tracing::info!(
                 "MethodHandle: {}",
-                ref_info(
-                    &mut env.class_names,
-                    &env.class_files,
-                    &env.methods,
-                    &mut env.state,
-                    Some(method_handle.unchecked_as())
-                )
+                ref_info(env, Some(method_handle.unchecked_as()))
             );
 
             // TODO: method type?
@@ -1158,13 +1107,7 @@ impl RunInstContinue for InvokeDynamic {
 
             tracing::info!(
                 "MethodType: {}",
-                ref_info(
-                    &mut env.class_names,
-                    &env.class_files,
-                    &env.methods,
-                    &mut env.state,
-                    Some(method_type.unchecked_as())
-                )
+                ref_info(env, Some(method_type.unchecked_as()))
             );
 
             // Get the instance of the bootstrap method
@@ -1350,13 +1293,7 @@ impl RunInstContinue for InvokeDynamic {
             MethodHandleType::Constant { value, .. } => {
                 tracing::info!(
                     "Invoking constant method handle: {}",
-                    ref_info(
-                        &mut env.class_names,
-                        &env.class_files,
-                        &env.methods,
-                        &mut env.state,
-                        value.map(GcRef::unchecked_as)
-                    )
+                    ref_info(env, value.map(GcRef::unchecked_as))
                 );
                 if let Some(value) = value {
                     frame.stack.push(RuntimeValue::Reference(value))?;

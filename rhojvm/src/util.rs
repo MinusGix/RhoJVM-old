@@ -11,7 +11,12 @@ use rhojvm_base::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         types::{JavaChar, PrimitiveType},
     },
-    data::{class_files::ClassFiles, class_names::ClassNames, classes::Classes, methods::Methods},
+    data::{
+        class_files::ClassFiles,
+        class_names::ClassNames,
+        classes::{does_extend_class, Classes},
+        methods::Methods,
+    },
     id::{ClassId, MethodId},
     package::Packages,
     util::MemorySize,
@@ -26,7 +31,7 @@ use crate::{
         StaticFormInstance,
     },
     eval::{
-        eval_method, instances::make_instance_fields,
+        eval_method, func::find_virtual_method, instances::make_instance_fields,
         internal_repl::method_type::method_type_to_desc_string, EvalError, EvalMethodValue, Frame,
         Locals, ValueException,
     },
@@ -955,36 +960,25 @@ pub(crate) fn construct_byte_array_input_stream(
     Ok(ValueException::Value(bai_ref))
 }
 
-pub(crate) fn mh_info(
-    class_names: &mut ClassNames,
-    class_files: &ClassFiles,
-    methods: &Methods,
-    state: &mut State,
-    re: GcRef<MethodHandleInstance>,
-) -> String {
-    let method = state.gc.deref(re).unwrap();
+pub(crate) fn mh_info(env: &mut Env, re: GcRef<MethodHandleInstance>) -> String {
+    let method = env.state.gc.deref(re).unwrap();
     match method.typ {
         MethodHandleType::Constant { value, return_ty } => {
             format!(
                 "MethodHandle(Constant(Value: {}, Return As: {:?}))",
-                ref_info(
-                    class_names,
-                    class_files,
-                    methods,
-                    state,
-                    value.map(GcRef::unchecked_as)
-                ),
+                ref_info(env, value.map(GcRef::unchecked_as)),
                 return_ty
             )
         }
         MethodHandleType::InvokeStatic(id) => {
-            let Some(method) = methods.get(&id) else {
+            let Some(method) = env.methods.get(&id) else {
                 return "MethodHandle(InvokeStatic(<Bad MethodId>))".to_string();
             };
 
             let class_id = method.id().decompose().0;
             let desc = method.descriptor();
-            let name = class_files
+            let name = env
+                .class_files
                 .get(&class_id)
                 .unwrap()
                 .get_text_t(method.name_index())
@@ -992,56 +986,103 @@ pub(crate) fn mh_info(
 
             format!(
                 "MethodHandle(InvokeStatic({}::{}, {}))",
-                class_names.tpath(class_id),
+                env.class_names.tpath(class_id),
                 name,
-                desc.as_pretty_string(class_names)
+                desc.as_pretty_string(&env.class_names)
             )
         }
     }
 }
 
-pub(crate) fn ref_info(
-    class_names: &mut ClassNames,
-    class_files: &ClassFiles,
-    methods: &Methods,
-    state: &mut State,
-    re: Option<GcRef<Instance>>,
-) -> String {
+pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
     let Some(re) = re else {
         return "<Null>".to_string()
     };
 
-    let Some(inst) = state.gc.deref(re) else {
+    let Some(inst) = env.state.gc.deref(re) else {
         return "<Bad GCRef>".to_string()
     };
 
     match inst {
         Instance::StaticClass(stat) => {
             let id = stat.id;
-            let name = class_names.tpath(id);
+            let name = env.class_names.tpath(id);
             format!("StaticClass({})", name)
         }
         Instance::Reference(inst) => match inst {
             ReferenceInstance::Class(class) => {
+                let exc_id = env.class_names.gcid_from_bytes(b"java/lang/Exception");
+                let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
+
                 let id = class.instanceof;
-                let name = class_names.tpath(id).to_string();
+                let name = env.class_names.tpath(id).to_string();
                 if name.is_empty() {
                     format!("Class(ANON:{})", id.get())
-                } else if id == class_names.gcid_from_bytes(b"java/lang/String") {
-                    let text =
-                        get_string_contents_as_rust_string(class_files, class_names, state, re)
-                            .unwrap();
+                } else if id == string_id {
+                    let text = get_string_contents_as_rust_string(
+                        &env.class_files,
+                        &mut env.class_names,
+                        &mut env.state,
+                        re,
+                    )
+                    .unwrap();
                     format!("Class(java/lang/String = {:?})", text)
-                } else if id == class_names.gcid_from_bytes(b"java/lang/invoke/MethodType") {
+                } else if id
+                    == env
+                        .class_names
+                        .gcid_from_bytes(b"java/lang/invoke/MethodType")
+                {
                     format!(
                         "Class(java/lang/invoke/MethodType = {})",
                         method_type_to_desc_string(
-                            class_names,
-                            class_files,
-                            &state.gc,
+                            &mut env.class_names,
+                            &env.class_files,
+                            &env.state.gc,
                             re.unchecked_as()
                         )
                     )
+                } else if let Ok(true) = does_extend_class(
+                    &mut env.class_names,
+                    &mut env.class_files,
+                    &mut env.classes,
+                    id,
+                    exc_id,
+                ) {
+                    let throwable_id = env.class_names.gcid_from_bytes(b"java/lang/Throwable");
+                    let desc = MethodDescriptor::new_ret(DescriptorType::Basic(
+                        DescriptorTypeBasic::Class(string_id),
+                    ));
+
+                    let target_method_id = find_virtual_method(
+                        &mut env.class_names,
+                        &mut env.class_files,
+                        &mut env.classes,
+                        &mut env.methods,
+                        throwable_id,
+                        id,
+                        b"getMessage",
+                        &desc,
+                    )
+                    .unwrap();
+
+                    let locals =
+                        Locals::new_with_array([RuntimeValue::Reference(re.unchecked_as())]);
+                    let frame = Frame::new_locals(locals);
+
+                    let res = eval_method(env, target_method_id, frame).unwrap();
+                    let EvalMethodValue::Return(RuntimeValue::Reference(msg)) = res else {
+                        panic!()
+                    };
+
+                    let msg = get_string_contents_as_rust_string(
+                        &env.class_files,
+                        &mut env.class_names,
+                        &mut env.state,
+                        msg.unchecked_as(),
+                    )
+                    .unwrap();
+
+                    format!("Class({}; Message: {:?})", name, msg)
                 } else {
                     format!("Class({})", name)
                 }
@@ -1051,7 +1092,7 @@ pub(crate) fn ref_info(
                     RuntimeTypeVoid::Primitive(p) => format!("Primitive({:?})", p),
                     RuntimeTypeVoid::Void => "Void".to_string(),
                     RuntimeTypeVoid::Reference(id) => {
-                        let name = class_names.tpath(id);
+                        let name = env.class_names.tpath(id);
                         format!("{}", name)
                     }
                 };
@@ -1059,9 +1100,7 @@ pub(crate) fn ref_info(
                 format!("Class<{}>", t)
             }
             ReferenceInstance::Thread(_t) => "Thread".to_string(),
-            ReferenceInstance::MethodHandle(_handle) => {
-                mh_info(class_names, class_files, methods, state, re.unchecked_as())
-            }
+            ReferenceInstance::MethodHandle(_handle) => mh_info(env, re.unchecked_as()),
             ReferenceInstance::MethodHandleInfo(_info) => "MethodHandleInfo".to_string(),
             ReferenceInstance::PrimitiveArray(arr) => {
                 let t = match arr.element_type {
@@ -1089,7 +1128,7 @@ pub(crate) fn ref_info(
             }
             ReferenceInstance::ReferenceArray(arr) => {
                 let id = arr.element_type;
-                let t = class_names.tpath(id);
+                let t = env.class_names.tpath(id);
 
                 let mut res = format!("ReferenceArray<{}>[", t);
                 for (i, x) in arr.elements.iter().enumerate() {

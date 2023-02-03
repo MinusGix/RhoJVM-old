@@ -31,7 +31,7 @@ use crate::{
 mod bootstrap;
 pub mod class_util;
 mod control_flow;
-mod func;
+pub mod func;
 pub mod instances;
 pub mod internal_repl;
 mod operation;
