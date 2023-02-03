@@ -9,6 +9,8 @@ import java.util.Properties;
 import java.lang.SecurityManager;
 import java.util.Properties;
 
+import rho.util.Log;
+
 public final class System {
     private static Properties props = new Properties();
     static {
@@ -38,6 +40,8 @@ public final class System {
         if (name.isEmpty()) {
             throw new IllegalArgumentException("Empty property name");
         }
+
+        Log.info("getProperty(" + name + ") = " + System.props.getProperty(name));
         return System.props.getProperty(name);
     }
 
@@ -52,10 +56,13 @@ public final class System {
         if (name.isEmpty()) {
             throw new IllegalArgumentException("Empty property name");
         }
+
+        Log.info("getProperty(" + name + ", " + defaultValue + ") = " + System.props.getProperty(name, defaultValue));
         return System.props.getProperty(name, defaultValue);
     }
 
     public static String setProperty(String name, String value) {
+        Log.info("setProperty(" + name + ", " + value + ")");
         // TODO: Security checks
         if (name == null) {
             throw new NullPointerException("name");
@@ -70,6 +77,7 @@ public final class System {
     }
 
     public static String clearProperty(String name) {
+        Log.info("clearProperty(" + name + ")");
         if (name == null) {
             throw new NullPointerException("name");
         }
