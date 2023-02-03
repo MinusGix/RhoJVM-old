@@ -7,7 +7,7 @@ use classfile_parser::method_info::MethodAccessFlags;
 use rhojvm_base::{
     code::{
         method::{DescriptorType, DescriptorTypeBasic, Method, MethodDescriptor},
-        types::JavaChar,
+        types::{JavaChar, PrimitiveType},
     },
     id::ClassId,
     util::convert_classfile_text,
@@ -16,7 +16,7 @@ use smallvec::SmallVec;
 use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{
-    class_instance::{FieldIndex, Instance, ReferenceInstance},
+    class_instance::{FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance},
     eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
@@ -248,7 +248,7 @@ pub struct NativeInterface {
     pub set_object_array_element: MethodNoArguments,
 
     pub new_boolean_array: MethodNoArguments,
-    pub new_byte_array: MethodNoArguments,
+    pub new_byte_array: NewByteArrayFn,
     pub new_char_array: MethodNoArguments,
     pub new_short_array: MethodNoArguments,
     pub new_int_array: MethodNoArguments,
@@ -500,7 +500,7 @@ impl NativeInterface {
             get_object_array_element: unimpl_none_name!("get_object_array_element"),
             set_object_array_element: unimpl_none_name!("set_object_array_element"),
             new_boolean_array: unimpl_none_name!("new_boolean_array"),
-            new_byte_array: unimpl_none_name!("new_byte_array"),
+            new_byte_array,
             new_char_array: unimpl_none_name!("new_char_array"),
             new_short_array: unimpl_none_name!("new_short_array"),
             new_int_array: unimpl_none_name!("new_int_array"),
@@ -1274,6 +1274,29 @@ unsafe extern "C" fn get_array_length(env: *mut Env, instance: JArray) -> JSize 
             ReferenceInstance::ReferenceArray(arr) => arr.len(),
         },
     }
+}
+
+pub type NewByteArrayFn = unsafe extern "C" fn(env: *mut Env, length: JSize) -> JByteArray;
+unsafe extern "C" fn new_byte_array(env: *mut Env, length: JSize) -> JByteArray {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    let byte_array_id = env
+        .class_names
+        .gcid_from_array_of_primitives(PrimitiveType::UnsignedByte);
+
+    let elements: Vec<RuntimeValuePrimitive> = {
+        assert!(length >= 0, "Negative length");
+
+        let length = length.unsigned_abs();
+        let length = length.into_usize();
+
+        vec![RuntimeValuePrimitive::I8(0); length]
+    };
+
+    let arr = PrimitiveArrayInstance::new(byte_array_id, RuntimeTypePrimitive::I8, elements);
+    let arr = env.state.gc.alloc(arr);
+    unsafe { env.get_local_jobject_for(arr.into_generic()) }
 }
 
 pub type GetByteArrayRegionFn = unsafe extern "C" fn(
