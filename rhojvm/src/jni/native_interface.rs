@@ -92,7 +92,7 @@ pub struct NativeInterface {
 
     pub get_method_id: GetMethodIdFn,
 
-    pub call_object_method: MethodNoArguments,
+    pub call_object_method: CallObjectMethodFn,
     pub call_object_method_v: MethodNoArguments,
     pub call_object_method_a: MethodNoArguments,
     pub call_boolean_method: MethodNoArguments,
@@ -358,7 +358,7 @@ impl NativeInterface {
             get_object_class: unimpl_none_name!("get_object_class"),
             is_instance_of: unimpl_none_name!("is_instance_of"),
             get_method_id,
-            call_object_method: unimpl_none_name!("call_object_method"),
+            call_object_method,
             call_object_method_v: unimpl_none_name!("call_object_method_v"),
             call_object_method_a: unimpl_none_name!("call_object_method_a"),
             call_boolean_method: unimpl_none_name!("call_boolean_method"),
@@ -1759,6 +1759,55 @@ unsafe fn promote_param(
         DescriptorType::Array { level, component } => todo!(),
     }
 }
+
+pub type CallObjectMethodFn =
+    unsafe extern "C" fn(env: *mut Env, object: JObject, method_id: JMethodId, ...) -> JObject;
+unsafe extern "C" fn call_object_method(
+    env: *mut Env,
+    object: JObject,
+    method_id: JMethodId,
+    mut args: ...
+) -> JObject {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    let object = env.get_jobject_as_gcref(object);
+    let object = object.unwrap();
+
+    let mut args = args.as_va_list();
+
+    let method_id = method_id.into_method_id().unwrap();
+    let method = env.methods.get(&method_id).unwrap();
+    // Have to allocate due to needing env mutably in loop
+    let desc_parameters: SmallVec<[_; 8]> =
+        method.descriptor().parameters().iter().copied().collect();
+    let mut locals = Locals::new_with_array([RuntimeValue::Reference(object.unchecked_as())]);
+    for param in desc_parameters {
+        let value: RuntimeValue = promote_param(env, &mut args, param);
+
+        locals.push_transform(value);
+    }
+
+    let frame = Frame::new_locals(locals);
+
+    match eval_method(env, method_id.into(), frame).unwrap() {
+        EvalMethodValue::ReturnVoid => {
+            panic!("Method which was intended to return an object returned void")
+        }
+        EvalMethodValue::Return(value) => {
+            if let Some(value) = value.into_reference().expect("Returned non referenced") {
+                env.get_local_jobject_for(value.into_generic())
+            } else {
+                JObject::null()
+            }
+        }
+        EvalMethodValue::Exception(exc) => {
+            env.state.fill_native_exception(exc);
+            JObject::null()
+        }
+    }
+}
+
 pub type CallStaticObjectMethodVFn = unsafe extern "C" fn(
     env: *mut Env,
     class: JClass,
