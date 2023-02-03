@@ -197,6 +197,7 @@ impl Properties {
             line_sep: "\n",
             path_sep: ":",
             file_encoding: "UTF-8",
+            // TODO: os name is not completely correct!
             os_name: sys
                 .long_os_version()
                 .map_or(Cow::Borrowed("Unix"), Cow::Owned),

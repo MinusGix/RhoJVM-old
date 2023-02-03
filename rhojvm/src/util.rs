@@ -17,7 +17,7 @@ use rhojvm_base::{
     util::MemorySize,
 };
 use smallvec::{smallvec, SmallVec, ToSmallVec};
-use sysinfo::{RefreshKind, SystemExt};
+use sysinfo::{CpuRefreshKind, RefreshKind, SystemExt};
 
 use crate::{
     class_instance::{
@@ -160,7 +160,9 @@ impl<'i> Env<'i> {
             string_interner,
             call_stack: Vec::with_capacity(128),
             system_info: sysinfo::System::new_with_specifics(
-                RefreshKind::new().with_cpu().with_memory(),
+                RefreshKind::new()
+                    .with_cpu(CpuRefreshKind::everything())
+                    .with_memory(),
             ),
             startup_instant: std::time::Instant::now(),
         }
