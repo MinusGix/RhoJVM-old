@@ -587,26 +587,32 @@ pub fn eval_method(
     let span = tracing::span!(tracing::Level::INFO, "eval_method");
     let _guard = span.enter();
 
+    let skip_logging = env
+        .state
+        .conf
+        .should_skip_logging(&env.class_names, class_id);
+
     {
-        if let Some(class_file) = env.class_files.get(&class_id) {
-            let method_name = class_file.get_text_b(method.name_index()).unwrap();
-            let class_name = env.class_names.tpath(class_id);
-            let desc = method.descriptor().as_pretty_string(&env.class_names);
-            tracing::info!(
-                "Executing Method: {}::{} {}",
-                class_name,
-                convert_classfile_text(method_name),
-                desc,
-            );
-        } else {
-            tracing::info!("Executing Method (No Backing Class File):");
+        if !skip_logging {
+            if let Some(class_file) = env.class_files.get(&class_id) {
+                let method_name = class_file.get_text_b(method.name_index()).unwrap();
+                let class_name = env.class_names.tpath(class_id);
+                let desc = method.descriptor().as_pretty_string(&env.class_names);
+                tracing::info!(
+                    "Executing Method: {}::{} {}",
+                    class_name,
+                    convert_classfile_text(method_name),
+                    desc,
+                );
+            } else {
+                tracing::info!("Executing Method (No Backing Class File):");
+            }
         }
     }
 
     // TODO: native exceptions
     // TODO: Move to separate function to make it easier to reason about and maintain safety
     if method.access_flags().contains(MethodAccessFlags::NATIVE) {
-        tracing::info!("\tNative Method");
         let class_file = env
             .class_files
             .get(&class_id)
@@ -884,7 +890,9 @@ pub fn eval_method(
         {
             let (class_id, _) = method_id.decompose();
 
-            let should_log = if env.state.conf.log_only_control_flow_insts {
+            let should_log = if skip_logging {
+                false
+            } else if env.state.conf.log_only_control_flow_insts {
                 matches!(
                     inst,
                     Inst::InvokeDynamic(_)

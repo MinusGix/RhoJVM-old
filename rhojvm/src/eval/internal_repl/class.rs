@@ -116,7 +116,6 @@ fn get_class_name_id_for(env: &mut Env, name: GcRef<Instance>) -> Result<ClassId
     // TODO: We should actually convert it to cesu8!
     let contents = contents.as_bytes();
     let id = env.class_names.gcid_from_bytes(contents);
-    tracing::info!("\tId: {:?}", id);
     Ok(id)
 }
 

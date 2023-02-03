@@ -374,7 +374,6 @@ fn make_env(
     let packages: Packages = Packages::default();
     let methods: Methods = Methods::default();
 
-    // Initialize State
     let state = State::new(conf);
 
     let main_thread_data = ThreadData::new(std::thread::current().id());
