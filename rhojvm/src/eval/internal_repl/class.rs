@@ -28,7 +28,7 @@ use crate::{
     rv::{RuntimeTypePrimitive, RuntimeTypeVoid, RuntimeValue, RuntimeValuePrimitive},
     util::{
         self, construct_string, find_field_with_name, get_string_contents_as_rust_string,
-        make_class_form_of, make_primitive_class_form_of, to_utf16_arr, Env,
+        make_class_form_of, make_primitive_class_form_of, ref_info, to_utf16_arr, Env,
     },
     GeneralError,
 };
@@ -113,7 +113,6 @@ fn get_class_name_id_for(env: &mut Env, name: GcRef<Instance>) -> Result<ClassId
         })
         .collect::<Vec<u16>>();
     let contents = String::from_utf16(&contents).map_err(GeneralError::StringConversionFailure)?;
-    tracing::info!("Get Class Name Id for: {}", contents);
     // TODO: We should actually convert it to cesu8!
     let contents = contents.as_bytes();
     let id = env.class_names.gcid_from_bytes(contents);
@@ -154,11 +153,28 @@ pub(crate) extern "C" fn class_get_class_for_name_with_class_loader(
 }
 
 pub(crate) extern "C" fn class_get_class_for_name(
-    _env: *mut Env<'_>,
+    env: *mut Env<'_>,
     _this: JObject,
-    _name: JString,
+    name: JString,
 ) -> JObject {
-    todo!()
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    let name = unsafe { env.get_jobject_as_gcref(name) };
+    // TODO: It doesn't actually specify what it does on null-name
+    let name = name.expect("null ref exception");
+
+    let class_id = get_class_name_id_for(env, name).unwrap();
+
+    let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+
+    let class_form = make_class_form_of(env, class_class_id, class_id).unwrap();
+    let Some(class_form) = env.state.extract_value(class_form) else {
+        return JObject::null();
+    };
+
+    unsafe { env.get_local_jobject_for(class_form.into_generic()) }
 }
 
 pub(crate) extern "C" fn class_get_name(env: *mut Env<'_>, this: JObject) -> JString {
@@ -684,8 +700,11 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
     match eval_method(env, method_id.into(), frame).unwrap() {
         EvalMethodValue::ReturnVoid => {}
         EvalMethodValue::Return(_) => tracing::warn!("Constructor returned value?"),
-        EvalMethodValue::Exception(_) => {
-            todo!("There was an exception calling the default constructor")
+        EvalMethodValue::Exception(exc) => {
+            todo!(
+                "There was an exception calling the default constructor: {}",
+                ref_info(env, Some(exc.into_generic()))
+            )
         }
     }
 
