@@ -206,7 +206,7 @@ public final class String implements java.io.Serializable, Comparable<String>, C
     private static void checkValidLocale(Locale locale) {
         if (!locale.getLanguage().equals(Locale.ENGLISH.getLanguage())) {
             // TODO: I'm not sure how to implement this.
-            throw new UnsupportedOperationException("TODO: Implement support for locales other than english");
+            // throw new UnsupportedOperationException("TODO: Implement support for locales other than english: " + locale + " ; " + locale.getLanguage());
         }
     }
 
