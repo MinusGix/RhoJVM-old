@@ -16,8 +16,15 @@ use smallvec::SmallVec;
 use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{
-    class_instance::{FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance},
-    eval::{eval_method, EvalError, EvalMethodValue, Frame, Locals, ValueException},
+    class_instance::{
+        ClassInstance, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance,
+        StaticFormInstance,
+    },
+    eval::{
+        eval_method, instances::make_instance_fields, EvalError, EvalMethodValue, Frame, Locals,
+        ValueException,
+    },
+    initialize_class,
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
@@ -83,8 +90,8 @@ pub struct NativeInterface {
     pub ensure_local_capacity: EnsureLocalCapacityFn,
 
     pub alloc_object: MethodNoArguments,
-    pub new_object: MethodNoArguments,
-    pub new_object_v: MethodNoArguments,
+    pub new_object: NewObjectFn,
+    pub new_object_v: NewObjectVFn,
     pub new_object_a: MethodNoArguments,
 
     pub get_object_class: MethodNoArguments,
@@ -352,8 +359,8 @@ impl NativeInterface {
             new_local_ref: unimpl_none_name!("new_local_ref"),
             ensure_local_capacity,
             alloc_object: unimpl_none_name!("alloc_object"),
-            new_object: unimpl_none_name!("new_object"),
-            new_object_v: unimpl_none_name!("new_object_v"),
+            new_object,
+            new_object_v,
             new_object_a: unimpl_none_name!("new_object_a"),
             get_object_class: unimpl_none_name!("get_object_class"),
             is_instance_of: unimpl_none_name!("is_instance_of"),
@@ -1456,6 +1463,90 @@ unsafe extern "C" fn ensure_local_capacity(env: *mut Env, capacity: JInt) -> JIn
     Status::Ok as JInt
 }
 
+pub type NewObjectFn =
+    unsafe extern "C" fn(env: *mut Env, class: JClass, method_id: JMethodId, ...) -> JObject;
+unsafe extern "C" fn new_object(
+    env: *mut Env,
+    class: JClass,
+    method_id: JMethodId,
+    mut args: ...
+) -> JObject {
+    let args = args.as_va_list();
+
+    new_object_v(env, class, method_id, args)
+}
+
+pub type NewObjectVFn = unsafe extern "C" fn(
+    env: *mut Env,
+    class: JClass,
+    method_id: JMethodId,
+    args: std::ffi::VaList,
+) -> JObject;
+unsafe extern "C" fn new_object_v(
+    env: *mut Env,
+    class: JClass,
+    method_id: JMethodId,
+    mut args: std::ffi::VaList,
+) -> JObject {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    let static_form = env
+        .get_jobject_as_gcref(class)
+        .expect("NewObject class was null")
+        .unchecked_as::<StaticFormInstance>();
+    let static_form = env.state.gc.deref(static_form).unwrap();
+    let of = static_form.of.into_reference().unwrap();
+
+    tracing::info!(
+        "native_interface: new_object of={} ({:?})",
+        env.class_names.tpath(of),
+        of
+    );
+
+    if let Ok(true) = env.class_names.is_array(of) {
+        panic!("Cannot call new_object on an array class");
+    }
+
+    // TODO: This is INVALID for classes that we manage internally!!
+    let fields = make_instance_fields(env, of).unwrap();
+    let Some(fields) = env.state.extract_value(fields) else {
+        return JObject::null();
+    };
+    let static_ref = initialize_class(env, of).unwrap().into_value();
+    let Some(static_ref) = env.state.extract_value(static_ref) else {
+        return JObject::null();
+    };
+    let instance = ClassInstance::new(of, static_ref, fields);
+    let instance_ref = env.state.gc.alloc(instance);
+
+    let method_id = method_id.into_method_id().unwrap();
+    let method = env.methods.get(&method_id).unwrap();
+    let desc_parameters: SmallVec<[_; 8]> =
+        method.descriptor().parameters().iter().copied().collect();
+    let mut locals = Locals::new_with_array([RuntimeValue::Reference(instance_ref.into_generic())]);
+    for param in desc_parameters {
+        let value: RuntimeValue = promote_param(env, &mut args, param);
+
+        locals.push_transform(value);
+    }
+
+    let frame = Frame::new_locals(locals);
+
+    match eval_method(env, method_id.into(), frame).unwrap() {
+        EvalMethodValue::ReturnVoid => unsafe {
+            env.get_local_jobject_for(instance_ref.into_generic())
+        },
+        EvalMethodValue::Return(_) => {
+            panic!("Constructor returned a value!");
+        }
+        EvalMethodValue::Exception(exc) => {
+            env.state.fill_native_exception(exc);
+            JObject::null()
+        }
+    }
+}
+
 pub type NewGlobalRefFn = unsafe extern "C" fn(env: *mut Env, obj: JObject) -> JObject;
 unsafe extern "C" fn new_global_ref(env: *mut Env, obj: JObject) -> JObject {
     assert_valid_env(env);
@@ -1779,7 +1870,25 @@ unsafe fn promote_param(
                 }
             }
         },
-        DescriptorType::Array { level, component } => todo!(),
+        DescriptorType::Array { level, component } => {
+            if level.get() > 1 {
+                todo!("Arrays of arrays");
+            }
+
+            let arg = args.arg::<*const ()>();
+            let arg = JObject::new_unchecked(arg);
+            if let Some(arg) = env.get_jobject_as_gcref(arg) {
+                assert!(
+                    env.state.gc.deref(arg).is_some(),
+                    "Invalid GcRef ({:?}) gotten from variadic list",
+                    arg
+                );
+                // TODO: Check that the type is valid
+                RuntimeValue::Reference(arg.unchecked_as())
+            } else {
+                RuntimeValue::NullReference
+            }
+        }
     }
 }
 
