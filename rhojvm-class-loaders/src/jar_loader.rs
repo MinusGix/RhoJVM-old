@@ -38,6 +38,7 @@ pub struct JarClassFileLoader {
 }
 impl JarClassFileLoader {
     pub fn new(jar_path: PathBuf) -> std::io::Result<JarClassFileLoader> {
+        let jar_path = jar_path.canonicalize()?;
         let file = std::fs::File::open(&jar_path)?;
         let archive = zip::ZipArchive::new(file)?;
 
@@ -113,10 +114,12 @@ impl ClassFileLoader for JarClassFileLoader {
     fn load_resource(&mut self, resource_name: &str) -> Result<Resource, LoadResourceError> {
         let resource_name = resource_name.strip_prefix('/').unwrap_or(resource_name);
 
+        tracing::info!("Loading resource: {:?}", resource_name);
         let mut file = self
             .archive
             .by_name(resource_name)
             .map_err(|x| LoadResourceError::OpaqueError(x.into()))?;
+        tracing::info!("Loaded resource");
 
         let mut data = Vec::new();
         file.read_to_end(&mut data)
@@ -133,7 +136,9 @@ impl ClassFileLoader for JarClassFileLoader {
 
     fn resource_protocol(&mut self, resource_name: &str) -> Option<ResourceProtocol> {
         if self.has_resource(resource_name) {
-            Some(ResourceProtocol::Jar)
+            Some(ResourceProtocol::Jar(
+                self.jar_path.to_string_lossy().to_string(),
+            ))
         } else {
             None
         }

@@ -132,6 +132,7 @@ struct Properties {
     java_vendor_url: &'static str,
     java_vendor_url_bug: &'static str,
     java_vm_name: &'static str,
+    java_home: Cow<'static, str>,
 
     extra: IndexMap<String, String>,
 }
@@ -215,6 +216,7 @@ impl Properties {
             java_vendor_url: VENDOR_URL,
             java_vendor_url_bug: VENDOR_URL_BUG,
             java_vm_name: VM_NAME,
+            java_home: Cow::Owned(conf.java_home.clone()),
             extra: conf.properties.clone(),
         }
     }
@@ -253,6 +255,7 @@ impl Properties {
             java_vendor_url: VENDOR_URL,
             java_vendor_url_bug: VENDOR_URL_BUG,
             java_vm_name: VM_NAME,
+            java_home: Cow::Owned(conf.java_home.clone()),
             extra: conf.properties.clone(),
         }
     }
@@ -324,6 +327,7 @@ impl Properties {
                 Cow::Borrowed("java.version"),
                 Cow::Borrowed(self.java_vm_version),
             ),
+            (Cow::Borrowed("java.home"), self.java_home),
         ]
         .into_iter()
         .chain(

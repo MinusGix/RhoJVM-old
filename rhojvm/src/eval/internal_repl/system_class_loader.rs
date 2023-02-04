@@ -119,8 +119,8 @@ pub(crate) extern "C" fn system_class_loader_get_resources(
                 .loader
                 .resource_protocol(&resource_name)
                 .unwrap();
-            let url =
-                construct_string_r(env, &format!("{}://{}", protocol, resource_name)).unwrap();
+            let url = protocol.format_resource_name(&resource_name);
+            let url = construct_string_r(env, &url).unwrap();
             let Some(url) = env.state.extract_value(url) else {
             return JObject::null()
         };
@@ -230,14 +230,18 @@ pub(crate) extern "C" fn system_class_loader_get_resource(
             .loader
             .resource_protocol(&resource_name)
             .unwrap();
-        let url = construct_string_r(env, &format!("{}://{}", protocol, resource_name)).unwrap();
+        let url = protocol.format_resource_name(&resource_name);
+        tracing::info!("Constructing url: {:?}", url);
+        let url = construct_string_r(env, &url).unwrap();
         let Some(url) = env.state.extract_value(url) else {
+            tracing::warn!("Failed to construct string for url");
             return JObject::null()
         };
 
         let url = construct_url_from_string(env, url).unwrap();
 
         let Some(url) = env.state.extract_value(url) else {
+            tracing::info!("Failed to construct url from string");
             return JObject::null()
         };
 
@@ -245,6 +249,7 @@ pub(crate) extern "C" fn system_class_loader_get_resource(
 
         unsafe { env.get_local_jobject_for(url.into_generic()) }
     } else {
+        tracing::info!("Does not have resource");
         JObject::null()
     }
 }

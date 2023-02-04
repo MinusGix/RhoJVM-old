@@ -35,16 +35,17 @@ pub enum Resource {
     Buffer(Vec<u8>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ResourceProtocol {
     File,
-    Jar,
+    Jar(String),
 }
-impl std::fmt::Display for ResourceProtocol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl ResourceProtocol {
+    pub fn format_resource_name(&self, resource_name: &str) -> String {
         match self {
-            ResourceProtocol::File => write!(f, "file"),
-            ResourceProtocol::Jar => write!(f, "jar"),
+            ResourceProtocol::File => format!("file:/{}", resource_name),
+            // ResourceProtocol::Jar => format!("jar:/{}"!, resource_name),
+            ResourceProtocol::Jar(jar) => format!("jar:file:/{}!/{}", jar, resource_name),
         }
     }
 }

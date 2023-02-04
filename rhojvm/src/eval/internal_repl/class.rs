@@ -652,7 +652,12 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
     let static_ref = initialize_class(env, this_id).unwrap().into_value();
     let static_ref = match static_ref {
         ValueException::Value(static_ref) => static_ref,
-        ValueException::Exception(_) => todo!("Handle exception in initializing class"),
+        ValueException::Exception(exc) => todo!(
+            "Handle exception in initializing class: {} ({:?}) {}",
+            env.class_names.tpath(this_id).to_string(),
+            this_id,
+            ref_info(env, Some(exc.into_generic()))
+        ),
     };
 
     let target_class = env.classes.get(&this_id).unwrap();

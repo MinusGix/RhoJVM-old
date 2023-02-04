@@ -367,6 +367,8 @@ fn make_state_conf(args: &CliArgs) -> StateConfig {
     // TODO: This should be wherever rhojvm is installed
     conf.native_lib_dirs
         .push("./rhojvm/ex/lib/amd64".to_string());
+    // TODO: This should be wherever rhojvm is installed
+    conf.java_home = "./rhojvm/ex".to_string();
     conf
 }
 
@@ -626,6 +628,10 @@ fn make_error_pretty(env: &Env, err: GeneralError) -> String {
                 )
             }
         },
+        GeneralError::FindSymbol(find) => {
+            // TODO; include name
+            format!("Failed to find native symbol: {:?}", find)
+        }
         // TODO
         _ => format!("{:?}", err),
     }

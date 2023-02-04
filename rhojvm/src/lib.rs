@@ -143,6 +143,7 @@ pub struct StateConfig {
     pub properties: IndexMap<String, String>,
     /// Directories to search for native libraries, on top of the defaults
     pub native_lib_dirs: Vec<String>,
+    pub java_home: String,
 }
 impl StateConfig {
     #[must_use]
@@ -159,6 +160,7 @@ impl StateConfig {
             log_skip_prefixes: Vec::new(),
             properties: IndexMap::new(),
             native_lib_dirs: Vec::new(),
+            java_home: String::new(),
         }
     }
 
