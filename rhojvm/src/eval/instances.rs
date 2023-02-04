@@ -601,6 +601,7 @@ fn classcast_exception(
 /// exceptions created (such as during failure to resolve class)
 pub(crate) fn try_casting(
     env: &mut Env,
+    loading_from_id: ClassId,
     class_id: ClassId,
     desired_class_id: ClassId,
     make_failure: impl FnOnce(&mut Env, ClassId, ClassId, &str) -> Result<CastResult, GeneralError>,
@@ -615,7 +616,7 @@ pub(crate) fn try_casting(
         &mut env.methods,
         &mut env.state,
         desired_class_id,
-        class_id,
+        loading_from_id,
     )?;
 
     if class_id == desired_class_id {
@@ -646,7 +647,7 @@ pub(crate) fn try_casting(
             let target_comp = target_comp.into_class_id();
 
             if let Some((class_comp, target_comp)) = class_comp.zip(target_comp) {
-                try_casting(env, class_comp, target_comp, make_failure)
+                try_casting(env, loading_from_id, class_comp, target_comp, make_failure)
             } else {
                 Ok(make_failure(
                     env,
@@ -795,6 +796,7 @@ impl RunInstContinue for CheckCast {
         // perform these checks so that we can determine if the cast is correct
         match try_casting(
             env,
+            class_id,
             id,
             cast_target_id,
             |env, class_id, desired_class_id, message| {
@@ -862,7 +864,7 @@ impl RunInstContinue for InstanceOf {
 
         // We currently represent the reference as completely unmodified, but we do have to
         // perform these checks so that we can determine if the cast is correct
-        match try_casting(env, id, cast_target_id, |_env, _, _, _| {
+        match try_casting(env, class_id, id, cast_target_id, |_env, _, _, _| {
             Ok(CastResult::Failure)
         })? {
             CastResult::Success => {

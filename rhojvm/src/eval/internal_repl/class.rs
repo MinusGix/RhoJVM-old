@@ -1171,6 +1171,8 @@ pub(crate) extern "C" fn class_is_instance(
         panic!();
     };
 
+    let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+
     let other = unsafe { env.get_jobject_as_gcref(other) };
     let other = other.expect("IsInstance's other class was null");
     let other_id = match env.state.gc.deref(other).unwrap() {
@@ -1178,7 +1180,7 @@ pub(crate) extern "C" fn class_is_instance(
         Instance::Reference(re) => re.instanceof(),
     };
 
-    match try_casting(env, other_id, this_id, |_env, _, _, _| {
+    match try_casting(env, class_class_id, other_id, this_id, |_env, _, _, _| {
         Ok(CastResult::Failure)
     })
     .unwrap()
