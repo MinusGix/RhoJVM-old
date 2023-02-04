@@ -239,6 +239,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_sun_misc_Unsafe_freeMemory" => into_opaque3ret(unsafe_::unsafe_free_memory),
             b"Java_sun_misc_Unsafe_setMemory" => into_opaque5ret(unsafe_::unsafe_set_memory_n),
+            b"Java_sun_misc_Unsafe_copyMemory" => into_opaque7ret(unsafe_::unsafe_copy_memory),
             // Unsafe get memory
             b"Java_sun_misc_Unsafe_getByte" => into_opaque3ret(unsafe_::unsafe_get_byte_ptr),
             b"Java_sun_misc_Unsafe_getShort" => into_opaque3ret(unsafe_::unsafe_get_short_ptr),

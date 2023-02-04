@@ -7,6 +7,25 @@ public final class Unsafe {
 
     private static final Unsafe instance = new Unsafe();
 
+    public static final int ARRAY_OBJECT_BASE_OFFSET = instance.arrayBaseOffset(Object[].class);
+
+    public static final int ARRAY_BOOLEAN_BASE_OFFSET = instance.arrayBaseOffset(boolean[].class);
+
+    public static final int ARRAY_BYTE_BASE_OFFSET = instance.arrayBaseOffset(byte[].class);
+
+    public static final int ARRAY_SHORT_BASE_OFFSET = instance.arrayBaseOffset(short[].class);
+
+    public static final int ARRAY_CHAR_BASE_OFFSET = instance.arrayBaseOffset(char[].class);
+
+    public static final int ARRAY_INT_BASE_OFFSET = instance.arrayBaseOffset(int[].class);
+
+    public static final int ARRAY_LONG_BASE_OFFSET = instance.arrayBaseOffset(long[].class);
+
+    public static final int ARRAY_FLOAT_BASE_OFFSET = instance.arrayBaseOffset(float[].class);
+
+    public static final int ARRAY_DOUBLE_BASE_OFFSET = instance.arrayBaseOffset(double[].class);
+
+
     public static Unsafe getUnsafe() {
         return instance;
     }
@@ -215,9 +234,7 @@ public final class Unsafe {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public void copyMemory(Object srcBase, long srcOffset, Object destBase, long destOffset, long count) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native void copyMemory(Object srcBase, long srcOffset, Object destBase, long destOffset, long count);
 
     public final native int getAndAddInt(Object src, long offset, int delta);
 

@@ -58,7 +58,7 @@ impl MemoryBlocks {
     // We allow unused mut self to be more explicit that we are only writing to it (at least within
     // our api) when we have unique access.
     #[allow(clippy::unused_self)]
-    unsafe fn write_slice(&mut self, ptr: MemoryBlockPtr, slice: &[u8]) {
+    pub(crate) unsafe fn write_slice(&mut self, ptr: MemoryBlockPtr, slice: &[u8]) {
         let ptr = ptr.get();
 
         assert!(

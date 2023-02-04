@@ -17,7 +17,7 @@ use crate::{
     initialize_class,
     jni::{JByte, JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JShort},
     memblock::MemoryBlockPtr,
-    rv::{RuntimeValue, RuntimeValuePrimitive},
+    rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{make_class_form_of, Env},
 };
 
@@ -112,6 +112,64 @@ pub(crate) extern "C" fn unsafe_set_memory_n(
     // TODO: atomic
     unsafe {
         env.state.mem_blocks.write_repeat(address, count, value);
+    }
+}
+
+pub(crate) extern "C" fn unsafe_copy_memory(
+    env: *mut Env<'_>,
+    _this: JObject,
+    src: JObject,
+    src_offset: JLong,
+    dest: JObject,
+    dest_offset: JLong,
+    count: JLong,
+) {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    let src = unsafe { env.get_jobject_as_gcref(src) };
+    let src = src.unwrap();
+
+    let dest = unsafe { env.get_jobject_as_gcref(dest) };
+
+    if count <= 0 {
+        return;
+    }
+
+    let count = count as u64;
+    let count: usize = count.try_into().unwrap();
+
+    if src_offset < 0 {
+        panic!("Unsafe#copyMemory: src_offset was negative");
+    }
+
+    // Note: this code assumes that ARRAY_{TYPE}_BASE_OFFSET is 0
+    let src_offset = src_offset as u64;
+    let src_offset: usize = src_offset.try_into().unwrap();
+
+    // TODO: Support more general src/dest
+    if let Some(_dest) = dest {
+        todo!()
+    } else {
+        // dest is null, so dest_offset is really just an address
+        let address = unsafe { conv_address(dest_offset) };
+
+        let src = src.unchecked_as::<PrimitiveArrayInstance>();
+        let Some(src) = env.state.gc.deref(src) else {
+            panic!("Failed to find src, expected primitive array instance. Other kinds are not supported at this time");
+        };
+        assert_eq!(src.element_type, RuntimeTypePrimitive::I8);
+
+        let src_bytes = src
+            .elements
+            .iter()
+            .skip(src_offset)
+            .take(count)
+            .map(|x| x.into_byte().unwrap())
+            .map(|x| u8::from_be_bytes(i8::to_be_bytes(x)))
+            .collect::<Vec<u8>>();
+        unsafe { env.state.mem_blocks.write_slice(address, &src_bytes) };
     }
 }
 
