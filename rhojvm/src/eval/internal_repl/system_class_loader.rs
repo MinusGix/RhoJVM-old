@@ -113,6 +113,29 @@ pub(crate) extern "C" fn system_class_loader_get_resources(
 
     // TODO: Resources with the same name?
     if env.class_files.loader.has_resource(&resource_name) {
+        let url = {
+            let protocol = env
+                .class_files
+                .loader
+                .resource_protocol(&resource_name)
+                .unwrap();
+            let url =
+                construct_string_r(env, &format!("{}://{}", protocol, resource_name)).unwrap();
+            let Some(url) = env.state.extract_value(url) else {
+            return JObject::null()
+        };
+
+            let url = construct_url_from_string(env, url).unwrap();
+
+            let Some(url) = env.state.extract_value(url) else {
+            return JObject::null()
+        };
+
+            tracing::info!("URL: {}", ref_info(env, Some(url.into_generic())));
+
+            url
+        };
+
         let single_enumeration_id = env
             .class_names
             .gcid_from_bytes(b"rho/util/SingleEnumeration");
@@ -147,7 +170,7 @@ pub(crate) extern "C" fn system_class_loader_get_resources(
 
             let frame = Frame::new_locals(Locals::new_with_array([
                 RuntimeValue::Reference(instance_ref.into_generic()),
-                RuntimeValue::Reference(resource_name_ref.unchecked_as()),
+                RuntimeValue::Reference(url.unchecked_as()),
             ]));
             match eval_method(env, method_id.into(), frame).unwrap() {
                 EvalMethodValue::ReturnVoid | EvalMethodValue::Return(_) => unsafe {
@@ -218,7 +241,7 @@ pub(crate) extern "C" fn system_class_loader_get_resource(
             return JObject::null()
         };
 
-        // tracing::info!("URL: {}", ref_info(env, Some(url.into_generic())));
+        tracing::info!("URL: {}", ref_info(env, Some(url.into_generic())));
 
         unsafe { env.get_local_jobject_for(url.into_generic()) }
     } else {
