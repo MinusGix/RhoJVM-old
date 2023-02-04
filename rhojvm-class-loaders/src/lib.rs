@@ -9,7 +9,9 @@ use classfile_parser::class_parser_opt;
 use rhojvm_base::{
     class::ClassFileData,
     data::{
-        class_file_loader::{ClassFileLoader, LoadClassFileError, LoadResourceError, Resource},
+        class_file_loader::{
+            ClassFileLoader, LoadClassFileError, LoadResourceError, Resource, ResourceProtocol,
+        },
         class_names::ClassNames,
     },
     id::ClassId,
@@ -98,6 +100,10 @@ impl ClassFileLoader for ClassDirectories {
 
     fn has_resource(&mut self, _resource_name: &str) -> bool {
         false
+    }
+
+    fn resource_protocol(&mut self, _resource_name: &str) -> Option<ResourceProtocol> {
+        None
     }
 }
 

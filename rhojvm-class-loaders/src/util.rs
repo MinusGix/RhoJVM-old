@@ -1,7 +1,9 @@
 use rhojvm_base::{
     class::ClassFileData,
     data::{
-        class_file_loader::{ClassFileLoader, LoadClassFileError, LoadResourceError, Resource},
+        class_file_loader::{
+            ClassFileLoader, LoadClassFileError, LoadResourceError, Resource, ResourceProtocol,
+        },
         class_names::ClassNames,
     },
     id::ClassId,
@@ -72,5 +74,11 @@ impl<L: ClassFileLoader, R: ClassFileLoader> ClassFileLoader for CombineLoader<L
 
     fn has_resource(&mut self, resource_name: &str) -> bool {
         self.left.has_resource(resource_name) || self.right.has_resource(resource_name)
+    }
+
+    fn resource_protocol(&mut self, resource_name: &str) -> Option<ResourceProtocol> {
+        self.left
+            .resource_protocol(resource_name)
+            .or_else(|| self.right.resource_protocol(resource_name))
     }
 }

@@ -35,6 +35,20 @@ pub enum Resource {
     Buffer(Vec<u8>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResourceProtocol {
+    File,
+    Jar,
+}
+impl std::fmt::Display for ResourceProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResourceProtocol::File => write!(f, "file"),
+            ResourceProtocol::Jar => write!(f, "jar"),
+        }
+    }
+}
+
 // TODO: Remove clone
 /// Note: Not exactly a class loader in the java sense, but does somewhat similar things
 pub trait ClassFileLoader {
@@ -53,4 +67,8 @@ pub trait ClassFileLoader {
     fn load_resource(&mut self, resource_name: &str) -> Result<Resource, LoadResourceError>;
 
     fn has_resource(&mut self, resource_name: &str) -> bool;
+
+    /// Returns the protocol of the resource, if it exists  
+    /// If `has_resource` returns `true`, then this must give some value.
+    fn resource_protocol(&mut self, resource_name: &str) -> Option<ResourceProtocol>;
 }

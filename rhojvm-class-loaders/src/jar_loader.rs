@@ -4,7 +4,9 @@ use classfile_parser::{class_parser_opt, parser::ParseData};
 use rhojvm_base::{
     class::ClassFileData,
     data::{
-        class_file_loader::{ClassFileLoader, LoadClassFileError, LoadResourceError, Resource},
+        class_file_loader::{
+            ClassFileLoader, LoadClassFileError, LoadResourceError, Resource, ResourceProtocol,
+        },
         class_names::ClassNames,
     },
     id::ClassId,
@@ -127,5 +129,13 @@ impl ClassFileLoader for JarClassFileLoader {
         let resource_name = resource_name.strip_prefix('/').unwrap_or(resource_name);
 
         self.archive.by_name(resource_name).is_ok()
+    }
+
+    fn resource_protocol(&mut self, resource_name: &str) -> Option<ResourceProtocol> {
+        if self.has_resource(resource_name) {
+            Some(ResourceProtocol::Jar)
+        } else {
+            None
+        }
     }
 }
