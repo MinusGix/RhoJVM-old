@@ -8,6 +8,8 @@ package sun.misc;
 
 // TODO: We could have custom annotations / checks in the jvm to warn that a class tried using this // and it is not supported?
 
+import rho.util.Log;
+
 public class VM {
     public static boolean isBooted() {
         return true;
@@ -19,5 +21,10 @@ public class VM {
 
     public static boolean isDirectMemoryPageAligned() {
         return false;
+    }
+
+    public static String getSavedProperty(String prop) {
+        Log.info("VM#getSavedProperty: " + prop);
+        return null;
     }
 }
