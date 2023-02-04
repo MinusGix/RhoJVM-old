@@ -4,3 +4,8 @@ rho.log
 /perf.data
 /perf.data.old
 /classpath/**/*.class
+
+.vscode/
+.cargo/
+note.txt
+todo.txt
