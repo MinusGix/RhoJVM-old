@@ -1053,6 +1053,7 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
             ReferenceInstance::Class(class) => {
                 let exc_id = env.class_names.gcid_from_bytes(b"java/lang/Exception");
                 let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
+                let object_id = env.class_names.object_id();
 
                 let id = class.instanceof;
                 let name = env.class_names.tpath(id).to_string();
@@ -1124,7 +1125,39 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
 
                     format!("Class({}; Message: {:?})", name, msg)
                 } else {
-                    format!("Class({})", name)
+                    let desc = MethodDescriptor::new_ret(DescriptorType::Basic(
+                        DescriptorTypeBasic::Class(string_id),
+                    ));
+                    let target_method_id = find_virtual_method(
+                        &mut env.class_names,
+                        &mut env.class_files,
+                        &mut env.classes,
+                        &mut env.methods,
+                        object_id,
+                        id,
+                        b"toString",
+                        &desc,
+                    )
+                    .unwrap();
+
+                    let locals =
+                        Locals::new_with_array([RuntimeValue::Reference(re.unchecked_as())]);
+                    let frame = Frame::new_locals(locals);
+
+                    let res = eval_method(env, target_method_id, frame).unwrap();
+                    let EvalMethodValue::Return(RuntimeValue::Reference(msg)) = res else {
+                            panic!()
+                        };
+
+                    let msg = get_string_contents_as_rust_string(
+                        &env.class_files,
+                        &mut env.class_names,
+                        &mut env.state,
+                        msg.unchecked_as(),
+                    )
+                    .unwrap();
+
+                    format!("Class({}; toString = {:?})", name, msg)
                 }
             }
             ReferenceInstance::StaticForm(form) => {
