@@ -2,7 +2,7 @@
 
 use crate::{
     jni::{JInt, JObject, MethodClassNoArguments, OpaqueClassMethod},
-    util::Env,
+    util::{ref_info, Env},
 };
 
 mod class;
@@ -307,12 +307,15 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
     }
 }
 
-extern "C" fn unsupported_operation_exception_check_abort(env: *mut Env<'_>, _this: JObject) {
+extern "C" fn unsupported_operation_exception_check_abort(env: *mut Env<'_>, this: JObject) {
     assert!(!env.is_null(), "Env was null. Internal bug?");
     let env = unsafe { &mut *env };
 
+    let this = unsafe { env.get_jobject_as_gcref(this) }.unwrap();
+
     assert!(
         !env.state.conf().abort_on_unsupported,
-        "UnsupportedOperationException"
+        "UnsupportedOperationException: {}",
+        ref_info(env, Some(this))
     );
 }
