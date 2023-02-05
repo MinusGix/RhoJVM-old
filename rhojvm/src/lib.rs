@@ -1115,6 +1115,13 @@ fn resolve_class_interface(
             origin_class_id,
         )?
     {
+        tracing::warn!(
+            "Inaccessible class: from: {} ({:?}) to: {} ({:?}",
+            env.class_names.tpath(origin_class_id),
+            origin_class_id,
+            env.class_names.tpath(class_id),
+            class_id
+        );
         return Err(ResolveError::InaccessibleClass {
             from: origin_class_id,
             target: class_id,
