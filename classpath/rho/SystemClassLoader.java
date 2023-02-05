@@ -18,4 +18,6 @@ public final class SystemClassLoader extends ClassLoader {
     public native URL getResource(String name);
 
     public native Enumeration<URL> getResources(String name) throws IOException;
+
+    public native InputStream getResourceAsStream(String name);
 }

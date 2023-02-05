@@ -114,8 +114,11 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             // ClassLoader
             b"Java_rho_SystemClassLoader_getSystemResourceAsStream" => into_opaque3ret(
-                system_class_loader::system_class_loader_get_system_resouce_as_stream,
+                system_class_loader::system_class_loader_get_system_resource_as_stream,
             ),
+            b"Java_rho_SystemClassLoader_getResourceAsStream" => {
+                into_opaque3ret(system_class_loader::system_class_loader_get_resource_as_stream)
+            }
             // Object
             b"Java_java_lang_Object_getClass" => into_opaque2ret(object::object_get_class),
             b"Java_java_lang_Object_hashCode" => into_opaque2ret(object::object_hashcode),

@@ -73,7 +73,7 @@ public abstract class ClassLoader {
     }
 
     public InputStream getResourceAsStream(String name) {
-        throw new UnsupportedOperationException("TODO: getResourceAsStream");
+        return SystemClassLoader.systemLoader.getResourceAsStream(name);
     }
 
     public Enumeration<URL> getResources(String name) throws IOException {
