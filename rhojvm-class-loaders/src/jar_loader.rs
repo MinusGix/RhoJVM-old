@@ -90,10 +90,13 @@ impl ClassFileLoader for JarClassFileLoader {
         let path = access_path_iter(&path);
 
         let path = class_path_iter_to_relative_path_string(path);
-        let mut file = self
-            .archive
-            .by_name(&path)
-            .map_err(|x| LoadClassFileError::OpaqueError(x.into()))?;
+        let mut file = match self.archive.by_name(&path) {
+            Ok(file) => file,
+            Err(err) => match err {
+                zip::result::ZipError::FileNotFound => return Err(LoadClassFileError::Nonexistent),
+                _ => return Err(LoadClassFileError::OpaqueError(err.into())),
+            },
+        };
 
         // Read the data out from the file
         let mut data = Vec::new();
