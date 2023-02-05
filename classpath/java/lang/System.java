@@ -49,8 +49,6 @@ public final class System {
         // TODO: Security checks
         if (name == null) {
             throw new NullPointerException("name");
-        } else if (defaultValue == null) {
-            throw new NullPointerException(defaultValue);
         }
 
         if (name.isEmpty()) {
