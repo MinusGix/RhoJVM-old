@@ -127,6 +127,7 @@ struct Properties {
     username: Cow<'static, str>,
     user_home: Cow<'static, str>,
     user_language: Cow<'static, str>,
+    user_country: Cow<'static, str>,
     java_library_path: Cow<'static, str>,
 
     java_vm_version: &'static str,
@@ -209,6 +210,8 @@ impl Properties {
                 .map_or(Cow::Borrowed("?"), Cow::Owned),
             // TODO: Detect this from system? Provide a setting to override it?
             user_language: Cow::Borrowed("en"),
+            // TODO: Detect this from system
+            user_country: Cow::Borrowed("US"),
             // TODO: Give a good value?
             java_library_path: Cow::Borrowed(""),
             // TODO: Typically the java.vm.version/java.runtime.version have more information
@@ -250,6 +253,8 @@ impl Properties {
                 .map_or(Cow::Borrowed("?"), Cow::Owned),
             // TODO: Detect this from system? Provide a setting to override it?
             user_language: Cow::Borrowed("en"),
+            // TODO: Detect this from system
+            user_country: Cow::Borrowed("US"),
             // TODO: Give a good value?
             java_library_path: Cow::Borrowed(""),
             java_vm_version: VERSION,
@@ -296,6 +301,7 @@ impl Properties {
             (Cow::Borrowed("user.name"), self.username),
             (Cow::Borrowed("user.home"), self.user_home),
             (Cow::Borrowed("user.language"), self.user_language),
+            (Cow::Borrowed("user.country"), self.user_country),
             (Cow::Borrowed("java.library.path"), self.java_library_path),
             (
                 Cow::Borrowed("java.vm.version"),
