@@ -1,5 +1,6 @@
 use std::{
     ffi::{c_void, CStr},
+    num::NonZeroUsize,
     os::raw::c_char,
 };
 
@@ -17,13 +18,14 @@ use usize_cast::{IntoIsize, IntoUsize};
 
 use crate::{
     class_instance::{
-        ClassInstance, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceInstance,
-        StaticFormInstance,
+        ClassInstance, FieldIndex, Instance, PrimitiveArrayInstance, ReferenceArrayInstance,
+        ReferenceInstance, StaticFormInstance,
     },
     eval::{
         eval_method, instances::make_instance_fields, EvalError, EvalMethodValue, Frame, Locals,
         ValueException,
     },
+    gc::GcRef,
     initialize_class,
     jni::{self, OpaqueClassMethod},
     method::NativeMethod,
@@ -37,7 +39,8 @@ use crate::{
 
 use super::{
     JArray, JBoolean, JByte, JByteArray, JChar, JClass, JDouble, JFieldId, JFloat, JInt, JLong,
-    JMethodId, JObject, JShort, JSize, JString, JThrowable, MethodNoArguments, Status,
+    JMethodId, JObject, JObjectArray, JShort, JSize, JString, JThrowable, MethodNoArguments,
+    Status,
 };
 
 macro_rules! unimpl_none_name {
@@ -250,7 +253,7 @@ pub struct NativeInterface {
 
     pub get_array_length: GetArrayLengthFn,
 
-    pub new_object_array: MethodNoArguments,
+    pub new_object_array: NewObjectArrayFn,
     pub get_object_array_element: MethodNoArguments,
     pub set_object_array_element: MethodNoArguments,
 
@@ -505,7 +508,7 @@ impl NativeInterface {
             get_string_utf_chars,
             release_string_utf_chars,
             get_array_length,
-            new_object_array: unimpl_none_name!("new_object_array"),
+            new_object_array,
             get_object_array_element: unimpl_none_name!("get_object_array_element"),
             set_object_array_element: unimpl_none_name!("set_object_array_element"),
             new_boolean_array: unimpl_none_name!("new_boolean_array"),
@@ -1283,6 +1286,54 @@ unsafe extern "C" fn get_array_length(env: *mut Env, instance: JArray) -> JSize 
             ReferenceInstance::ReferenceArray(arr) => arr.len(),
         },
     }
+}
+
+pub type NewObjectArrayFn = unsafe extern "C" fn(
+    env: *mut Env,
+    length: JSize,
+    class: JClass,
+    initial_element: JObject,
+) -> JObjectArray;
+unsafe extern "C" fn new_object_array(
+    env: *mut Env,
+    length: JSize,
+    class: JClass,
+    initial_element: JObject,
+) -> JObjectArray {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    if length < 0 {
+        todo!("Throw NegativeArraySizeException");
+    }
+
+    let length = length as u32;
+    let length = length.into_usize();
+
+    let class = unsafe { env.get_jobject_as_gcref(class) }.expect("Class was null ref");
+    let class = class.unchecked_as::<StaticFormInstance>();
+    let class_id = env
+        .state
+        .gc
+        .deref(class)
+        .unwrap()
+        .of
+        .into_reference()
+        .unwrap();
+
+    let initial_element = unsafe { env.get_jobject_as_gcref(initial_element) };
+    let initial_element = initial_element.map(GcRef::unchecked_as::<ReferenceInstance>);
+
+    let array_id = env
+        .class_names
+        .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), class_id)
+        .unwrap();
+
+    let arr = ReferenceArrayInstance::new(array_id, class_id, vec![initial_element; length]);
+
+    let arr_ref = env.state.gc.alloc(arr);
+
+    unsafe { env.get_local_jobject_for(arr_ref.into_generic()) }
 }
 
 pub type NewByteArrayFn = unsafe extern "C" fn(env: *mut Env, length: JSize) -> JByteArray;
