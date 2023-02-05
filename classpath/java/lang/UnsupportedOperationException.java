@@ -1,5 +1,7 @@
 package java.lang;
 
+import rho.util.Log;
+
 public class UnsupportedOperationException extends RuntimeException {
     public UnsupportedOperationException() {
         this.checkAbort();
@@ -9,6 +11,7 @@ public class UnsupportedOperationException extends RuntimeException {
 
     public UnsupportedOperationException(String message) {
         super(message);
+        Log.warn("UnsupportedOperationException created: " + message);
         this.checkAbort();
     }
 
