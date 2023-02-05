@@ -14,7 +14,9 @@ use crate::{
     gc::GcRef,
     jni::{JClass, JInt, JLong, JObject, JString},
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{construct_string, construct_string_r, get_string_contents_as_rust_string, Env},
+    util::{
+        construct_string, construct_string_r, get_string_contents_as_rust_string, ref_info, Env,
+    },
     StateConfig,
 };
 
@@ -524,9 +526,21 @@ pub(crate) extern "C" fn system_arraycopy(
                 );
             }
             (ReferenceInstance::PrimitiveArray(_), _)
-            | (_, ReferenceInstance::PrimitiveArray(_)) => todo!("Wrong types"),
+            | (_, ReferenceInstance::PrimitiveArray(_)) => {
+                todo!(
+                    "Wrong types:\nsrc: {}\ndest: {}",
+                    ref_info(env, Some(source_ref)),
+                    ref_info(env, Some(destination_ref))
+                )
+            }
             (ReferenceInstance::ReferenceArray(_), _)
-            | (_, ReferenceInstance::ReferenceArray(_)) => todo!("Wrong types"),
+            | (_, ReferenceInstance::ReferenceArray(_)) => {
+                todo!(
+                    "Wrong types:\nsrc: {}\ndest: {}",
+                    ref_info(env, Some(source_ref)),
+                    ref_info(env, Some(destination_ref))
+                )
+            }
             _ => panic!("Throw exception, this should be an array"),
         },
     };
