@@ -22,6 +22,7 @@ mod system;
 mod system_class_loader;
 mod thread;
 pub mod thread_local;
+mod throwable;
 mod unsafe_;
 
 /// A garbage value intended for use in returns that shouldn't be used, because an exception was
@@ -163,6 +164,10 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             // reflect/Constructor
             b"Java_java_lang_reflect_Constructor_newInstance" => {
                 into_opaque3ret(constructor::constructor_new_instance)
+            }
+            // java/lang/Throwable
+            b"Java_java_lang_Throwable_printStackTrace" => {
+                into_opaque3ret(throwable::throwable_print_stack_trace)
             }
             // java/lang/invoke/MethodHandles
             b"Java_java_lang_invoke_MethodHandles_revealDirect" => {

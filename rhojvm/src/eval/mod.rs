@@ -746,6 +746,12 @@ pub fn eval_method(
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JLong, param2: JByte));
                 }
                 (
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JLong, param2: JObject));
+                }
+                (
                     DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
                     DescriptorType::Basic(DescriptorTypeBasic::Boolean),
                 ) => {
@@ -789,6 +795,13 @@ pub fn eval_method(
                     DescriptorType::Basic(DescriptorTypeBasic::Byte),
                 ) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JLong, param2: JLong, param3: JByte));
+                }
+                (
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JLong, param2: JInt, param3: JInt));
                 }
                 (
                     DescriptorType::Array { .. }
@@ -951,6 +964,7 @@ pub fn eval_method(
                         | Inst::InvokeInterface(_)
                         | Inst::InvokeVirtual(_)
                         | Inst::InvokeSpecial(_)
+                        | Inst::AThrow(_)
                 )
             } else {
                 true

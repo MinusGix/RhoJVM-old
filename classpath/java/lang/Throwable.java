@@ -68,12 +68,10 @@ public class Throwable implements Serializable {
     }
 
     public void printStackTrace() {
-        throw new UnsupportedOperationException("TODO");
+        printStackTrace(System.err);
     }
 
-    public void printStackTrace(PrintStream output) {
-        throw new UnsupportedOperationException("TODO");
-    }
+    public native void printStackTrace(PrintStream output);
 
     public void addSuppressed(Throwable exc) {}
 
