@@ -61,15 +61,6 @@ pub(crate) extern "C" fn system_class_loader_load_class(
     let name = unsafe { env.get_jobject_as_gcref(name) };
     let name_ref = name.expect("NPE");
 
-    let name = get_string_contents_as_rust_string(
-        &env.class_files,
-        &mut env.class_names,
-        &mut env.state,
-        name_ref,
-    )
-    .unwrap();
-    println!("Loading class: {:?}", name);
-
     let class_id = get_class_name_id_for(env, name_ref).unwrap();
 
     // TODO: This is intended to do the implementation in a specific manner, and it should depend on the actual class loader!
