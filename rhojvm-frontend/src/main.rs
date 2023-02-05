@@ -363,6 +363,12 @@ fn make_state_conf(args: &CliArgs) -> StateConfig {
         })
         .filter(|x| !x.is_empty())
         .unwrap_or_else(log_skip_prefixes_default);
+    if conf.log_skip_prefixes.len() == 1 {
+        conf.log_skip_prefixes = conf.log_skip_prefixes[0]
+            .split(|x| *x == b',')
+            .map(|x| x.to_vec())
+            .collect();
+    }
     // TODO: This is platform specific
     // TODO: This should be wherever rhojvm is installed
     conf.native_lib_dirs
