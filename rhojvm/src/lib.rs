@@ -57,6 +57,7 @@ use rhojvm_base::{
     },
     id::{ClassId, ExactMethodId, MethodId},
     package::Packages,
+    util::Cesu8String,
     StepError,
 };
 use smallvec::SmallVec;
@@ -561,7 +562,11 @@ pub enum GeneralError {
     Resolve(ResolveError),
     ClassFileLoad(LoadError),
     LoadLibrary(LoadLibraryError),
-    FindSymbol(FindSymbolError),
+    FindSymbol {
+        class_id: ClassId,
+        symbol: Cesu8String,
+        err: FindSymbolError,
+    },
     /// We expected the class at this id to exist
     /// This likely points to an internal error
     MissingLoadedClass(ClassId),
@@ -613,11 +618,6 @@ impl From<VerifyStackMapGeneralError> for GeneralError {
 impl From<LoadLibraryError> for GeneralError {
     fn from(err: LoadLibraryError) -> Self {
         Self::LoadLibrary(err)
-    }
-}
-impl From<FindSymbolError> for GeneralError {
-    fn from(err: FindSymbolError) -> Self {
-        Self::FindSymbol(err)
     }
 }
 impl From<rhojvm_base::class::InvalidConstantPoolIndex> for GeneralError {

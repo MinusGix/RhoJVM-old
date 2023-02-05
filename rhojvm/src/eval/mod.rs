@@ -14,7 +14,7 @@ use rhojvm_base::{
     },
     id::{ClassId, ExactMethodId, MethodId},
     map_inst,
-    util::{convert_classfile_text, MemorySizeU16},
+    util::{convert_classfile_text, Cesu8String, MemorySizeU16},
     StepError,
 };
 
@@ -653,7 +653,11 @@ pub fn eval_method(
                         err,
                         convert_classfile_text(&name)
                     );
-                    return Err(err.into());
+                    return Err(GeneralError::FindSymbol {
+                        class_id,
+                        symbol: Cesu8String(name),
+                        err,
+                    });
                 }
             };
             let native_func = NativeMethod::OpaqueFound(native_func);

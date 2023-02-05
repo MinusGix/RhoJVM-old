@@ -620,9 +620,17 @@ fn make_error_pretty(env: &Env, err: GeneralError) -> String {
                 )
             }
         },
-        GeneralError::FindSymbol(find) => {
-            // TODO; include name
-            format!("Failed to find native symbol: {:?}", find)
+        GeneralError::FindSymbol {
+            class_id,
+            symbol,
+            err,
+        } => {
+            format!(
+                "Failed to find native symbol {}#{}: {:?}",
+                env.class_names.tpath(*class_id),
+                symbol,
+                err
+            )
         }
         // TODO
         _ => format!("{:?}", err),
