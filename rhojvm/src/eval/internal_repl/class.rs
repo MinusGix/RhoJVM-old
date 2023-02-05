@@ -95,7 +95,10 @@ pub(crate) extern "C" fn class_get_primitive(
 
 /// Gets the class name id for a slice of java characters in the format of Class's name
 /// This is basically the same as typical, except instead of / it uses .
-fn get_class_name_id_for(env: &mut Env, name: GcRef<Instance>) -> Result<ClassId, GeneralError> {
+pub(crate) fn get_class_name_id_for(
+    env: &mut Env,
+    name: GcRef<Instance>,
+) -> Result<ClassId, GeneralError> {
     // TODO: We could do cheaper insertion, especially if it already exists in class names
     let contents =
         util::get_string_contents(&env.class_files, &mut env.class_names, &mut env.state, name)?;

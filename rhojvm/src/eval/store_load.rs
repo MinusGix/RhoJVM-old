@@ -865,18 +865,107 @@ impl RunInstContinue for DupX1 {
     }
 }
 impl RunInstContinue for DupX2 {
-    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
-        todo!()
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
+        let value1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let value2 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+
+        if value1.is_category_2() {
+            // ..., value1, value2, value1
+            frame.stack.push(value1)?;
+            frame.stack.push(value2)?;
+            frame.stack.push(value1)?;
+        } else {
+            // ..., value2, value1, value3, value2, value1
+            let value3 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+            assert!(!value2.is_category_2());
+            assert!(!value3.is_category_2());
+            frame.stack.push(value1)?;
+            frame.stack.push(value3)?;
+            frame.stack.push(value2)?;
+            frame.stack.push(value1)?;
+        }
+
+        Ok(RunInstContinueValue::Continue)
     }
 }
 impl RunInstContinue for Dup2X1 {
-    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
-        todo!()
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
+        let value1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let value2 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+
+        if value1.is_category_2() {
+            // ..., value1, value2, value1
+            frame.stack.push(value1)?;
+            frame.stack.push(value2)?;
+            frame.stack.push(value1)?;
+        } else {
+            // ..., value2, value1, value3, value2, value1
+            let value3 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+            assert!(!value2.is_category_2());
+            assert!(!value3.is_category_2());
+            frame.stack.push(value2)?;
+            frame.stack.push(value1)?;
+            frame.stack.push(value3)?;
+            frame.stack.push(value2)?;
+            frame.stack.push(value1)?;
+        }
+
+        Ok(RunInstContinueValue::Continue)
     }
 }
 impl RunInstContinue for Dup2X2 {
-    fn run(self, _: RunInstArgsC) -> Result<RunInstContinueValue, GeneralError> {
-        todo!()
+    fn run(
+        self,
+        RunInstArgsC { frame, .. }: RunInstArgsC,
+    ) -> Result<RunInstContinueValue, GeneralError> {
+        let value1 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+        let value2 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+
+        if value1.is_category_2() {
+            if value2.is_category_2() {
+                // ..., value1, value2, value1
+                frame.stack.push(value1)?;
+                frame.stack.push(value2)?;
+                frame.stack.push(value1)?;
+            } else {
+                // ..., value2, value1, value3, value2, value1
+                let value3 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+                assert!(!value3.is_category_2());
+                frame.stack.push(value1)?;
+                frame.stack.push(value3)?;
+                frame.stack.push(value2)?;
+                frame.stack.push(value1)?;
+            }
+        } else {
+            let value3 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+            assert!(!value2.is_category_2());
+            if value3.is_category_2() {
+                // ..., value2, value1, value3, value2, value1
+                frame.stack.push(value2)?;
+                frame.stack.push(value1)?;
+                frame.stack.push(value3)?;
+                frame.stack.push(value2)?;
+                frame.stack.push(value1)?;
+            } else {
+                let value4 = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
+                assert!(!value4.is_category_2());
+                // ..., value2, value1, value4, value3, value2, value1
+                frame.stack.push(value2)?;
+                frame.stack.push(value1)?;
+                frame.stack.push(value4)?;
+                frame.stack.push(value3)?;
+                frame.stack.push(value2)?;
+                frame.stack.push(value1)?;
+            }
+        }
+
+        Ok(RunInstContinueValue::Continue)
     }
 }
 
