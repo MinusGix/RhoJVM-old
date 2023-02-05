@@ -98,7 +98,7 @@ pub struct NativeInterface {
     pub new_object_v: NewObjectVFn,
     pub new_object_a: MethodNoArguments,
 
-    pub get_object_class: MethodNoArguments,
+    pub get_object_class: GetObjectClassFn,
     pub is_instance_of: MethodNoArguments,
 
     pub get_method_id: GetMethodIdFn,
@@ -366,7 +366,7 @@ impl NativeInterface {
             new_object,
             new_object_v,
             new_object_a: unimpl_none_name!("new_object_a"),
-            get_object_class: unimpl_none_name!("get_object_class"),
+            get_object_class,
             is_instance_of: unimpl_none_name!("is_instance_of"),
             get_method_id,
             call_object_method,
@@ -976,7 +976,6 @@ fn get_field_for<'a>(env: &'a mut Env, obj: JObject, field_id: JFieldId) -> &'a 
     let field_id = unsafe { field_id.into_field_id() }.expect("Null field id");
 
     let obj_instance = env.state.gc.deref_mut(obj).expect("Bad gc ref");
-    tracing::info!("Instance: {:#?}", obj_instance);
     let field = match obj_instance {
         Instance::StaticClass(_) => panic!("Static class ref is not allowed"),
         Instance::Reference(re) => re.get_class_fields_mut().unwrap().get_mut(field_id),
@@ -1680,6 +1679,25 @@ unsafe extern "C" fn new_object_v(
             JObject::null()
         }
     }
+}
+
+pub type GetObjectClassFn = unsafe extern "C" fn(env: *mut Env, obj: JObject) -> JClass;
+unsafe extern "C" fn get_object_class(env: *mut Env, obj: JObject) -> JClass {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    let obj = env.get_jobject_as_gcref(obj).unwrap();
+    let obj = obj.unchecked_as::<ReferenceInstance>();
+
+    let class_id = env.state.gc.deref(obj).unwrap().instanceof();
+
+    // TODO: don't use its own id. Though, it is probably accessible from anywhere?
+    let class_form = make_class_form_of(env, class_id, class_id).unwrap();
+    let Some(class_form) = env.state.extract_value(class_form) else {
+        return JClass::null();
+    };
+
+    unsafe { env.get_local_jobject_for(class_form.into_generic()) }
 }
 
 pub type NewGlobalRefFn = unsafe extern "C" fn(env: *mut Env, obj: JObject) -> JObject;
