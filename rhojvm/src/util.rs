@@ -12,6 +12,7 @@ use rhojvm_base::{
         types::{JavaChar, PrimitiveType},
     },
     data::{
+        class_file_loader::LoadClassFileError,
         class_files::ClassFiles,
         class_names::ClassNames,
         classes::{does_extend_class, Classes},
@@ -20,6 +21,7 @@ use rhojvm_base::{
     id::{ClassId, MethodId},
     package::Packages,
     util::MemorySize,
+    StepError,
 };
 use smallvec::{smallvec, SmallVec, ToSmallVec};
 use sysinfo::{CpuRefreshKind, RefreshKind, SystemExt};
@@ -41,7 +43,7 @@ use crate::{
     resolve_derive,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeTypeVoid, RuntimeValue, RuntimeValuePrimitive},
     string_intern::StringInterner,
-    BegunStatus, GeneralError, State, ThreadData,
+    BegunStatus, GeneralError, ResolveError, State, ThreadData,
 };
 
 /// Note: This is internal to rhojvm
@@ -226,6 +228,26 @@ impl<'i> Env<'i> {
         }
 
         result
+    }
+
+    /// Get the latest (on the call stack) class id.  
+    /// (This only really makes sense to use when you're not going to be called manually from Rust)
+    pub fn get_calling_class_id(&self) -> Option<ClassId> {
+        self.call_stack
+            .last()
+            .and_then(|x| x.called_from.decompose())
+            .map(|(id, _)| id)
+    }
+
+    /// Get the second latest (on the call stack) class id. (Used for some methods that are wrapped)
+    /// (This only really makes sense to use when you're not going to be called manually from Rust)
+    pub fn get2_calling_class_id(&self) -> Option<ClassId> {
+        self.call_stack.len().checked_sub(2).and_then(|x| {
+            self.call_stack
+                .get(x)
+                .and_then(|x| x.called_from.decompose())
+                .map(|(id, _)| id)
+        })
     }
 
     #[allow(clippy::unused_self)]
@@ -1077,6 +1099,33 @@ pub(crate) fn make_exception(
     }
 
     Ok(ValueException::Value(exception_ref))
+}
+
+pub(crate) fn make_err_into_class_not_found_exception<T, E: Into<GeneralError>>(
+    env: &mut Env,
+    res: Result<T, E>,
+    class_id: ClassId,
+) -> Result<ValueException<T>, GeneralError> {
+    let res = res.map_err(E::into);
+    if matches!(
+        res,
+        Err(GeneralError::Step(StepError::LoadClassFile(
+            LoadClassFileError::Nonexistent | LoadClassFileError::NonexistentFile(_)
+        )) | GeneralError::Resolve(ResolveError::InaccessibleClass { .. }))
+    ) {
+        let class_not_found_id = env
+            .class_names
+            .gcid_from_bytes(b"java/lang/ClassNotFoundException");
+        let exc = make_exception(
+            env,
+            class_not_found_id,
+            &format!("Failed to find {}", env.class_names.tpath(class_id)),
+        )?;
+        let exc = exc.flatten();
+        return Ok(ValueException::Exception(exc));
+    }
+
+    res.map(ValueException::Value)
 }
 
 pub(crate) fn mh_info(env: &mut Env, re: GcRef<MethodHandleInstance>) -> String {

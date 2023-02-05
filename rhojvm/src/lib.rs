@@ -61,7 +61,7 @@ use rhojvm_base::{
 };
 use smallvec::SmallVec;
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
-use util::{find_field_with_name, make_exception, Env};
+use util::{find_field_with_name, make_err_into_class_not_found_exception, make_exception, Env};
 
 use crate::eval::{eval_method, Frame, ValueException};
 
@@ -895,21 +895,9 @@ fn derive_class(
         &mut env.packages,
         class_id,
     );
-    if matches!(
-        res,
-        Err(StepError::LoadClassFile(
-            LoadClassFileError::Nonexistent | LoadClassFileError::NonexistentFile(_)
-        ))
-    ) {
-        let class_not_found_id = env
-            .class_names
-            .gcid_from_bytes(b"java/lang/ClassNotFoundException");
-        let exc = make_exception(
-            env,
-            class_not_found_id,
-            &format!("Failed to find {}", env.class_names.tpath(class_id)),
-        )?;
-        let exc = exc.flatten();
+    if let ValueException::Exception(exc) =
+        make_err_into_class_not_found_exception(env, res, class_id)?
+    {
         return Ok(ValueException::Exception(exc));
     }
 

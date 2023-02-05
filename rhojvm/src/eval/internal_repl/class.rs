@@ -28,7 +28,8 @@ use crate::{
     rv::{RuntimeTypePrimitive, RuntimeTypeVoid, RuntimeValue, RuntimeValuePrimitive},
     util::{
         self, construct_string, find_field_with_name, get_string_contents_as_rust_string,
-        make_class_form_of, make_primitive_class_form_of, ref_info, to_utf16_arr, Env,
+        make_class_form_of, make_err_into_class_not_found_exception, make_primitive_class_form_of,
+        ref_info, to_utf16_arr, Env,
     },
     GeneralError,
 };
@@ -140,15 +141,21 @@ pub(crate) extern "C" fn class_get_class_for_name_with_class_loader(
 
     let class_id = get_class_name_id_for(env, name).unwrap();
 
+    let origin_id = env.get2_calling_class_id().unwrap_or(class_id);
+
     // FIXME: I believe this is wrong, however our current implementation requires the class to be
     // initialized before a Class<?> can be made for it, since it requires a StaticClassInstance.
     // We likely have to loosen that to only having the class file be loaded.
     // The make class form of will always initialize it
     // FIXME: I think we should use the caller here? Or modify it so it can take the loader?
-    let class_form = util::make_class_form_of(env, class_id, class_id).expect("Handle errors");
-    let class_form = match class_form {
-        ValueException::Value(form) => form,
-        ValueException::Exception(_) => todo!("Exception in the creating class form"),
+    let class_form = util::make_class_form_of(env, origin_id, class_id);
+
+    let class_form = make_err_into_class_not_found_exception(env, class_form, class_id).unwrap();
+    let Some(class_form) = env.state.extract_value(class_form) else {
+        return JObject::null();
+    };
+    let Some(class_form) = env.state.extract_value(class_form) else {
+        return JObject::null();
     };
 
     unsafe { env.get_local_jobject_for(class_form.into_generic()) }
@@ -171,7 +178,14 @@ pub(crate) extern "C" fn class_get_class_for_name(
 
     let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
 
-    let class_form = make_class_form_of(env, class_class_id, class_id).unwrap();
+    let origin_id = env.get2_calling_class_id().unwrap_or(class_class_id);
+
+    let class_form = make_class_form_of(env, origin_id, class_id);
+
+    let class_form = make_err_into_class_not_found_exception(env, class_form, class_id).unwrap();
+    let Some(class_form) = env.state.extract_value(class_form) else {
+        return JObject::null();
+    };
     let Some(class_form) = env.state.extract_value(class_form) else {
         return JObject::null();
     };
