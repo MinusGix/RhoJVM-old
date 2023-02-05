@@ -316,9 +316,9 @@ extern "C" fn unsupported_operation_exception_check_abort(env: *mut Env<'_>, thi
 
     let this = unsafe { env.get_jobject_as_gcref(this) }.unwrap();
 
-    assert!(
-        !env.state.conf().abort_on_unsupported,
-        "UnsupportedOperationException: {}",
-        ref_info(env, Some(this))
-    );
+    if !env.state.conf().abort_on_unsupported {
+        let call_stack = env.pretty_call_stack(true);
+        let info = ref_info(env, Some(this));
+        panic!("UnsupportedOperationException: {}\n{}", info, call_stack,);
+    }
 }

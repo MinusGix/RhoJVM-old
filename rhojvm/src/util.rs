@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{borrow::Cow, num::NonZeroUsize};
 
 use classfile_parser::{
     attribute_info::InstructionIndex,
@@ -171,6 +171,61 @@ impl<'i> Env<'i> {
             ),
             startup_instant: std::time::Instant::now(),
         }
+    }
+
+    pub fn pretty_call_stack(&self, include_inst_idx: bool) -> String {
+        let mut result = String::new();
+
+        for (i, entry) in self.call_stack.iter().rev().enumerate() {
+            let CallStackEntry {
+                called_method,
+                called_at,
+                ..
+            } = entry;
+
+            let (class_name, method_name) = match *called_method {
+                MethodId::Exact(method_id) => {
+                    let class_id = method_id.decompose().0;
+                    let class_name = self.class_names.tpath(class_id);
+                    let called_method_name =
+                        if let Some(called_method) = self.methods.get(&method_id) {
+                            let name_idx = called_method.name_index();
+                            let class_file = self.class_files.get(&class_id).unwrap();
+
+                            class_file.getr_text(name_idx).unwrap()
+                        } else {
+                            Cow::Borrowed("<unknown method>")
+                        };
+                    (class_name, called_method_name)
+                }
+                MethodId::ArrayClone => {
+                    let class_name = "<Internal Array>";
+                    let method_name = "clone";
+
+                    (class_name, Cow::Borrowed(method_name))
+                }
+            };
+
+            result.push_str("  at ");
+            result.push_str(class_name);
+            result.push('.');
+            result.push_str(method_name.as_ref());
+            // TODO: include source file name and line number info
+
+            if include_inst_idx {
+                if let Some(inst_idx) = called_at {
+                    result.push_str(" (#");
+                    result.push_str(&inst_idx.0.to_string());
+                    result.push(')');
+                }
+            }
+
+            if i != self.call_stack.len() - 1 {
+                result.push('\n');
+            }
+        }
+
+        result
     }
 
     #[allow(clippy::unused_self)]
