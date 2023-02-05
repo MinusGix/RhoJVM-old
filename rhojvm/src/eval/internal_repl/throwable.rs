@@ -6,10 +6,10 @@ use crate::{
     eval::{eval_method, func::find_virtual_method, EvalMethodValue, Frame, Locals},
     jni::JObject,
     rv::RuntimeValue,
-    util::{construct_string_r, Env},
+    util::{construct_string_r, ref_info, Env},
 };
 
-pub(crate) extern "C" fn throwable_print_stack_trace(env: *mut Env, _this: JObject, out: JObject) {
+pub(crate) extern "C" fn throwable_print_stack_trace(env: *mut Env, this: JObject, out: JObject) {
     assert!(!env.is_null(), "Env was null. Internal bug?");
     let env = unsafe { &mut *env };
 
@@ -18,9 +18,12 @@ pub(crate) extern "C" fn throwable_print_stack_trace(env: *mut Env, _this: JObje
     let out = out.unwrap();
     let out = out.unchecked_as::<ReferenceInstance>();
 
+    let this = unsafe { env.get_jobject_as_gcref(this) }.unwrap();
+
     let out_id = env.state.gc.deref(out).unwrap().instanceof();
 
     let stack_trace = env.pretty_call_stack(false);
+    let stack_trace = format!("Exc: {}:\n{}", ref_info(env, Some(this)), stack_trace);
     let stack_trace = construct_string_r(env, &stack_trace, true).unwrap();
     let Some(stack_trace) = env.state.extract_value(stack_trace) else {
         return;
