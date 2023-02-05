@@ -584,6 +584,10 @@ public final class String implements java.io.Serializable, Comparable<String>, C
         return Pattern.matches(re, this);
     }
 
+    public boolean regionMatches(int thisOffset, String other, int otherOffset, int length) {
+        return this.regionMatches(false, thisOffset, other, otherOffset, length);
+    }
+
     public boolean regionMatches(boolean ignoreCase, int thisOffset, String other, int otherOffset, int length) {
         if (thisOffset < 0 || otherOffset < 0 || thisOffset + length > this.data.length || otherOffset + length > other.data.length) {
             return false;
