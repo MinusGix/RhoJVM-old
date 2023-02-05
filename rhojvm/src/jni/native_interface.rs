@@ -254,8 +254,8 @@ pub struct NativeInterface {
     pub get_array_length: GetArrayLengthFn,
 
     pub new_object_array: NewObjectArrayFn,
-    pub get_object_array_element: MethodNoArguments,
-    pub set_object_array_element: MethodNoArguments,
+    pub get_object_array_element: GetObjectArrayElementFn,
+    pub set_object_array_element: SetObjectArrayElementFn,
 
     pub new_boolean_array: MethodNoArguments,
     pub new_byte_array: NewByteArrayFn,
@@ -509,8 +509,8 @@ impl NativeInterface {
             release_string_utf_chars,
             get_array_length,
             new_object_array,
-            get_object_array_element: unimpl_none_name!("get_object_array_element"),
-            set_object_array_element: unimpl_none_name!("set_object_array_element"),
+            get_object_array_element,
+            set_object_array_element,
             new_boolean_array: unimpl_none_name!("new_boolean_array"),
             new_byte_array,
             new_char_array: unimpl_none_name!("new_char_array"),
@@ -1334,6 +1334,72 @@ unsafe extern "C" fn new_object_array(
     let arr_ref = env.state.gc.alloc(arr);
 
     unsafe { env.get_local_jobject_for(arr_ref.into_generic()) }
+}
+
+pub type GetObjectArrayElementFn =
+    unsafe extern "C" fn(env: *mut Env, array: JObjectArray, index: JSize) -> JObject;
+unsafe extern "C" fn get_object_array_element(
+    env: *mut Env,
+    array: JObjectArray,
+    index: JSize,
+) -> JObject {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    if index < 0 {
+        todo!("Throw ArrayIndexOutOfBoundsException");
+    }
+
+    let index = index as u32;
+    let index = index.into_usize();
+
+    let array = env
+        .get_jobject_as_gcref(array)
+        .expect("GetObjectArrayElement was null ref");
+    let array = array.unchecked_as::<ReferenceArrayInstance>();
+
+    let array = env.state.gc.deref(array).expect("Failed to get instance");
+
+    let element = array.elements.get(index).expect("Failed to get element");
+
+    let element = element.map(|e| unsafe { env.get_local_jobject_for(e.into_generic()) });
+
+    element.unwrap_or(JObject::null())
+}
+
+pub type SetObjectArrayElementFn =
+    unsafe extern "C" fn(env: *mut Env, array: JObjectArray, index: JSize, value: JObject);
+unsafe extern "C" fn set_object_array_element(
+    env: *mut Env,
+    array: JObjectArray,
+    index: JSize,
+    value: JObject,
+) {
+    assert_valid_env(env);
+    let env = &mut *env;
+
+    if index < 0 {
+        todo!("Throw ArrayIndexOutOfBoundsException");
+    }
+
+    let index = index as u32;
+    let index = index.into_usize();
+
+    let value = unsafe { env.get_jobject_as_gcref(value) };
+    let value = value.map(GcRef::unchecked_as::<ReferenceInstance>);
+
+    let array = env
+        .get_jobject_as_gcref(array)
+        .expect("GetObjectArrayElement was null ref");
+    let array = array.unchecked_as::<ReferenceArrayInstance>();
+
+    let array = env
+        .state
+        .gc
+        .deref_mut(array)
+        .expect("Failed to get instance");
+
+    array.elements[index] = value;
 }
 
 pub type NewByteArrayFn = unsafe extern "C" fn(env: *mut Env, length: JSize) -> JByteArray;
