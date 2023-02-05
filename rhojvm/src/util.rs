@@ -371,67 +371,14 @@ pub(crate) fn get_disjoint2_mut<T>(
 
 /// Construct an exception with a string
 /// It must have a constructor that takes a string
-pub(crate) fn make_exception_with_text(
+pub(crate) fn make_exception_by_name(
     env: &mut Env,
     class_name: &[u8],
     why: &str,
 ) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
     let exception_id = env.class_names.gcid_from_bytes(class_name);
 
-    let why = why
-        .encode_utf16()
-        .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
-        .collect();
-    let why = construct_string(env, why)?;
-    let why = match why {
-        ValueException::Value(why) => why,
-        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
-    };
-
-    let constructor_desc = MethodDescriptor::new(
-        smallvec::smallvec![DescriptorType::Basic(DescriptorTypeBasic::Class(
-            env.class_names.gcid_from_bytes(b"java/lang/String")
-        ),)],
-        None,
-    );
-
-    let method_id = env
-        .methods
-        .load_method_from_desc(
-            &mut env.class_names,
-            &mut env.class_files,
-            exception_id,
-            b"<init>",
-            &constructor_desc,
-        )
-        .unwrap();
-
-    let static_ref = match initialize_class(env, exception_id)?.into_value() {
-        ValueException::Value(re) => re,
-        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
-    };
-
-    let fields = make_instance_fields(env, exception_id)?;
-    let fields = exc_value!(ret: fields);
-
-    let exception_this_ref = env.state.gc.alloc(ClassInstance {
-        instanceof: exception_id,
-        static_ref,
-        fields,
-    });
-
-    let frame = Frame::new_locals(Locals::new_with_array([
-        RuntimeValue::Reference(exception_this_ref.into_generic()),
-        RuntimeValue::Reference(why.into_generic()),
-    ]));
-
-    match eval_method(env, method_id.into(), frame)? {
-        EvalMethodValue::ReturnVoid => {}
-        EvalMethodValue::Return(_) => tracing::warn!("Constructor returned value"),
-        EvalMethodValue::Exception(exc) => return Ok(ValueException::Exception(exc)),
-    }
-
-    Ok(ValueException::Value(exception_this_ref))
+    make_exception(env, exception_id, why)
 }
 
 pub(crate) fn find_field_with_name(

@@ -4,7 +4,7 @@ use crate::{
     eval::{internal_repl::JINT_GARBAGE, ValueException},
     jni::{JClass, JDouble, JFloat, JInt, JLong, JObject, JString},
     rv::RuntimeValuePrimitive,
-    util::{self, make_exception_with_text, Env},
+    util::{self, make_exception_by_name, Env},
 };
 
 pub(crate) extern "C" fn float_to_raw_int_bits(
@@ -90,7 +90,7 @@ pub(crate) extern "C" fn long_parse_int(
     let source = if let Some(source) = source {
         source
     } else {
-        let npe = make_exception_with_text(
+        let npe = make_exception_by_name(
             env,
             b"java/lang/NullPointerException",
             "Integer#parseInt source was null",
@@ -121,7 +121,7 @@ pub(crate) extern "C" fn long_parse_int(
         Err(err) => {
             let err_text = format!("{}", err);
 
-            let exc = make_exception_with_text(env, b"java/lang/NumberFormatException", &err_text)
+            let exc = make_exception_by_name(env, b"java/lang/NumberFormatException", &err_text)
                 .expect("Failed to create exception")
                 .flatten();
             env.state.fill_native_exception(exc);
@@ -198,7 +198,7 @@ pub(crate) extern "C" fn integer_parse_int(
     let source = if let Some(source) = source {
         source
     } else {
-        let npe = make_exception_with_text(
+        let npe = make_exception_by_name(
             env,
             b"java/lang/NullPointerException",
             "Integer#parseInt source was null",
@@ -229,7 +229,7 @@ pub(crate) extern "C" fn integer_parse_int(
         Err(err) => {
             let err_text = format!("{}", err);
 
-            let exc = make_exception_with_text(env, b"java/lang/NumberFormatException", &err_text)
+            let exc = make_exception_by_name(env, b"java/lang/NumberFormatException", &err_text)
                 .expect("Failed to create exception")
                 .flatten();
             env.state.fill_native_exception(exc);
