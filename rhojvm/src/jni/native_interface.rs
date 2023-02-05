@@ -10,8 +10,9 @@ use rhojvm_base::{
         method::{DescriptorType, DescriptorTypeBasic, Method, MethodDescriptor},
         types::{JavaChar, PrimitiveType},
     },
+    data::class_files::{load_super_class_files_iter, SuperClassFileIterator},
     id::ClassId,
-    util::convert_classfile_text,
+    util::{convert_classfile_text, Cesu8Str},
 };
 use smallvec::SmallVec;
 use usize_cast::{IntoIsize, IntoUsize};
@@ -32,7 +33,7 @@ use crate::{
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{
         construct_string, get_string_contents, get_string_contents_as_rust_string,
-        make_class_form_of, Env,
+        make_class_form_of, make_exception, make_exception_by_name, ref_info, Env,
     },
     GeneralError,
 };
@@ -956,7 +957,7 @@ unsafe extern "C" fn get_field_id(
 
     match get_field_id_safe(env, name_bytes, signature_bytes, class_id) {
         Ok(value) => match value {
-            ValueException::Value(field_index) => JFieldId::new_unchecked(class_id, field_index),
+            ValueException::Value(field_id) => field_id,
             ValueException::Exception(_exc) => {
                 todo!("Handle exception properly for GetFieldID");
                 JFieldId::null()
@@ -975,6 +976,7 @@ fn get_field_for<'a>(env: &'a mut Env, obj: JObject, field_id: JFieldId) -> &'a 
     let field_id = unsafe { field_id.into_field_id() }.expect("Null field id");
 
     let obj_instance = env.state.gc.deref_mut(obj).expect("Bad gc ref");
+    tracing::info!("Instance: {:#?}", obj_instance);
     let field = match obj_instance {
         Instance::StaticClass(_) => panic!("Static class ref is not allowed"),
         Instance::Reference(re) => re.get_class_fields_mut().unwrap().get_mut(field_id),
@@ -1223,41 +1225,55 @@ fn get_field_id_safe(
     name: &[u8],
     signature: &[u8],
     class_id: ClassId,
-) -> Result<ValueException<FieldIndex>, GeneralError> {
-    // TODO: Don't unwrap
-    let class_file = env
-        .class_files
-        .get(&class_id)
-        .ok_or(GeneralError::MissingLoadedClassFile(class_id))?;
+) -> Result<ValueException<JFieldId>, GeneralError> {
+    let mut iter = load_super_class_files_iter(class_id);
 
-    // Note: GetFieldId can't be used to get the length field of an array
-    for (field_index, field_data) in class_file.load_field_values_iter().enumerate() {
-        let field_index = FieldIndex::new_unchecked(field_index as u16);
-        let (field_info, _) = field_data.map_err(GeneralError::ClassFileLoad)?;
-        let target_field_name = class_file.get_text_b(field_info.name_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(field_info.name_index.into_generic()),
-        )?;
+    while let Some(target_class_id) = iter.next_item(&mut env.class_names, &mut env.class_files) {
+        let target_class_id = target_class_id.unwrap();
 
-        // If their names are unequal then simply skip it
-        if name != target_field_name {
-            continue;
-        }
+        // TODO: Don't unwrap
+        let class_file = env
+            .class_files
+            .get(&target_class_id)
+            .ok_or(GeneralError::MissingLoadedClassFile(class_id))?;
 
-        // desc/signature are essentially the same thing, just a bit of a mixed up terminology
-        let target_field_desc = class_file.get_text_b(field_info.descriptor_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(field_info.descriptor_index.into_generic()),
-        )?;
+        // Note: GetFieldId can't be used to get the length field of an array
+        for (field_index, field_data) in class_file.load_field_values_iter().enumerate() {
+            let field_index = FieldIndex::new_unchecked(field_index as u16);
+            let (field_info, _) = field_data.map_err(GeneralError::ClassFileLoad)?;
+            let target_field_name = class_file.get_text_b(field_info.name_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(field_info.name_index.into_generic()),
+            )?;
 
-        // Linear compare is probably faster than parsing and I don't think we need to do any
-        // typecasting?
-        // TODO: Though, we could provide some warnings anyway?
-        if signature == target_field_desc {
-            // We've found it, so we can simply return here.
-            return Ok(ValueException::Value(field_index));
+            // If their names are unequal then simply skip it
+            if name != target_field_name {
+                continue;
+            }
+
+            // desc/signature are essentially the same thing, just a bit of a mixed up terminology
+            let target_field_desc = class_file.get_text_b(field_info.descriptor_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(field_info.descriptor_index.into_generic()),
+            )?;
+
+            // Linear compare is probably faster than parsing and I don't think we need to do any
+            // typecasting?
+            // TODO: Though, we could provide some warnings anyway?
+            if signature == target_field_desc {
+                // We've found it, so we can simply return here.
+                let field_id = unsafe { JFieldId::new_unchecked(target_class_id, field_index) };
+                return Ok(ValueException::Value(field_id));
+            }
         }
     }
 
-    todo!("Return NoSuchFieldException")
+    let exc = make_exception_by_name(
+        env,
+        b"NoSuchFieldException",
+        &format!("Failed to find field {}", Cesu8Str(name)),
+    )
+    .unwrap()
+    .flatten();
+    Ok(ValueException::Exception(exc))
 }
 
 pub type GetArrayLengthFn = unsafe extern "C" fn(env: *mut Env, instance: JArray) -> JSize;
@@ -1718,7 +1734,7 @@ unsafe extern "C" fn get_static_field_id(
 
     match get_field_id_safe(env, name_bytes, signature_bytes, class_id) {
         Ok(value) => match value {
-            ValueException::Value(field_index) => JFieldId::new_unchecked(class_id, field_index),
+            ValueException::Value(field_id) => field_id,
             ValueException::Exception(_exc) => {
                 todo!("Handle exception properly for GetStaticFieldID");
                 JFieldId::null()
