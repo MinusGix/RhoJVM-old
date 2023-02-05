@@ -1292,12 +1292,13 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
             ReferenceInstance::ReferenceArray(arr) => {
                 let id = arr.element_type;
                 let t = env.class_names.tpath(id);
+                let elements = arr.elements.clone();
 
                 let mut res = format!("ReferenceArray<{}>[", t);
-                for (i, x) in arr.elements.iter().enumerate() {
-                    res.push_str(&format!("{:?}", x));
+                for (i, x) in elements.iter().enumerate() {
+                    res.push_str(&ref_info(env, x.map(GcRef::into_generic)));
 
-                    if i != arr.elements.len() - 1 {
+                    if i != elements.len() - 1 {
                         res.push_str(", ");
                     }
                 }
