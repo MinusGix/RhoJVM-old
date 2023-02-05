@@ -215,7 +215,7 @@ pub struct NativeInterface {
     pub call_static_void_method_v: MethodNoArguments,
     pub call_static_void_method_a: MethodNoArguments,
 
-    pub get_static_field_id: MethodNoArguments,
+    pub get_static_field_id: GetStaticFieldIdFn,
 
     pub get_static_object_field: MethodNoArguments,
     pub get_static_boolean_field: MethodNoArguments,
@@ -475,7 +475,8 @@ impl NativeInterface {
             call_static_void_method: unimpl_none_name!("call_static_void_method"),
             call_static_void_method_v: unimpl_none_name!("call_static_void_method_v"),
             call_static_void_method_a: unimpl_none_name!("call_static_void_method_a"),
-            get_static_field_id: unimpl_none_name!("get_static_field_id"),
+
+            get_static_field_id,
             get_static_object_field: unimpl_none_name!("get_static_object_field"),
             get_static_boolean_field: unimpl_none_name!("get_static_boolean_field"),
             get_static_byte_field: unimpl_none_name!("get_static_byte_field"),
@@ -494,6 +495,7 @@ impl NativeInterface {
             set_static_long_field: unimpl_none_name!("set_static_long_field"),
             set_static_float_field: unimpl_none_name!("set_static_float_field"),
             set_static_double_field: unimpl_none_name!("set_static_double_field"),
+
             new_string,
             get_string_length,
             get_string_chars: unimpl_none_name!("get_string_chars"),
@@ -1561,6 +1563,56 @@ unsafe extern "C" fn new_global_ref(env: *mut Env, obj: JObject) -> JObject {
 pub type DeleteGlobalRefFn = unsafe extern "C" fn(env: *mut Env, obj: JObject);
 unsafe extern "C" fn delete_global_ref(env: *mut Env, obj: JObject) {
     assert_valid_env(env);
+}
+
+pub type GetStaticFieldIdFn = unsafe extern "C" fn(
+    env: *mut Env,
+    class: JClass,
+    name: *const c_char,
+    signature: *const c_char,
+) -> JFieldId;
+unsafe extern "C" fn get_static_field_id(
+    env: *mut Env,
+    class: JClass,
+    name: *const c_char,
+    signature: *const c_char,
+) -> JFieldId {
+    assert_valid_env(env);
+
+    assert_non_aliasing(env, name);
+    assert_non_aliasing(env, signature);
+
+    // Safety: We asserted that it is non-null
+    let env = &mut *env;
+
+    let class = env
+        .get_jobject_as_gcref(class)
+        .expect("GetStaticFieldId class was null")
+        .unchecked_as::<StaticFormInstance>();
+
+    let class = env.state.gc.deref(class).unwrap();
+    let class_id = class.of.into_reference().unwrap();
+
+    let name = CStr::from_ptr(name);
+    let signature = CStr::from_ptr(signature);
+
+    let name_bytes = name.to_bytes();
+    let signature_bytes = signature.to_bytes();
+
+    match get_field_id_safe(env, name_bytes, signature_bytes, class_id) {
+        Ok(value) => match value {
+            ValueException::Value(field_index) => JFieldId::new_unchecked(class_id, field_index),
+            ValueException::Exception(_exc) => {
+                todo!("Handle exception properly for GetStaticFieldID");
+                JFieldId::null()
+            }
+        },
+        // TODO: Handle errors better
+        Err(err) => {
+            panic!("Handle error properly for GetStaticFieldID: {:?}", err);
+            JFieldId::null()
+        }
+    }
 }
 
 pub type NewStringFn =
