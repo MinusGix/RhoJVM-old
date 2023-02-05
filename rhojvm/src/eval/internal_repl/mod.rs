@@ -102,6 +102,9 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_rho_SystemClassLoader_initializeSystemClassLoader" => {
                 into_opaque2ret(system_class_loader::system_class_loader_init)
             }
+            b"Java_rho_SystemClassLoader_loadClass" => {
+                into_opaque3ret(system_class_loader::system_class_loader_load_class)
+            }
             b"Java_rho_SystemClassLoader_getResources" => {
                 into_opaque3ret(system_class_loader::system_class_loader_get_resources)
             }

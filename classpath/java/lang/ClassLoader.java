@@ -21,7 +21,7 @@ public abstract class ClassLoader {
     }
 
     public Class<?> loadClass(String name) throws ClassNotFoundException {
-        throw new UnsupportedOperationException("TODO");
+        return SystemClassLoader.systemLoader.loadClass(name);
     }
 
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {

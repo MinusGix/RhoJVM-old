@@ -6,15 +6,15 @@ use rhojvm_base::{
 use crate::{
     class_instance::{ClassInstance, Fields},
     eval::{
-        eval_method, instances::make_instance_fields, EvalMethodValue, Frame, Locals,
-        ValueException,
+        eval_method, instances::make_instance_fields, internal_repl::class::get_class_name_id_for,
+        EvalMethodValue, Frame, Locals, ValueException,
     },
     initialize_class,
     jni::{JClass, JObject, JString},
     rv::RuntimeValue,
     util::{
         construct_byte_array_input_stream, construct_string_r, construct_url_from_string,
-        get_string_contents_as_rust_string, ref_info, Env,
+        get_string_contents_as_rust_string, make_class_form_of, ref_info, Env,
     },
 };
 
@@ -48,6 +48,43 @@ pub(crate) extern "C" fn system_class_loader_init(env: *mut Env<'_>, _this: JObj
     let inst_ref = env.state.gc.alloc(inst);
 
     unsafe { env.get_local_jobject_for(inst_ref.into_generic()) }
+}
+
+pub(crate) extern "C" fn system_class_loader_load_class(
+    env: *mut Env<'_>,
+    _: JObject,
+    name: JString,
+) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let name = unsafe { env.get_jobject_as_gcref(name) };
+    let name_ref = name.expect("NPE");
+
+    let name = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        name_ref,
+    )
+    .unwrap();
+    println!("Loading class: {:?}", name);
+
+    let class_id = get_class_name_id_for(env, name_ref).unwrap();
+
+    // TODO: This is intended to do the implementation in a specific manner, and it should depend on the actual class loader!
+    let static_class = initialize_class(env, class_id).unwrap().into_value();
+    let Some(_static_class) = env.state.extract_value(static_class) else {
+        todo!("Return Null? Throw an exception?")
+    };
+
+    let sys_cl_id = env.class_names.gcid_from_bytes(b"rho/SystemClassLoader");
+
+    // TODO: The from_class_id should be from the caller
+    let class = make_class_form_of(env, sys_cl_id, class_id).unwrap();
+    let class = env.state.extract_value(class).unwrap();
+
+    unsafe { env.get_local_jobject_for(class.into_generic()) }
 }
 
 pub(crate) extern "C" fn system_class_loader_get_system_resouce_as_stream(

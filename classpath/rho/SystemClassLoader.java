@@ -11,6 +11,8 @@ public final class SystemClassLoader extends ClassLoader {
 
     private static native SystemClassLoader initializeSystemClassLoader();
 
+    public native Class<?> loadClass(String name) throws ClassNotFoundException;
+
     public native static InputStream getSystemResourceAsStream(String name);
 
     public native URL getResource(String name);
