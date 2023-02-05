@@ -4,7 +4,7 @@ import java.io.Serializable;
 import java.util.Arrays;
 
 // TODO: There are a bunch of optimizations that could be applied to this
-public final class StringBuilder implements Serializable, CharSequence {
+public final class StringBuilder implements Serializable, CharSequence, Appendable {
     private char[] data;
     private int usedLength;
 
