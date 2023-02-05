@@ -233,16 +233,7 @@ impl RunInstContinue for New {
         let target_class_id = env.class_names.gcid_from_bytes(target_class_name);
 
         // TODO: This provides some errors that should be exceptions
-        resolve_derive(
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
-            target_class_id,
-            class_id,
-        )?;
+        resolve_derive(env, target_class_id, class_id)?;
 
         // TODO: Should we check if the status indicates that we already started (so we might be in
         // a loop?)
@@ -312,16 +303,7 @@ impl RunInstContinue for ANewArray {
         let elem_class_id = env.class_names.gcid_from_bytes(elem_class_name);
 
         // TODO: This provides some errors that should be exceptions
-        resolve_derive(
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
-            elem_class_id,
-            class_id,
-        )?;
+        resolve_derive(env, elem_class_id, class_id)?;
 
         // TODO: Should we check if the status indicates that we already started (so we might be in
         // a loop?)
@@ -454,16 +436,7 @@ impl RunInstContinue for MultiANewArray {
         let arr_class_name = class_file.getr_text_b(arr_class.name_index)?.to_vec();
         let arr_class_id = env.class_names.gcid_from_bytes(&arr_class_name);
 
-        resolve_derive(
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
-            arr_class_id,
-            class_id,
-        )?;
+        resolve_derive(env, arr_class_id, class_id)?;
 
         // TODO: Should I do something with the status?
         let _status = initialize_class(env, arr_class_id)?;
@@ -608,16 +581,7 @@ pub(crate) fn try_casting(
 ) -> Result<CastResult, GeneralError> {
     // TODO: Some of the errors from this should be exceptions
     // Resolve the class from our class
-    resolve_derive(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        desired_class_id,
-        loading_from_id,
-    )?;
+    resolve_derive(env, desired_class_id, loading_from_id)?;
 
     if class_id == desired_class_id {
         return Ok(CastResult::Success);

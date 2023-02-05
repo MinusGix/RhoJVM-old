@@ -352,16 +352,7 @@ impl RunInstContinue for InvokeStatic {
                 .map_err(EvalError::InvalidMethodDescriptor)?;
 
         // TODO: Some of these errors should be exceptions
-        resolve_derive(
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
-            target_class_id,
-            class_id,
-        )?;
+        resolve_derive(env, target_class_id, class_id)?;
 
         // TODO: Some of these errors should be exceptions
         initialize_class(env, target_class_id)?;
@@ -437,16 +428,7 @@ impl RunInstContinue for InvokeInterface {
                 .map_err(EvalError::InvalidMethodDescriptor)?;
 
         // TODO: Some errors should be excpetions
-        resolve_derive(
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
-            target_interface_id,
-            class_id,
-        )?;
+        resolve_derive(env, target_interface_id, class_id)?;
 
         initialize_class(env, target_interface_id)?;
 
@@ -577,16 +559,7 @@ impl RunInstContinue for InvokeSpecial {
                 .map_err(EvalError::InvalidMethodDescriptor)?;
 
         // TODO: Some of these errors should be exceptions
-        resolve_derive(
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
-            target_class_id,
-            class_id,
-        )?;
+        resolve_derive(env, target_class_id, class_id)?;
 
         // TODO: Some of these errors should be exceptions
         initialize_class(env, target_class_id)?;
@@ -900,16 +873,7 @@ impl RunInstContinue for InvokeVirtual {
                 .map_err(EvalError::InvalidMethodDescriptor)?;
 
         // TODO: Some of these errors should be exceptions
-        resolve_derive(
-            &mut env.class_names,
-            &mut env.class_files,
-            &mut env.classes,
-            &mut env.packages,
-            &mut env.methods,
-            &mut env.state,
-            target_class_id,
-            class_id,
-        )?;
+        resolve_derive(env, target_class_id, class_id)?;
 
         // TODO: Some of these errors should be exceptions
         initialize_class(env, target_class_id)?;
@@ -1369,16 +1333,7 @@ fn make_method_type(
         .gcid_from_bytes(b"java/lang/invoke/MethodType");
 
     // TODO: Invalid usage of resolve derive because we are acting like we are resolving it from itself
-    resolve_derive(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        method_type_id,
-        method_type_id,
-    )?;
+    resolve_derive(env, method_type_id, method_type_id)?;
 
     // Initialize the class properly
     let _static_method_type = match initialize_class(env, method_type_id)?.into_value() {

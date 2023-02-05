@@ -49,6 +49,7 @@ use rhojvm_base::{
     class::{ArrayClass, ArrayComponentType, ClassAccessFlags, ClassFileInfo, ClassVariant},
     code::{method::MethodDescriptor, stack_map::StackMapError, types::PrimitiveType},
     data::{
+        class_file_loader::LoadClassFileError,
         class_files::ClassFiles,
         class_names::ClassNames,
         classes::{load_super_classes_iter, Classes},
@@ -60,7 +61,7 @@ use rhojvm_base::{
 };
 use smallvec::SmallVec;
 use stack_map_verifier::{StackMapVerificationLogging, VerifyStackMapGeneralError};
-use util::{find_field_with_name, Env};
+use util::{find_field_with_name, make_exception, Env};
 
 use crate::eval::{eval_method, Frame, ValueException};
 
@@ -545,6 +546,10 @@ impl ClassesInfo {
     pub fn get_mut_init(&mut self, id: ClassId) -> &mut ClassInfo {
         self.info.entry(id).or_default()
     }
+
+    pub(crate) fn remove(&mut self, id: ClassId) {
+        self.info.remove(&id);
+    }
 }
 
 // TODO: Cleaning up the structure of this error enumeration would be useful
@@ -679,15 +684,12 @@ pub fn initialize_class(
         return Ok(initialize_begun);
     }
 
-    verify_class(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        class_id,
-    )?;
+    let res = verify_class(env, class_id)?;
+
+    if let ValueException::Exception(exc) = res {
+        env.state.classes_info.remove(class_id);
+        return Ok(BegunStatus::Done(ValueException::Exception(exc)));
+    }
 
     let class = env.classes.get(&class_id).unwrap();
     if let Some(super_id) = class.super_id() {
@@ -756,54 +758,30 @@ pub fn initialize_class(
     Ok(BegunStatus::Done(ValueException::Value(instance_ref)))
 }
 
-pub fn verify_from_entrypoint(
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
-    class_id: ClassId,
-) -> Result<(), GeneralError> {
-    verify_class(
-        class_names,
-        class_files,
-        classes,
-        packages,
-        methods,
-        state,
-        class_id,
-    )?;
+pub fn verify_from_entrypoint(env: &mut Env, class_id: ClassId) -> Result<(), GeneralError> {
+    verify_class(env, class_id)?;
 
     Ok(())
 }
 
 fn verify_class(
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
+    env: &mut Env,
     class_id: ClassId,
-) -> Result<BegunStatus, GeneralError> {
+) -> Result<ValueException<BegunStatus>, GeneralError> {
     // Check if it was already verified or it is already in the process of being verified
     // If it is, then we aren't going to do it again.
-    let info = state.classes_info.get_mut_init(class_id);
+    let info = env.state.classes_info.get_mut_init(class_id);
     if let Some(verify_begun) = info.verified.into_begun() {
-        return Ok(verify_begun);
+        return Ok(ValueException::Value(verify_begun));
     }
 
-    let create_status = derive_class(
-        class_names,
-        class_files,
-        classes,
-        packages,
-        methods,
-        state,
-        class_id,
-    )?;
-    debug_assert_eq!(create_status, BegunStatus::Done(()));
+    let create_status = derive_class(env, class_id)?;
+    match create_status {
+        ValueException::Value(status) => {
+            debug_assert_eq!(status, BegunStatus::Done(()));
+        }
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    }
 
     // TODO: We are technically supposed to verify the indices of all constant pool entries
     // at this point, rather than throughout the usage of the program like we do currently.
@@ -811,7 +789,8 @@ fn verify_class(
     // (in the sense that they are parseably-valid, whether or not they point to a real
     // thing in some class file)
 
-    let (_, class_info) = class_names
+    let (_, class_info) = env
+        .class_names
         .name_from_gcid(class_id)
         .map_err(StepError::BadId)?;
     let has_class_file = class_info.has_class_file();
@@ -820,35 +799,27 @@ fn verify_class(
     // TODO: This is technically not completely an accurate check?
     if has_class_file {
         verify_class_methods(
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+            &mut env.methods,
+            &mut env.state,
             class_id,
         )?;
     }
 
     // TODO: Do we always have to do this?
     // Verify the super class
-    let class = classes.get(&class_id).unwrap();
+    let class = env.classes.get(&class_id).unwrap();
     if let Some(super_id) = class.super_id() {
-        verify_class(
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            super_id,
-        )?;
+        verify_class(env, super_id)?;
     }
 
-    let info = state.classes_info.get_mut_init(class_id);
+    let info = env.state.classes_info.get_mut_init(class_id);
     info.verified = Status::Done(());
 
-    Ok(BegunStatus::Done(()))
+    Ok(ValueException::Value(BegunStatus::Done(())))
 }
 
 /// Assumes `class_id` is already loaded
@@ -901,34 +872,51 @@ fn verify_class_methods(
 /// similar.
 /// Returns the [`BegunStatus`] of the creation, because it may have already been started elsewhere
 fn derive_class(
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
+    env: &mut Env,
     class_id: ClassId,
-) -> Result<BegunStatus, GeneralError> {
+) -> Result<ValueException<BegunStatus>, GeneralError> {
     // TODO: I'm uncertain what the checking that L is already an initating loader means for this
     // this might be more something that the caller should handle for that recording linkage errors
 
     // Check if it was already created or is in the process of being created
     // If it is, then we aren't going to try doing it again, since that
     // could lead down a circular path.
-    let info = state.classes_info.get_mut_init(class_id);
+    let info = env.state.classes_info.get_mut_init(class_id);
     if let Some(created_begun) = info.created.into_begun() {
-        return Ok(created_begun);
+        return Ok(ValueException::Value(created_begun));
     }
 
     info.created = Status::Started(());
 
     // First we have to load the class, in case it wasn't already loaded
-    classes.load_class(class_names, class_files, packages, class_id)?;
+    let res = env.classes.load_class(
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.packages,
+        class_id,
+    );
+    if matches!(
+        res,
+        Err(StepError::LoadClassFile(
+            LoadClassFileError::Nonexistent | LoadClassFileError::NonexistentFile(_)
+        ))
+    ) {
+        let class_not_found_id = env
+            .class_names
+            .gcid_from_bytes(b"java/lang/ClassNotFoundException");
+        let exc = make_exception(
+            env,
+            class_not_found_id,
+            &format!("Failed to find {}", env.class_names.tpath(class_id)),
+        )?;
+        let exc = exc.flatten();
+        return Ok(ValueException::Exception(exc));
+    }
 
     // TODO: Loader stuff?
 
     // If it has a class file, then we want to check the version
-    if let Some(class_file) = class_files.get(&class_id) {
+    if let Some(class_file) = env.class_files.get(&class_id) {
         if let Some(version) = class_file.version() {
             // Currently we don't support pre-jdk8 class files
             // because we have yet to implement the type verifier that they require
@@ -944,11 +932,19 @@ fn derive_class(
     // We skip the base class, since that is the class we just passed in and we already know what it
     // is.
     super_iter
-        .next_item(class_names, class_files, classes, packages)
+        .next_item(
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
+        )
         .expect("Load Super Classes Iter should have at least one entry")?;
-    while let Some(super_class_id) =
-        super_iter.next_item(class_names, class_files, classes, packages)
-    {
+    while let Some(super_class_id) = super_iter.next_item(
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.classes,
+        &mut env.packages,
+    ) {
         let super_class_id = super_class_id?;
 
         if super_class_id == class_id {
@@ -956,23 +952,16 @@ fn derive_class(
         }
     }
 
-    let class = classes
+    let class = env
+        .classes
         .get(&class_id)
         .ok_or(GeneralError::MissingLoadedClass(class_id))?;
 
     if let Some(super_id) = class.super_id() {
-        resolve_derive(
-            class_names,
-            class_files,
-            classes,
-            packages,
-            methods,
-            state,
-            super_id,
-            class_id,
-        )?;
+        resolve_derive(env, super_id, class_id)?;
 
-        let super_class = classes
+        let super_class = env
+            .classes
             .get(&super_id)
             .ok_or(GeneralError::MissingLoadedClass(super_id))?;
         if super_class.is_interface() {
@@ -982,16 +971,17 @@ fn derive_class(
             }
             .into());
         }
-    } else if class_names.object_id() != class_id {
+    } else if env.class_names.object_id() != class_id {
         // There was no super class and we were not the Object
         // TODO: Should we error on this? THe JVM docs technically don't.
     }
 
     // An interface must extend Object and nothing else.
-    let class = classes
+    let class = env
+        .classes
         .get(&class_id)
         .ok_or(GeneralError::MissingLoadedClass(class_id))?;
-    if class.is_interface() && class.super_id() != Some(class_names.object_id()) {
+    if class.is_interface() && class.super_id() != Some(env.class_names.object_id()) {
         return Err(VerificationError::InterfaceSuperClassNonObject {
             base_id: class_id,
             super_id: class.super_id(),
@@ -999,50 +989,33 @@ fn derive_class(
         .into());
     }
 
-    if class_files.contains_key(&class_id) {
-        let class_file = class_files
+    if env.class_files.contains_key(&class_id) {
+        let class_file = env
+            .class_files
             .get(&class_id)
             .ok_or(GeneralError::MissingLoadedClassFile(class_id))?;
         // Collect into a smallvec that should be more than large enough for basically any class
         // since the iterator has a ref to the class file and we need to invalidate it
         let interfaces: SmallVec<[_; 8]> = class_file.interfaces_indices_iter().collect();
         let interfaces: SmallVec<[_; 8]> =
-            map_interface_index_small_vec_to_ids(class_names, class_file, interfaces)?;
+            map_interface_index_small_vec_to_ids(&mut env.class_names, class_file, interfaces)?;
 
         for interface_id in interfaces {
             // TODO: Check for circular interfaces
-            resolve_derive(
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
-                interface_id,
-                class_id,
-            )?;
+            resolve_derive(env, interface_id, class_id)?;
         }
     } else if class.is_array() {
         let array_interfaces = ArrayClass::get_interface_names();
         for interface_name in array_interfaces {
-            let interface_id = class_names.gcid_from_bytes(interface_name);
-            resolve_derive(
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
-                interface_id,
-                class_id,
-            )?;
+            let interface_id = env.class_names.gcid_from_bytes(interface_name);
+            resolve_derive(env, interface_id, class_id)?;
         }
     }
 
-    let info = state.classes_info.get_mut_init(class_id);
+    let info = env.state.classes_info.get_mut_init(class_id);
     info.created = Status::Done(());
 
-    Ok(BegunStatus::Done(()))
+    Ok(ValueException::Value(BegunStatus::Done(())))
 }
 
 pub(crate) fn map_interface_index_small_vec_to_ids<const N: usize>(
@@ -1078,35 +1051,14 @@ pub(crate) fn map_interface_index_small_vec_to_ids<const N: usize>(
 /// Resolve a class or interface and create it
 /// Equivalent to calling [`resolve_class_interface`] and then [`create_class`]
 fn resolve_derive(
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
+    env: &mut Env,
     class_id: ClassId,
     origin_class_id: ClassId,
 ) -> Result<(), GeneralError> {
-    resolve_class_interface(
-        class_names,
-        class_files,
-        classes,
-        packages,
-        methods,
-        state,
-        class_id,
-        origin_class_id,
-    )?;
+    resolve_class_interface(env, class_id, origin_class_id)?;
 
-    derive_class(
-        class_names,
-        class_files,
-        classes,
-        packages,
-        methods,
-        state,
-        class_id,
-    )?;
+    // TODO: This should return the exception!
+    derive_class(env, class_id)?;
 
     Ok(())
 }
@@ -1114,19 +1066,20 @@ fn resolve_derive(
 /// Resolve a class or interface
 /// 5.4.3.1
 fn resolve_class_interface(
-    class_names: &mut ClassNames,
-    class_files: &mut ClassFiles,
-    classes: &mut Classes,
-    packages: &mut Packages,
-    methods: &mut Methods,
-    state: &mut State,
+    env: &mut Env,
     class_id: ClassId,
     origin_class_id: ClassId,
 ) -> Result<(), GeneralError> {
     // TODO: Loader stuff, since the origin loader should be used to load the class id
-    classes.load_class(class_names, class_files, packages, class_id)?;
+    env.classes.load_class(
+        &mut env.class_names,
+        &mut env.class_files,
+        &mut env.packages,
+        class_id,
+    )?;
 
-    let class = classes
+    let class = env
+        .classes
         .get(&class_id)
         .ok_or(GeneralError::MissingLoadedClass(class_id))?;
 
@@ -1134,26 +1087,19 @@ fn resolve_class_interface(
         if let ArrayComponentType::Class(component_id) = array_class.component_type() {
             // If it has a class as a component, we also have to resolve it
             // TODO: Should the origin be the array's class id or the origin id?
-            resolve_derive(
-                class_names,
-                class_files,
-                classes,
-                packages,
-                methods,
-                state,
-                component_id,
-                class_id,
-            )?;
+            resolve_derive(env, component_id, class_id)?;
         }
     }
 
     // TODO: Currently we treat anonymous classes as being able to access anywhere and also being accessible from anywhere, which isn't accurate! I believe it should be using its base class
     // for the accessing
-    let is_origin_anon = class_names
+    let is_origin_anon = env
+        .class_names
         .name_from_gcid(origin_class_id)
         .map(|(_, info)| info.is_anonymous())
         .map_err(StepError::BadId)?;
-    let is_anon = class_names
+    let is_anon = env
+        .class_names
         .name_from_gcid(class_id)
         .map(|(_, info)| info.is_anonymous())
         .map_err(StepError::BadId)?;
@@ -1161,10 +1107,10 @@ fn resolve_class_interface(
     if !is_anon
         && !is_origin_anon
         && !can_access_class_from_class(
-            class_names,
-            class_files,
-            classes,
-            packages,
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.classes,
+            &mut env.packages,
             class_id,
             origin_class_id,
         )?

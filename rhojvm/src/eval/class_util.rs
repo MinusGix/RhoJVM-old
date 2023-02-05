@@ -61,16 +61,7 @@ pub fn get_init_method_type_from_mh(
         .gcid_from_bytes(b"java/lang/invoke/MethodType");
 
     // TODO: deriving from itself is bad
-    resolve_derive(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        method_type_class_id,
-        method_type_class_id,
-    )?;
+    resolve_derive(env, method_type_class_id, method_type_class_id)?;
 
     // methodType(Class<?> returnTy, Class<?>[] paramTys)
     let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");

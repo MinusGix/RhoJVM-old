@@ -34,17 +34,7 @@ pub(crate) extern "C" fn mh_lookup_reveal_direct(
         .gcid_from_bytes(b"rho/invoke/MethodHandleInfoInst");
 
     // TODO: Deriving from itself is bad
-    resolve_derive(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        mh_info_id,
-        mh_info_id,
-    )
-    .unwrap();
+    resolve_derive(env, mh_info_id, mh_info_id).unwrap();
 
     let mh_info_static_ref = initialize_class(env, mh_info_id).unwrap().into_value();
     let mh_info_static_ref = if let Some(re) = env.state.extract_value(mh_info_static_ref) {

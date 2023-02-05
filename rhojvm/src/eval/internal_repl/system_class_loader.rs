@@ -75,7 +75,7 @@ pub(crate) extern "C" fn system_class_loader_load_class(
     // TODO: This is intended to do the implementation in a specific manner, and it should depend on the actual class loader!
     let static_class = initialize_class(env, class_id).unwrap().into_value();
     let Some(_static_class) = env.state.extract_value(static_class) else {
-        todo!("Return Null? Throw an exception?")
+        return JObject::null();
     };
 
     let sys_cl_id = env.class_names.gcid_from_bytes(b"rho/SystemClassLoader");

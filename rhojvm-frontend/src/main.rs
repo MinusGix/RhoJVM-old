@@ -512,15 +512,7 @@ fn execute_class_name(
         .unwrap();
     env.state.entry_point_class = Some(entrypoint_id);
 
-    if let Err(err) = verify_from_entrypoint(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        entrypoint_id,
-    ) {
+    if let Err(err) = verify_from_entrypoint(env, entrypoint_id) {
         tracing::error!("failed to verify entrypoint class: {:?}", err);
         return;
     }

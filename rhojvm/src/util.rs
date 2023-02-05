@@ -655,16 +655,7 @@ pub(crate) fn make_class_form_of(
     from_class_id: ClassId,
     of_class_id: ClassId,
 ) -> Result<ValueException<GcRef<StaticFormInstance>>, GeneralError> {
-    resolve_derive(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        of_class_id,
-        from_class_id,
-    )?;
+    resolve_derive(env, of_class_id, from_class_id)?;
 
     // // TODO: Some of these errors should be exceptions
     // let static_ref = initialize_class(env, of_class_id)?.into_value();
@@ -685,16 +676,7 @@ pub(crate) fn make_class_form_of(
     let class_form_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
 
     // TODO: Some of these errors should be exceptions
-    resolve_derive(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        class_form_id,
-        from_class_id,
-    )?;
+    resolve_derive(env, class_form_id, from_class_id)?;
 
     // TODO: Some of these errors should be exceptions
     let class_form_ref = initialize_class(env, class_form_id)?.into_value();
@@ -902,16 +884,7 @@ pub(crate) fn construct_method_handle(
         .class_names
         .gcid_from_bytes(b"rho/invoke/MethodHandleInst");
     // TODO: Deriving from itself is bad
-    resolve_derive(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        mh_id,
-        mh_id,
-    )?;
+    resolve_derive(env, mh_id, mh_id)?;
 
     let mh_static_ref = initialize_class(env, mh_id)?.into_value();
     let mh_static_ref = match mh_static_ref {
@@ -934,16 +907,7 @@ pub(crate) fn construct_byte_array_input_stream(
     let bai_id = env
         .class_names
         .gcid_from_bytes(b"java/io/ByteArrayInputStream");
-    resolve_derive(
-        &mut env.class_names,
-        &mut env.class_files,
-        &mut env.classes,
-        &mut env.packages,
-        &mut env.methods,
-        &mut env.state,
-        bai_id,
-        bai_id,
-    )?;
+    resolve_derive(env, bai_id, bai_id)?;
 
     let byte_array_id = env
         .class_names
@@ -998,6 +962,66 @@ pub(crate) fn construct_byte_array_input_stream(
     }
 
     Ok(ValueException::Value(bai_ref))
+}
+
+/// Construct an instance of an exception.  
+/// Note that it will throw an error or exception itself if the class does not have a cons
+/// from a `java/lang/String`.  
+/// ```rust,ignore
+/// let exception_id: ClassId = env.class_names.gcid_from_bytes(b"java/lang/ClassNotFoundException");
+/// let exc: ValueException<GcRef<ClassInstance>> = make_exception(env, exception_id, "Failed to find the Toast class")?;
+/// // Get the intended exception if its a value, otherwise get the exception that was thrown
+/// // in creating the exception.
+/// let exc: GcRef<ClassInstance> = exc.flatten();
+/// ```
+pub(crate) fn make_exception(
+    env: &mut Env,
+    exception_id: ClassId,
+    message: &str,
+) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
+    // TODO: If there was an exception in construction the exception, we should note that in the exception. Probably via a wrapper? Then if it errors again, we panic.
+    let exception_static_ref = initialize_class(env, exception_id)?.into_value();
+    let exception_static_ref = match exception_static_ref {
+        ValueException::Value(re) => re,
+        ValueException::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    };
+
+    let fields = make_instance_fields(env, exception_id)?;
+    let fields = exc_value!(ret: fields);
+
+    let exception = ClassInstance::new(exception_id, exception_static_ref, fields);
+    let exception_ref = env.state.gc.alloc(exception);
+
+    let string_id = env.class_names.gcid_from_bytes(b"java/lang/String");
+
+    let descriptor = MethodDescriptor::new(
+        smallvec::smallvec![DescriptorType::Basic(DescriptorTypeBasic::Class(string_id))],
+        None,
+    );
+
+    let constructor_id = env.methods.load_method_from_desc(
+        &mut env.class_names,
+        &mut env.class_files,
+        exception_id,
+        b"<init>",
+        &descriptor,
+    )?;
+
+    let message = construct_string_r(env, message)?;
+    let message = exc_value!(ret: message);
+
+    let locals = Locals::new_with_array([
+        RuntimeValue::Reference(exception_ref.into_generic()),
+        RuntimeValue::Reference(message.into_generic()),
+    ]);
+    let frame = Frame::new_locals(locals);
+
+    match eval_method(env, constructor_id.into(), frame)? {
+        EvalMethodValue::ReturnVoid | EvalMethodValue::Return(_) => {}
+        EvalMethodValue::Exception(exc) => return Ok(ValueException::Exception(exc)),
+    }
+
+    Ok(ValueException::Value(exception_ref))
 }
 
 pub(crate) fn mh_info(env: &mut Env, re: GcRef<MethodHandleInstance>) -> String {
