@@ -1,5 +1,5 @@
 use crate::{
-    class_instance::Instance,
+    class_instance::{Instance, ReferenceInstance},
     eval::ValueException,
     jni::{JInt, JObject},
     util::{self, Env},
@@ -64,4 +64,14 @@ pub(crate) extern "C" fn object_clone(env: *mut Env<'_>, this: JObject) -> JObje
     } else {
         todo!("NPE")
     }
+}
+
+pub(crate) extern "C" fn object_notify_all(env: *mut Env, this: JObject) {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) }.unwrap();
+    let _this = this.unchecked_as::<ReferenceInstance>();
+
+    tracing::warn!("Object#notifyAll is not implemented");
 }
