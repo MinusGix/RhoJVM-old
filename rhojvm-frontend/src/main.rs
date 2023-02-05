@@ -19,6 +19,7 @@ use rhojvm::{
     string_intern::StringInterner,
     util::{get_string_contents_as_rust_string, Env},
     verify_from_entrypoint, GeneralError, ResolveError, State, StateConfig, ThreadData,
+    VerificationError,
 };
 use rhojvm_base::{
     code::method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
@@ -34,7 +35,9 @@ use rhojvm_base::{
     StepError,
 };
 use rhojvm_class_loaders::{jar_loader::JarClassFileLoader, util::CombineLoader, ClassDirectories};
-use stack_map_verifier::StackMapVerificationLogging;
+use stack_map_verifier::{
+    StackMapVerificationLogging, VerifyStackMapError, VerifyStackMapGeneralError,
+};
 use tracing_subscriber::layer::SubscriberExt;
 use util::parse_key_val_properties;
 
@@ -638,6 +641,22 @@ fn make_error_pretty(env: &Env, err: GeneralError) -> String {
                 err
             )
         }
+        GeneralError::Verification(verif) => match verif {
+            VerificationError::VerifyStackMapGeneralError(gen) => match gen {
+                VerifyStackMapGeneralError::VerifyStackMapError(verif) => match verif {
+                    VerifyStackMapError::InstExpectedFrameTypeInStackGotFrameType {
+                        inst_name,
+                        expected_type,
+                        got_type,
+                    } => {
+                        format!("Failed to verify file: Expected frame type {} for instruction {}, but got {}", expected_type.as_pretty_string(&env.class_names), inst_name, got_type.as_pretty_string(&env.class_names))
+                    }
+                    _ => format!("{:?}", err),
+                },
+                _ => format!("{:?}", err),
+            },
+            _ => format!("{:?}", err),
+        },
         // TODO
         _ => format!("{:?}", err),
     }

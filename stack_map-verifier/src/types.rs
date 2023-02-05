@@ -590,7 +590,7 @@ impl FrameType {
         }
     }
 
-    pub(crate) fn as_pretty_string(&self, class_names: &ClassNames) -> String {
+    pub fn as_pretty_string(&self, class_names: &ClassNames) -> String {
         match self {
             FrameType::Primitive(prim) => format!("{:?}", prim),
             FrameType::Complex(complex) => complex.as_pretty_string(class_names),
