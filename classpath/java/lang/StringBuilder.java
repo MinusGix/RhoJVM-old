@@ -89,7 +89,7 @@ public final class StringBuilder implements Serializable, CharSequence {
             throw new StringIndexOutOfBoundsException("Source begin was after source end");
         }
 
-        System.arraycopy(this.data, sourceBegin, destinationBegin, destinationBegin, sourceEnd - sourceBegin);
+        System.arraycopy(this.data, sourceBegin, destination, destinationBegin, sourceEnd - sourceBegin);
     }
 
     public StringBuilder append(String source) {
