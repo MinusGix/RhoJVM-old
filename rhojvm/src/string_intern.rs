@@ -3,12 +3,12 @@ use rhojvm_base::data::{class_files::ClassFiles, class_names::ClassNames};
 use crate::{
     class_instance::{ClassInstance, PrimitiveArrayInstance},
     eval::EvalError,
-    gc::GcRef,
+    gc::{Gc, GcRef},
+    rv::RuntimeValuePrimitive,
     GeneralError, State,
 };
 
-// FIXME: Literal strings and string-valued constant expressions are interned
-// TODO: We could maybe use
+// TODO: The GC needs to be pay attention to this!
 #[derive(Default, Debug, Clone)]
 pub struct StringInterner {
     /// Vector of (String, char[])
@@ -17,6 +17,24 @@ pub struct StringInterner {
     data: Vec<(GcRef<ClassInstance>, GcRef<PrimitiveArrayInstance>)>,
 }
 impl StringInterner {
+    pub fn get_by_data(
+        &self,
+        gc: &Gc,
+        value: &[RuntimeValuePrimitive],
+    ) -> Option<GcRef<ClassInstance>> {
+        self.data
+            .iter()
+            .find(|(_, data)| {
+                let data = gc.deref(*data).unwrap();
+                data.elements == value
+            })
+            .map(|(re, _)| *re)
+    }
+
+    pub fn has_by_data(&self, gc: &Gc, value: &[RuntimeValuePrimitive]) -> bool {
+        self.get_by_data(gc, value).is_some()
+    }
+
     /// Note: java/lang/String should already be loaded
     pub fn intern(
         &mut self,

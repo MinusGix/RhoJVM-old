@@ -568,7 +568,7 @@ fn load_constant(
                     .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
                     .collect::<Vec<_>>();
 
-                util::construct_string(env, char_arr)?
+                util::construct_string(env, char_arr, true)?
             };
             match string_ref {
                 ValueException::Value(string_ref) => frame

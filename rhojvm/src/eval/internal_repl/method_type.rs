@@ -92,7 +92,7 @@ pub(crate) extern "C" fn mt_to_method_descriptor_string(env: *mut Env, this: JOb
         this_ref,
     );
 
-    let res = construct_string_r(env, &out).unwrap();
+    let res = construct_string_r(env, &out, true).unwrap();
     let Some(res) = env.state.extract_value(res) else {
         return JObject::null();
     };

@@ -1791,7 +1791,7 @@ unsafe extern "C" fn new_string(env: *mut Env, chars: *const JChar, len: JSize) 
         content.push(RuntimeValuePrimitive::Char(char_at));
     }
 
-    let text = construct_string(env, content).unwrap();
+    let text = construct_string(env, content, false).unwrap();
     if let Some(text) = env.state.extract_value(text) {
         env.get_local_jobject_for(text.into_generic())
     } else {
@@ -1818,7 +1818,7 @@ unsafe extern "C" fn new_string_utf(env: *mut Env, chars: *const c_char) -> JStr
         .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
         .collect();
 
-    let text = construct_string(env, content).unwrap();
+    let text = construct_string(env, content, false).unwrap();
     if let Some(text) = env.state.extract_value(text) {
         env.get_local_jobject_for(text.into_generic())
     } else {

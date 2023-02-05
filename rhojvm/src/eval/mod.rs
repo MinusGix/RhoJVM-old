@@ -24,7 +24,7 @@ use crate::{
     jni::{self, JBoolean, JByte, JChar, JDouble, JFloat, JInt, JLong, JObject, JShort},
     method::NativeMethod,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{make_class_form_of, Env},
+    util::{make_class_form_of, ref_info, Env},
     GeneralError,
 };
 

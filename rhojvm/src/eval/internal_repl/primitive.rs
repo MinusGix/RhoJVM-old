@@ -59,7 +59,7 @@ pub(crate) extern "C" fn long_to_string(
         .map(RuntimeValuePrimitive::Char)
         .collect::<Vec<_>>();
 
-    let string = util::construct_string(env, result).expect("Failed to create string");
+    let string = util::construct_string(env, result, false).expect("Failed to create string");
     let string = match string {
         ValueException::Value(string) => string,
         ValueException::Exception(_) => {
@@ -167,7 +167,7 @@ pub(crate) extern "C" fn integer_to_string(
         .map(RuntimeValuePrimitive::Char)
         .collect::<Vec<_>>();
 
-    let string = util::construct_string(env, result).expect("Failed to create string");
+    let string = util::construct_string(env, result, false).expect("Failed to create string");
     let string = match string {
         ValueException::Value(string) => string,
         ValueException::Exception(_) => {

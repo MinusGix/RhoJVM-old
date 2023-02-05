@@ -113,7 +113,7 @@ pub(crate) extern "C" fn mh_info_get_name(env: *mut Env, this: JObject) -> JObje
     };
     let method_name = class.getr_text(method.name_index()).unwrap().into_owned();
 
-    let text = construct_string_r(env, &method_name).unwrap();
+    let text = construct_string_r(env, &method_name, true).unwrap();
     let Some(text) = env.state.extract_value(text) else {
         return JObject::null();
     };

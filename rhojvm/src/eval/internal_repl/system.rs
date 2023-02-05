@@ -62,7 +62,7 @@ pub(crate) extern "C" fn system_set_properties(env: *mut Env<'_>, _this: JObject
             .encode_utf16()
             .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
             .collect();
-        let property_name = match construct_string(env, property_name)
+        let property_name = match construct_string(env, property_name, true)
             .expect("Failed to construct UTF-16 string for property name")
         {
             ValueException::Value(name) => name,
@@ -75,7 +75,7 @@ pub(crate) extern "C" fn system_set_properties(env: *mut Env<'_>, _this: JObject
             .encode_utf16()
             .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
             .collect();
-        let property_value = match construct_string(env, property_value)
+        let property_value = match construct_string(env, property_value, true)
             .expect("Failed to construct UTF-16 string for property value")
         {
             ValueException::Value(name) => name,
@@ -471,7 +471,7 @@ pub(crate) extern "C" fn system_map_library_name(
         }
     };
 
-    let name = construct_string_r(env, &name).unwrap();
+    let name = construct_string_r(env, &name, true).unwrap();
     let Some(name) = env.state.extract_value(name) else {
         return JObject::null();
     };

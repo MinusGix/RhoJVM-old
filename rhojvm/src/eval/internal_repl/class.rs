@@ -242,7 +242,7 @@ pub(crate) extern "C" fn class_get_name(env: *mut Env<'_>, this: JObject) -> JSt
         .encode_utf16()
         .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
         .collect();
-    let name = construct_string(env, name).unwrap();
+    let name = construct_string(env, name, true).unwrap();
     let name = match name {
         ValueException::Value(name) => name,
         ValueException::Exception(_) => todo!(),
@@ -297,7 +297,7 @@ pub(crate) extern "C" fn class_get_simple_name(env: *mut Env<'_>, this: JObject)
         .encode_utf16()
         .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
         .collect();
-    let name = construct_string(env, name).unwrap();
+    let name = construct_string(env, name, true).unwrap();
     let name = match name {
         ValueException::Value(name) => name,
         ValueException::Exception(_) => todo!(),
@@ -803,12 +803,12 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
 
     let sealed = package_info.sealed;
 
-    let package_name_ref = match construct_string(env, package_name).unwrap() {
+    let package_name_ref = match construct_string(env, package_name, true).unwrap() {
         ValueException::Value(name) => name,
         ValueException::Exception(_) => todo!("Exception initializing package name"),
     };
     let spec_title_ref = if let Some(val) = spec_title
-        .map(|x| construct_string(env, x))
+        .map(|x| construct_string(env, x, true))
         .transpose()
         .unwrap()
     {
@@ -820,7 +820,7 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
         RuntimeValue::NullReference
     };
     let spec_vendor_ref = if let Some(val) = spec_vendor
-        .map(|x| construct_string(env, x))
+        .map(|x| construct_string(env, x, true))
         .transpose()
         .unwrap()
     {
@@ -832,7 +832,7 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
         RuntimeValue::NullReference
     };
     let spec_version_ref = if let Some(val) = spec_version
-        .map(|x| construct_string(env, x))
+        .map(|x| construct_string(env, x, true))
         .transpose()
         .unwrap()
     {
@@ -844,7 +844,7 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
         RuntimeValue::NullReference
     };
     let impl_title_ref = if let Some(val) = impl_title
-        .map(|x| construct_string(env, x))
+        .map(|x| construct_string(env, x, true))
         .transpose()
         .unwrap()
     {
@@ -856,7 +856,7 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
         RuntimeValue::NullReference
     };
     let impl_vendor_ref = if let Some(val) = impl_vendor
-        .map(|x| construct_string(env, x))
+        .map(|x| construct_string(env, x, true))
         .transpose()
         .unwrap()
     {
@@ -868,7 +868,7 @@ pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> 
         RuntimeValue::NullReference
     };
     let impl_version_ref = if let Some(val) = impl_version
-        .map(|x| construct_string(env, x))
+        .map(|x| construct_string(env, x, true))
         .transpose()
         .unwrap()
     {

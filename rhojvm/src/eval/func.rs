@@ -1154,7 +1154,7 @@ impl RunInstContinue for InvokeDynamic {
                         .expect("Null method handle lookup reference")
                     };
                     let call_site_name =
-                        exc_value!(ret inst: construct_string_r(env, inv_name.as_ref())?);
+                        exc_value!(ret inst: construct_string_r(env, inv_name.as_ref(), true)?);
                     // we have the method type already
 
                     // there are additional parameters

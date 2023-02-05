@@ -442,8 +442,9 @@ pub(crate) fn to_utf16_arr(text: &str) -> Vec<RuntimeValuePrimitive> {
 pub(crate) fn construct_string_r(
     env: &mut Env,
     text: &str,
+    should_intern: bool,
 ) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
-    construct_string(env, to_utf16_arr(text))
+    construct_string(env, to_utf16_arr(text), should_intern)
 }
 
 /// Construct a JVM String given some string
@@ -451,7 +452,12 @@ pub(crate) fn construct_string_r(
 pub(crate) fn construct_string(
     env: &mut Env,
     utf16_text: Vec<RuntimeValuePrimitive>,
+    should_intern: bool,
 ) -> Result<ValueException<GcRef<ClassInstance>>, GeneralError> {
+    if let Some(inst) = env.string_interner.get_by_data(&env.state.gc, &utf16_text) {
+        return Ok(ValueException::Value(inst));
+    }
+
     // Create a char[] in utf16
     let char_arr_ref = {
         let char_arr_id = env.state.char_array_id(&mut env.class_names);
@@ -482,6 +488,15 @@ pub(crate) fn construct_string(
         .get_mut(string_data_field_id)
         .unwrap()
         .value_mut()) = RuntimeValue::Reference(char_arr_ref.into_generic());
+
+    if should_intern {
+        env.string_interner.intern(
+            &mut env.class_names,
+            &mut env.class_files,
+            &mut env.state,
+            string_ref,
+        )?;
+    }
 
     Ok(ValueException::Value(string_ref))
 }
@@ -1031,7 +1046,7 @@ pub(crate) fn make_exception(
         &descriptor,
     )?;
 
-    let message = construct_string_r(env, message)?;
+    let message = construct_string_r(env, message, false)?;
     let message = exc_value!(ret: message);
 
     let locals = Locals::new_with_array([

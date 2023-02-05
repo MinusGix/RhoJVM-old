@@ -120,7 +120,7 @@ pub(crate) fn add_fields_for_class<F: Fn(&FieldInfoOpt) -> bool>(
                         .map(|x| RuntimeValuePrimitive::Char(JavaChar(x)))
                         .collect::<Vec<RuntimeValuePrimitive>>();
 
-                    let string_ref = util::construct_string(env, text)?;
+                    let string_ref = util::construct_string(env, text, true)?;
                     match string_ref {
                         ValueException::Value(string_ref) => {
                             RuntimeValue::Reference(string_ref.into_generic())
