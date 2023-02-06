@@ -23,6 +23,9 @@ JFILES="$JFILES ./java/security/AccessController.java"
 # java/util
 JFILES="$JFILES ./java/util/EnumMap.java"
 
+# java/nio/
+JFILES="$JFILES ./java/nio/channels/spi/AbstractInterruptibleChannel.java"
+
 # sun/misc/
 JFILES="$JFILES ./sun/misc/VM.java ./sun/misc/Unsafe.java ./sun/misc/Perf.java ./sun/misc/PerfCounter.java"
 
