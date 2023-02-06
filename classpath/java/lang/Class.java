@@ -54,7 +54,15 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
     }
 
     public T cast(Object obj) {
-        throw new UnsupportedOperationException("TODO: Implement this");
+        if (obj == null) {
+            throw new ClassCastException("Cannot cast null to " + getName());
+        }
+
+        if (!isInstance(obj)) {
+            throw new ClassCastException("Cannot cast " + obj.getClass().getName() + " to " + getName());
+        }
+
+        return (T) obj;
     }
 
     public boolean desiredAssertionStatus() {
