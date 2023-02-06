@@ -624,6 +624,26 @@ pub fn eval_method(
         }
     }
 
+    // if !skip_logging {
+    //     for arg in frame.locals.locals.iter() {
+    //         let v = match arg {
+    //             Local::Top => "Top".to_string(),
+    //             Local::Empty => "Empty".to_string(),
+    //             Local::Value(v) => match v {
+    //                 RuntimeValue::Primitive(p) => format!("{:?}", p),
+    //                 RuntimeValue::NullReference => "NullReference".to_string(),
+    //                 RuntimeValue::Reference(re) => ref_info(env, Some(re.into_generic())),
+    //             },
+    //         };
+    //         tracing::info!("Local: {}", v);
+    //     }
+    // }
+
+    // let method = env
+    //     .methods
+    //     .get_mut(&method_id)
+    //     .ok_or(EvalError::MissingMethod(method_id))?;
+
     // TODO: native exceptions
     // TODO: Move to separate function to make it easier to reason about and maintain safety
     if method.access_flags().contains(MethodAccessFlags::NATIVE) {
@@ -880,6 +900,15 @@ pub fn eval_method(
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JInt, param3: JInt, param4: JBoolean));
                 }
                 (
+                    DescriptorType::Array { .. }
+                    | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                    DescriptorType::Basic(DescriptorTypeBasic::Boolean),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JInt, param3: JLong, param4: JBoolean));
+                },
+                (
                     DescriptorType::Basic(DescriptorTypeBasic::Int),
                     DescriptorType::Array { .. }
                     | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
@@ -1011,8 +1040,23 @@ pub fn eval_method(
             // TODO: Should we throw an exception if we return a value of the wrong type?
             RunInstValue::Continue => pc.0 += size,
             RunInstValue::ContinueAt(i) => pc = i,
-            RunInstValue::ReturnVoid => return Ok(EvalMethodValue::ReturnVoid),
-            RunInstValue::Return(x) => return Ok(EvalMethodValue::Return(x)),
+            RunInstValue::ReturnVoid => {
+                // if !skip_logging {
+                //     tracing::info!("Returned void");
+                // }
+                return Ok(EvalMethodValue::ReturnVoid);
+            }
+            RunInstValue::Return(x) => {
+                // if !skip_logging {
+                //     let text = match x {
+                //         RuntimeValue::Primitive(p) => format!("{:?}", p),
+                //         RuntimeValue::NullReference => "NullReference".to_string(),
+                //         RuntimeValue::Reference(re) => ref_info(env, Some(re.into_generic())),
+                //     };
+                //     tracing::info!("Returned {}", text);
+                // }
+                return Ok(EvalMethodValue::Return(x));
+            }
             RunInstValue::Exception(exc) => {
                 let exception_id = env
                     .state
