@@ -24,7 +24,7 @@ use crate::{
     jni::{self, JBoolean, JByte, JChar, JDouble, JFloat, JInt, JLong, JObject, JShort},
     method::NativeMethod,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{make_class_form_of, ref_info, Env},
+    util::{make_class_form_of, make_exception, ref_info, Env},
     GeneralError,
 };
 
@@ -531,15 +531,28 @@ macro_rules! impl_call_native_method {
 
 /// Either a value or an exception
 #[derive(Debug, Clone, Copy)]
-pub enum ValueException<V> {
+pub enum ValueException<V, E = GcRef<ClassInstance>> {
     Value(V),
-    Exception(GcRef<ClassInstance>),
+    Exception(E),
 }
-impl<V> ValueException<V> {
-    pub fn map<A, F: FnOnce(V) -> A>(self, op: F) -> ValueException<A> {
+pub type LazyValueException<V> = ValueException<V, (ClassId, String)>;
+impl<V, E> ValueException<V, E> {
+    pub fn map<A, F: FnOnce(V) -> A>(self, op: F) -> ValueException<A, E> {
         match self {
             ValueException::Value(v) => ValueException::Value((op)(v)),
             ValueException::Exception(exc) => ValueException::Exception(exc),
+        }
+    }
+}
+impl<V> ValueException<V, (ClassId, String)> {
+    pub fn instantiate(self, env: &mut Env) -> Result<ValueException<V>, GeneralError> {
+        match self {
+            ValueException::Value(v) => Ok(ValueException::Value(v)),
+            ValueException::Exception((class_id, msg)) => {
+                let exc = make_exception(env, class_id, &msg)?;
+                let exc = exc.flatten();
+                Ok(ValueException::Exception(exc))
+            }
         }
     }
 }
@@ -587,10 +600,11 @@ pub fn eval_method(
     let span = tracing::span!(tracing::Level::INFO, "eval_method");
     let _guard = span.enter();
 
-    let skip_logging = env
-        .state
-        .conf
-        .should_skip_logging(&env.class_names, class_id);
+    let skip_logging = env.skip_logging
+        || env
+            .state
+            .conf
+            .should_skip_logging(&env.class_names, class_id);
 
     {
         if !skip_logging {

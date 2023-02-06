@@ -142,6 +142,7 @@ pub struct Env<'i> {
     /// Keep track of the time we started up (approximately)
     /// Primarily for `System#nanoTime`/`System#currentTimeMillis`
     pub(crate) startup_instant: std::time::Instant,
+    pub(crate) skip_logging: bool,
 }
 impl<'i> Env<'i> {
     pub fn new(
@@ -172,6 +173,7 @@ impl<'i> Env<'i> {
                     .with_memory(),
             ),
             startup_instant: std::time::Instant::now(),
+            skip_logging: false,
         }
     }
 
@@ -1133,6 +1135,8 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
         return "<Bad GCRef>".to_string()
     };
 
+    let log = env.skip_logging;
+
     match inst {
         Instance::StaticClass(stat) => {
             let id = stat.id;
@@ -1150,20 +1154,22 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
                 if name.is_empty() {
                     format!("Class(ANON:{})", id.get())
                 } else if id == string_id {
+                    env.skip_logging = true;
                     let text = get_string_contents_as_rust_string(
                         &env.class_files,
                         &mut env.class_names,
                         &mut env.state,
                         re,
-                    )
-                    .unwrap();
+                    );
+                    env.skip_logging = log;
                     format!("Class(java/lang/String = {:?})", text)
                 } else if id
                     == env
                         .class_names
                         .gcid_from_bytes(b"java/lang/invoke/MethodType")
                 {
-                    format!(
+                    env.skip_logging = true;
+                    let res = format!(
                         "Class(java/lang/invoke/MethodType = {})",
                         method_type_to_desc_string(
                             &mut env.class_names,
@@ -1171,83 +1177,109 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
                             &env.state.gc,
                             re.unchecked_as()
                         )
-                    )
-                } else if let Ok(true) = does_extend_class(
-                    &mut env.class_names,
-                    &mut env.class_files,
-                    &mut env.classes,
-                    id,
-                    exc_id,
-                ) {
-                    let throwable_id = env.class_names.gcid_from_bytes(b"java/lang/Throwable");
-                    let desc = MethodDescriptor::new_ret(DescriptorType::Basic(
-                        DescriptorTypeBasic::Class(string_id),
-                    ));
-
-                    let target_method_id = find_virtual_method(
-                        &mut env.class_names,
-                        &mut env.class_files,
-                        &mut env.classes,
-                        &mut env.methods,
-                        throwable_id,
-                        id,
-                        b"getMessage",
-                        &desc,
-                    )
-                    .unwrap();
-
-                    let locals =
-                        Locals::new_with_array([RuntimeValue::Reference(re.unchecked_as())]);
-                    let frame = Frame::new_locals(locals);
-
-                    let res = eval_method(env, target_method_id, frame).unwrap();
-                    let EvalMethodValue::Return(RuntimeValue::Reference(msg)) = res else {
-                        panic!()
-                    };
-
-                    let msg = get_string_contents_as_rust_string(
-                        &env.class_files,
-                        &mut env.class_names,
-                        &mut env.state,
-                        msg.unchecked_as(),
-                    )
-                    .unwrap();
-
-                    format!("Class({}; Message: {:?})", name, msg)
+                    );
+                    env.skip_logging = log;
+                    res
                 } else {
-                    let desc = MethodDescriptor::new_ret(DescriptorType::Basic(
-                        DescriptorTypeBasic::Class(string_id),
-                    ));
-                    let target_method_id = find_virtual_method(
+                    env.skip_logging = true;
+                    if let Ok(true) = does_extend_class(
                         &mut env.class_names,
                         &mut env.class_files,
                         &mut env.classes,
-                        &mut env.methods,
-                        object_id,
                         id,
-                        b"toString",
-                        &desc,
-                    )
-                    .unwrap();
+                        exc_id,
+                    ) {
+                        let throwable_id = env.class_names.gcid_from_bytes(b"java/lang/Throwable");
+                        let desc = MethodDescriptor::new_ret(DescriptorType::Basic(
+                            DescriptorTypeBasic::Class(string_id),
+                        ));
 
-                    let locals =
-                        Locals::new_with_array([RuntimeValue::Reference(re.unchecked_as())]);
-                    let frame = Frame::new_locals(locals);
+                        let target_method_id = find_virtual_method(
+                            &mut env.class_names,
+                            &mut env.class_files,
+                            &mut env.classes,
+                            &mut env.methods,
+                            throwable_id,
+                            id,
+                            b"getMessage",
+                            &desc,
+                        )
+                        .unwrap();
 
-                    let res = eval_method(env, target_method_id, frame).unwrap();
-                    let EvalMethodValue::Return(RuntimeValue::Reference(msg)) = res else {
-                            panic!()
+                        let locals =
+                            Locals::new_with_array([RuntimeValue::Reference(re.unchecked_as())]);
+                        let frame = Frame::new_locals(locals);
+
+                        println!(
+                            "res: {}   / {}",
+                            env.class_names.tpath(id),
+                            env.class_names.tpath(ClassId::new_unchecked(72))
+                        );
+                        let res = eval_method(env, target_method_id, frame).unwrap();
+                        let EvalMethodValue::Return(RuntimeValue::Reference(msg)) = res else {
+                            env.skip_logging = log;
+                            return format!("Class({}; Message: <Bad Return>)", name);
                         };
 
-                    let msg = get_string_contents_as_rust_string(
-                        &env.class_files,
-                        &mut env.class_names,
-                        &mut env.state,
-                        msg.unchecked_as(),
-                    )
-                    .unwrap();
+                        let msg = get_string_contents_as_rust_string(
+                            &env.class_files,
+                            &mut env.class_names,
+                            &mut env.state,
+                            msg.unchecked_as(),
+                        )
+                        .unwrap();
 
-                    format!("Class({}; toString = {:?})", name, msg)
+                        env.skip_logging = log;
+
+                        format!("Class({}; Message: {:?})", name, msg)
+                    } else {
+                        let desc = MethodDescriptor::new_ret(DescriptorType::Basic(
+                            DescriptorTypeBasic::Class(string_id),
+                        ));
+                        let target_method_id = find_virtual_method(
+                            &mut env.class_names,
+                            &mut env.class_files,
+                            &mut env.classes,
+                            &mut env.methods,
+                            object_id,
+                            id,
+                            b"toString",
+                            &desc,
+                        )
+                        .unwrap();
+
+                        let locals =
+                            Locals::new_with_array([RuntimeValue::Reference(re.unchecked_as())]);
+                        let frame = Frame::new_locals(locals);
+
+                        let res = eval_method(env, target_method_id, frame);
+                        let res = match res {
+                            Ok(v) => v,
+                            Err(_err) => {
+                                env.skip_logging = log;
+                                return format!("Class({}; toString = <internal error>)", name);
+                            }
+                        };
+                        let EvalMethodValue::Return(RuntimeValue::Reference(msg)) = res else {
+                            env.skip_logging = log;
+                            return format!("Class({}; toString = <error>)", name)
+                        };
+
+                        let msg = get_string_contents_as_rust_string(
+                            &env.class_files,
+                            &mut env.class_names,
+                            &mut env.state,
+                            msg.unchecked_as(),
+                        )
+                        .unwrap();
+
+                        // Some text can be really big, and passed around a lot!
+                        let msg = &msg[0..msg.len().min(200)];
+
+                        env.skip_logging = log;
+
+                        format!("Class({}; toString = {:?})", name, msg)
+                    }
                 }
             }
             ReferenceInstance::StaticForm(form) => {

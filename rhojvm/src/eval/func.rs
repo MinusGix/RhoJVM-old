@@ -4,6 +4,7 @@ use classfile_parser::{
     attribute_info::{bootstrap_methods_attribute_parser, InstructionIndex},
     constant_info::ConstantInfo,
     method_info::MethodAccessFlags,
+    ClassAccessFlags,
 };
 
 use rhojvm_base::{
@@ -43,7 +44,7 @@ use crate::{
     GeneralError,
 };
 
-use super::{RunInstArgsC, RunInstContinue, RunInstContinueValue};
+use super::{LazyValueException, RunInstArgsC, RunInstContinue, RunInstContinueValue};
 
 fn grab_runtime_value_from_stack_for_function(
     env: &mut Env,
@@ -494,6 +495,175 @@ impl RunInstContinue for InvokeInterface {
     }
 }
 
+/// 5.4.3.3 Method Resolution
+fn resolve_method(
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    methods: &mut Methods,
+    target_id: ClassId,
+    name: &[u8],
+    descriptor: &MethodDescriptor,
+) -> Result<LazyValueException<MethodId>, GeneralError> {
+    // TODO: Should we resolve the class in here?
+    // TODO: THis should throw IllegalAccessError if the method resolves but is not accessible
+
+    let class_file = class_files
+        .get(&target_id)
+        .ok_or(EvalError::MissingMethodClassFile(target_id))?;
+
+    // If the class is an interface, throw `IncompatibleClassChangeError`
+    if class_file
+        .access_flags()
+        .contains(ClassAccessFlags::INTERFACE)
+    {
+        let incompat_id = class_names.gcid_from_bytes(b"java/lang/IncompatibleClassChangeError");
+        return Ok(LazyValueException::Exception((
+            incompat_id,
+            format!(
+                "Cannot resolve method {}#{:?} due to target class being an interface",
+                class_names.tpath(target_id),
+                Cesu8Str(name)
+            ),
+        )));
+    }
+
+    let (_, target_info) = class_names
+        .name_from_gcid(target_id)
+        .map_err(StepError::BadId)?;
+    let target_has_class_file = target_info.has_class_file();
+    let target_is_array = target_info.is_array();
+
+    if target_has_class_file {
+        let method_id = find_method_up_super_chain(
+            class_names,
+            class_files,
+            classes,
+            methods,
+            target_id,
+            name,
+            descriptor,
+        )?;
+        if let Some(method) = method_id {
+            return Ok(LazyValueException::Value(method));
+        }
+    } else if target_is_array {
+        // Arrays also extend Object, and so have to check its methods
+        let object_id = class_names.object_id();
+        let method_id =
+            methods.load_method_from_desc(class_names, class_files, object_id, name, descriptor);
+        match method_id {
+            Ok(method_id) => return Ok(LazyValueException::Value(method_id.into())),
+            Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+                // Silently continue on to checking the interfaces
+            }
+            // TODO: Or should we just log the error and skip past it?
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    // TODO: Does this check the superinterfaces of the super classes?
+    // Try to locate the method in the superinterfaces
+    if target_has_class_file {
+        let target_class_file = class_files
+            .get(&target_id)
+            .ok_or(EvalError::MissingMethodClassFile(target_id))?;
+        let interfaces: SmallVec<[_; 8]> = target_class_file.interfaces_indices_iter().collect();
+        let interfaces: SmallVec<[_; 8]> =
+            map_interface_index_small_vec_to_ids(class_names, target_class_file, interfaces)?;
+
+        for interface_id in interfaces {
+            if let Some(method_id) = find_interface_method_virtual(
+                class_names,
+                class_files,
+                classes,
+                methods,
+                name,
+                descriptor,
+                interface_id,
+            )? {
+                return Ok(LazyValueException::Value(method_id));
+            }
+        }
+
+        // TODO: Is this the right ordering? The docs don't explicitly mention when it should call the
+        // base class version..
+        // If we simply look up the chain, then we'd always find the base class version before we bother
+        // checking the interfaces?
+        // Ok(methods
+        //     .load_method_from_desc(class_names, class_files, base_id, name, descriptor)?
+        //     .into())
+        let no_such_id = class_names.gcid_from_bytes(b"java/lang/NoSuchMethodError");
+        return Ok(ValueException::Exception((
+            no_such_id,
+            format!(
+                "Cannot resolve method {}#{:?} on class",
+                class_names.tpath(target_id),
+                Cesu8Str(name)
+            ),
+        )));
+    } else if target_is_array {
+        if name == b"clone" {
+            return Ok(ValueException::Value(MethodId::ArrayClone));
+        } else {
+            let no_such_id = class_names.gcid_from_bytes(b"java/lang/NoSuchMethodError");
+            return Ok(ValueException::Exception((
+                no_such_id,
+                format!(
+                    "Cannot resolve method {}#{:?} on array class",
+                    class_names.tpath(target_id),
+                    Cesu8Str(name)
+                ),
+            )));
+        }
+    }
+
+    todo!()
+}
+
+fn find_method_up_super_chain(
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    classes: &mut Classes,
+    methods: &mut Methods,
+    target_id: ClassId,
+    name: &[u8],
+    descriptor: &MethodDescriptor,
+) -> Result<Option<MethodId>, GeneralError> {
+    // Try to locate the method in `target_id` and the superclasses
+    let mut current_check_id = target_id;
+    loop {
+        let method_id = methods.load_method_from_desc(
+            class_names,
+            class_files,
+            current_check_id,
+            name,
+            descriptor,
+        );
+
+        // TODO: signature polymorphic?
+        match method_id {
+            Ok(method_id) => return Ok(Some(method_id.into())),
+            Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+                // Failed to find the method on the class, so we try the superclass.
+                // We assume the super-class is already loaded.
+                let super_id = classes
+                    .get(&current_check_id)
+                    .ok_or(GeneralError::MissingLoadedClass(current_check_id))?
+                    .super_id();
+                if let Some(super_id) = super_id {
+                    current_check_id = super_id;
+                    continue;
+                }
+
+                // We've went all the way up the direct inheritance chain and failed to find it.
+                return Ok(None);
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+}
+
 // FIXME: This code ignores specific actions that it should do
 impl RunInstContinue for InvokeSpecial {
     fn run(
@@ -564,13 +734,17 @@ impl RunInstContinue for InvokeSpecial {
         // TODO: Some of these errors should be exceptions
         initialize_class(env, target_class_id)?;
 
-        let target_method_id = env.methods.load_method_from_desc(
+        let target_method_id = resolve_method(
             &mut env.class_names,
             &mut env.class_files,
+            &mut env.classes,
+            &mut env.methods,
             target_class_id,
             &method_name,
             &method_descriptor,
         )?;
+        let target_method_id = target_method_id.instantiate(env)?;
+        let target_method_id = exc_value!(ret inst: target_method_id);
 
         let mut locals = Locals::default();
 

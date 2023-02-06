@@ -16,7 +16,7 @@ use crate::{
     class_instance::ReferenceInstance,
     eval::EvalError,
     rv::{RuntimeValue, RuntimeValuePrimitive},
-    util::{self},
+    util::{self, ref_info},
     GeneralError,
 };
 
@@ -158,6 +158,10 @@ impl RunInstContinue for AThrow {
                         instance.instanceof,
                         throwable_id,
                     )? {
+                        tracing::info!(
+                            "throwing exception: {}",
+                            ref_info(env, Some(gc_ref.into_generic()))
+                        );
                         // TODO: It would be possible to provide a checked as version
                         Ok(RunInstContinueValue::Exception(gc_ref.unchecked_as()))
                     } else {
