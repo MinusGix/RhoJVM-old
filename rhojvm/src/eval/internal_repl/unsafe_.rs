@@ -18,7 +18,7 @@ use crate::{
     jni::{JByte, JChar, JDouble, JFieldId, JFloat, JInt, JLong, JObject, JShort},
     memblock::MemoryBlockPtr,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{make_class_form_of, Env},
+    util::{make_class_form_of, ref_info, Env},
 };
 
 pub(crate) type JAddress = JLong;
@@ -129,7 +129,6 @@ pub(crate) extern "C" fn unsafe_copy_memory(
     let env = unsafe { &mut *env };
 
     let src = unsafe { env.get_jobject_as_gcref(src) };
-    let src = src.unwrap();
 
     let dest = unsafe { env.get_jobject_as_gcref(dest) };
 
@@ -144,32 +143,42 @@ pub(crate) extern "C" fn unsafe_copy_memory(
         panic!("Unsafe#copyMemory: src_offset was negative");
     }
 
-    // Note: this code assumes that ARRAY_{TYPE}_BASE_OFFSET is 0
-    let src_offset = src_offset as u64;
-    let src_offset: usize = src_offset.try_into().unwrap();
-
     // TODO: Support more general src/dest
-    if let Some(_dest) = dest {
+    if let Some(dest) = dest {
+        tracing::info!("Dest: {}", ref_info(env, dest));
         todo!()
     } else {
         // dest is null, so dest_offset is really just an address
         let address = unsafe { conv_address(dest_offset) };
 
-        let src = src.unchecked_as::<PrimitiveArrayInstance>();
-        let Some(src) = env.state.gc.deref(src) else {
-            panic!("Failed to find src, expected primitive array instance. Other kinds are not supported at this time");
-        };
-        assert_eq!(src.element_type, RuntimeTypePrimitive::I8);
+        if let Some(src) = src {
+            // Note: this code assumes that ARRAY_{TYPE}_BASE_OFFSET is 0
+            let src_offset = src_offset as u64;
+            let src_offset: usize = src_offset.try_into().unwrap();
 
-        let src_bytes = src
-            .elements
-            .iter()
-            .skip(src_offset)
-            .take(count)
-            .map(|x| x.into_byte().unwrap())
-            .map(|x| u8::from_be_bytes(i8::to_be_bytes(x)))
-            .collect::<Vec<u8>>();
-        unsafe { env.state.mem_blocks.write_slice(address, &src_bytes) };
+            let src = src.unchecked_as::<PrimitiveArrayInstance>();
+            let Some(src) = env.state.gc.deref(src) else {
+                panic!("Failed to find src, expected primitive array instance. Other kinds are not supported at this time");
+            };
+            assert_eq!(src.element_type, RuntimeTypePrimitive::I8);
+
+            let src_bytes = src
+                .elements
+                .iter()
+                .skip(src_offset)
+                .take(count)
+                .map(|x| x.into_byte().unwrap())
+                .map(|x| u8::from_be_bytes(i8::to_be_bytes(x)))
+                .collect::<Vec<u8>>();
+            unsafe { env.state.mem_blocks.write_slice(address, &src_bytes) };
+        } else {
+            // Src is null, so src_offset is really just an address
+            let src_address = unsafe { conv_address(src_offset) };
+
+            let src_bytes: &[u8] = unsafe { env.state.mem_blocks.read_slice(src_address, count) };
+
+            unsafe { env.state.mem_blocks.write_slice(address, src_bytes) };
+        }
     }
 }
 
