@@ -41,7 +41,7 @@ use crate::{
     gc::GcRef,
     initialize_class,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{self, find_field_with_name, Env},
+    util::{self, find_field_with_name, make_exception_by_name, Env},
     GeneralError, State,
 };
 
@@ -1607,7 +1607,14 @@ impl RunInstContinue for ArrayLength {
         let array_ref = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let array_ref = match array_ref {
             RuntimeValue::Reference(x) => x,
-            RuntimeValue::NullReference => todo!("Return NullPointerException"),
+            RuntimeValue::NullReference => {
+                let exc = make_exception_by_name(
+                    env,
+                    b"java/lang/NullPointerException",
+                    "Null Array Reference when getting length",
+                )?;
+                return Ok(RunInstContinueValue::Exception(exc.flatten()));
+            }
             RuntimeValue::Primitive(_) => return Err(EvalError::ExpectedStackValueReference.into()),
         };
         let array_inst = env
