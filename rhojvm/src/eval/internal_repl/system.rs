@@ -10,7 +10,11 @@ use usize_cast::IntoUsize;
 
 use crate::{
     class_instance::{Instance, PrimitiveArrayInstance, ReferenceArrayInstance, ReferenceInstance},
-    eval::{eval_method, Frame, Locals, ValueException},
+    eval::{
+        eval_method,
+        instances::{try_casting, CastResult},
+        Frame, Locals, ValueException,
+    },
     gc::GcRef,
     jni::{JClass, JInt, JLong, JObject, JString},
     rv::{RuntimeValue, RuntimeValuePrimitive},
@@ -573,45 +577,6 @@ fn system_arraycopy_references(
     // TODO: We should only need to clone if source == destination!
     let source = env.state.gc.deref(source_ref).unwrap().clone();
 
-    let destination = env.state.gc.deref_mut(destination_ref).unwrap();
-    let source_id = source.element_type;
-    let dest_id = destination.element_type;
-
-    let is_castable = source_id == dest_id
-        || env
-            .classes
-            .is_super_class(
-                &mut env.class_names,
-                &mut env.class_files,
-                &mut env.packages,
-                source_id,
-                dest_id,
-            )
-            .unwrap()
-        || env
-            .classes
-            .implements_interface(
-                &mut env.class_names,
-                &mut env.class_files,
-                source_id,
-                dest_id,
-            )
-            .unwrap()
-        || env
-            .classes
-            .is_castable_array(
-                &mut env.class_names,
-                &mut env.class_files,
-                &mut env.packages,
-                source_id,
-                dest_id,
-            )
-            .unwrap();
-
-    if !is_castable {
-        todo!("Error about incompatible types")
-    }
-
     // TODO: overflow checks
     let source_end = source_start + count;
     let destination_end = destination_start + count;
@@ -622,6 +587,37 @@ fn system_arraycopy_references(
         todo!("Exception about source start exceeding length");
     };
 
+    let destination = env.state.gc.deref_mut(destination_ref).unwrap();
+    let overall_dest_id = destination.element_type;
+
+    for src in source_slice.iter() {
+        let source_id = if let Some(source_ref) = src {
+            env.state.gc.deref(*source_ref).unwrap().instanceof()
+        } else {
+            continue;
+        };
+
+        match try_casting(
+            env,
+            source_id,
+            source_id,
+            overall_dest_id,
+            // TODO: make exception
+            |_env, _, _, _| Ok(CastResult::Failure),
+        ) {
+            Ok(v) => match v {
+                CastResult::Success => {}
+                CastResult::Failure => panic!(),
+                CastResult::Exception(exc) => {
+                    env.state.fill_native_exception(exc);
+                    return;
+                }
+            },
+            Err(err) => panic!("{:?}", err),
+        };
+    }
+
+    let destination = env.state.gc.deref_mut(destination_ref).unwrap();
     let destination_slice = if let Some(destination_slice) = destination
         .elements
         .get_mut(destination_start..destination_end)
@@ -630,7 +626,6 @@ fn system_arraycopy_references(
     } else {
         todo!("Exception about destination start exceeding length");
     };
-
     assert_eq!(source_slice.len(), destination_slice.len());
 
     for (dest, src) in destination_slice.iter_mut().zip(source_slice.iter()) {
