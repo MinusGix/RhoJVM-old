@@ -69,7 +69,7 @@ fn make_initial_thread_local_data(
         EvalMethodValue::Exception(exc) => {
             panic!(
                 "Exception thrown in ThreadLocal::initialValue: {:?}",
-                ref_info(env, Some(exc.into_generic()))
+                ref_info(env, exc)
             )
         }
     };

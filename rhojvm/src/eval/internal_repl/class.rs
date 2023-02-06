@@ -673,7 +673,7 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
             "Handle exception in initializing class: {} ({:?}) {}",
             env.class_names.tpath(this_id).to_string(),
             this_id,
-            ref_info(env, Some(exc.into_generic()))
+            ref_info(env, exc)
         ),
     };
 
@@ -724,7 +724,7 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
         EvalMethodValue::Exception(exc) => {
             todo!(
                 "There was an exception calling the default constructor: {}",
-                ref_info(env, Some(exc.into_generic()))
+                ref_info(env, exc)
             )
         }
     }

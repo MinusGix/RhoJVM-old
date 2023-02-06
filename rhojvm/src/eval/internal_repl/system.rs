@@ -540,16 +540,16 @@ pub(crate) extern "C" fn system_arraycopy(
             | (_, ReferenceInstance::PrimitiveArray(_)) => {
                 todo!(
                     "Wrong types:\nsrc: {}\ndest: {}",
-                    ref_info(env, Some(source_ref)),
-                    ref_info(env, Some(destination_ref))
+                    ref_info(env, source_ref),
+                    ref_info(env, destination_ref)
                 )
             }
             (ReferenceInstance::ReferenceArray(_), _)
             | (_, ReferenceInstance::ReferenceArray(_)) => {
                 todo!(
                     "Wrong types:\nsrc: {}\ndest: {}",
-                    ref_info(env, Some(source_ref)),
-                    ref_info(env, Some(destination_ref))
+                    ref_info(env, source_ref),
+                    ref_info(env, destination_ref)
                 )
             }
             _ => panic!("Throw exception, this should be an array"),

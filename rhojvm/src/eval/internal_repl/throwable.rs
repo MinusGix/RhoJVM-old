@@ -23,7 +23,7 @@ pub(crate) extern "C" fn throwable_print_stack_trace(env: *mut Env, this: JObjec
     let out_id = env.state.gc.deref(out).unwrap().instanceof();
 
     let stack_trace = env.pretty_call_stack(false);
-    let stack_trace = format!("Exc: {}:\n{}", ref_info(env, Some(this)), stack_trace);
+    let stack_trace = format!("Exc: {}:\n{}", ref_info(env, this), stack_trace);
     let stack_trace = construct_string_r(env, &stack_trace, true).unwrap();
     let Some(stack_trace) = env.state.extract_value(stack_trace) else {
         return;

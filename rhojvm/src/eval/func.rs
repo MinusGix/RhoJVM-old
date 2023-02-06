@@ -39,7 +39,7 @@ use crate::{
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{
         construct_string_r, make_class_form_of, make_exception_by_name, make_method_handle,
-        make_primitive_class_form_of, ref_info, CallStackEntry, Env,
+        make_primitive_class_form_of, ref_info, ref_info_opt, CallStackEntry, Env,
     },
     GeneralError,
 };
@@ -117,7 +117,7 @@ fn grab_runtime_value_from_stack_for_function(
                     } else {
                         todo!(
                             "Type was not castable: {} -> {}",
-                            ref_info(env, Some(p_ref.into_generic())),
+                            ref_info(env, p_ref),
                             env.class_names.tpath(*target_id)
                         );
                     }
@@ -1210,10 +1210,7 @@ impl RunInstContinue for InvokeDynamic {
                 exc_value!(ret inst: make_method_handle(env, class_id, &method_handle_con)?)
             };
 
-            tracing::info!(
-                "MethodHandle: {}",
-                ref_info(env, Some(method_handle.unchecked_as()))
-            );
+            tracing::info!("MethodHandle: {}", ref_info(env, method_handle));
 
             // TODO: method type?
             // References to bootstrap method arguments
@@ -1245,10 +1242,7 @@ impl RunInstContinue for InvokeDynamic {
                 exc_value!(ret inst: make_method_type(env, &inv_desc)?)
             };
 
-            tracing::info!(
-                "MethodType: {}",
-                ref_info(env, Some(method_type.unchecked_as()))
-            );
+            tracing::info!("MethodType: {}", ref_info(env, method_type));
 
             // Get the instance of the bootstrap method
             let mh_inst = env.state.gc.deref(method_handle).unwrap();
@@ -1433,7 +1427,7 @@ impl RunInstContinue for InvokeDynamic {
             MethodHandleType::Constant { value, .. } => {
                 tracing::info!(
                     "Invoking constant method handle: {}",
-                    ref_info(env, value.map(GcRef::unchecked_as))
+                    ref_info_opt(env, value)
                 );
                 if let Some(value) = value {
                     frame.stack.push(RuntimeValue::Reference(value))?;

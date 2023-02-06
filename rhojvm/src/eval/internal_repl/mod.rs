@@ -327,7 +327,7 @@ extern "C" fn unsupported_operation_exception_check_abort(env: *mut Env<'_>, thi
 
     if !env.state.conf().abort_on_unsupported {
         let call_stack = env.pretty_call_stack(true);
-        let info = ref_info(env, Some(this));
+        let info = ref_info(env, this);
         panic!("UnsupportedOperationException: {}\n{}", info, call_stack,);
     }
 }

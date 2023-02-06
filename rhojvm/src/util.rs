@@ -1105,7 +1105,7 @@ pub(crate) fn mh_info(env: &mut Env, re: GcRef<MethodHandleInstance>) -> String 
         MethodHandleType::Constant { value, return_ty } => {
             format!(
                 "MethodHandle(Constant(Value: {}, Return As: {:?}))",
-                ref_info(env, value.map(GcRef::unchecked_as)),
+                ref_info_opt(env, value),
                 return_ty
             )
         }
@@ -1133,7 +1133,23 @@ pub(crate) fn mh_info(env: &mut Env, re: GcRef<MethodHandleInstance>) -> String 
     }
 }
 
-pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
+pub(crate) fn ref_info<T>(env: &mut Env, re: GcRef<T>) -> String
+where
+    Instance: From<T>,
+{
+    let re = re.into_generic();
+    ref_info_real(env, Some(re))
+}
+
+pub(crate) fn ref_info_opt<T>(env: &mut Env, re: Option<GcRef<T>>) -> String
+where
+    Instance: From<T>,
+{
+    let re = re.map(GcRef::into_generic);
+    ref_info_real(env, re)
+}
+
+fn ref_info_real(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
     let Some(re) = re else {
         return "<Null>".to_string()
     };
@@ -1330,7 +1346,7 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
 
                 let mut res = format!("ReferenceArray<{}>[", t);
                 for (i, x) in elements.iter().enumerate() {
-                    res.push_str(&ref_info(env, x.map(GcRef::into_generic)));
+                    res.push_str(&ref_info_opt(env, *x));
 
                     if i != elements.len() - 1 {
                         res.push_str(", ");

@@ -176,7 +176,7 @@ pub(crate) extern "C" fn system_class_loader_get_resources(
             return JObject::null()
         };
 
-            tracing::info!("URL: {}", ref_info(env, Some(url.into_generic())));
+            tracing::info!("URL: {}", ref_info(env, url));
 
             url
         };
@@ -290,7 +290,7 @@ pub(crate) extern "C" fn system_class_loader_get_resource(
             return JObject::null()
         };
 
-        tracing::info!("URL: {}", ref_info(env, Some(url.into_generic())));
+        tracing::info!("URL: {}", ref_info(env, url));
 
         unsafe { env.get_local_jobject_for(url.into_generic()) }
     } else {
