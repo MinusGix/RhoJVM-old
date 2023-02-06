@@ -93,7 +93,9 @@ impl ClassFileLoader for JarClassFileLoader {
         let mut file = match self.archive.by_name(&path) {
             Ok(file) => file,
             Err(err) => match err {
-                zip::result::ZipError::FileNotFound => return Err(LoadClassFileError::Nonexistent),
+                zip::result::ZipError::FileNotFound => {
+                    return Err(LoadClassFileError::Nonexistent(path))
+                }
                 _ => return Err(LoadClassFileError::OpaqueError(err.into())),
             },
         };

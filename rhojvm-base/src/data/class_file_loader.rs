@@ -12,7 +12,7 @@ pub enum LoadClassFileError {
     /// The file didn't exist with the relative path
     NonexistentFile(PathBuf),
     /// The class didn't exist
-    Nonexistent,
+    Nonexistent(String),
     /// There was an error in reading the file
     ReadError(std::io::Error),
     /// There was an error in parsing the class file

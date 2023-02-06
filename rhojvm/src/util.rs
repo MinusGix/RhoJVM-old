@@ -1081,7 +1081,7 @@ pub(crate) fn make_err_into_class_not_found_exception<T, E: Into<GeneralError>>(
     if matches!(
         res,
         Err(GeneralError::Step(StepError::LoadClassFile(
-            LoadClassFileError::Nonexistent | LoadClassFileError::NonexistentFile(_)
+            LoadClassFileError::Nonexistent(_) | LoadClassFileError::NonexistentFile(_)
         )) | GeneralError::Resolve(ResolveError::InaccessibleClass { .. }))
     ) {
         let class_not_found_id = env
