@@ -18,7 +18,7 @@ use rhojvm_base::{
         methods::{LoadMethodError, Methods},
     },
     id::{ClassId, ExactMethodId, MethodId},
-    util::Cesu8String,
+    util::{Cesu8Str, Cesu8String},
     StepError,
 };
 use smallvec::SmallVec;
@@ -37,8 +37,8 @@ use crate::{
     initialize_class, map_interface_index_small_vec_to_ids, resolve_derive,
     rv::{RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
     util::{
-        construct_string_r, make_class_form_of, make_method_handle, make_primitive_class_form_of,
-        ref_info, CallStackEntry, Env,
+        construct_string_r, make_class_form_of, make_exception_by_name, make_method_handle,
+        make_primitive_class_form_of, ref_info, CallStackEntry, Env,
     },
     GeneralError,
 };
@@ -893,10 +893,11 @@ impl RunInstContinue for InvokeVirtual {
         let instance_class = frame.stack.pop().ok_or(EvalError::ExpectedStackValue)?;
         let instance_ref = instance_class
             .into_reference()
-            .ok_or(EvalError::ExpectedStackValueReference)?
-            .expect(
-                "TODO: NullReferenceException. This happens if the `this` of a function is null.",
-            );
+            .ok_or(EvalError::ExpectedStackValueReference)?;
+        let Some(instance_ref) = instance_ref else {
+            let exc = make_exception_by_name(env, b"java/lang/NullPointerException", "Instance for function was null")?;
+            return Ok(RunInstContinueValue::Exception(exc.flatten()));
+        };
         let instance = env
             .state
             .gc
