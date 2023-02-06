@@ -145,8 +145,52 @@ pub(crate) extern "C" fn unsafe_copy_memory(
 
     // TODO: Support more general src/dest
     if let Some(dest) = dest {
-        tracing::info!("Dest: {}", ref_info(env, dest));
-        todo!()
+        let dest_offset = dest_offset as u64;
+        let dest_offset: usize = dest_offset.try_into().unwrap();
+
+        let dest = dest.unchecked_as::<PrimitiveArrayInstance>();
+        let Some(dest_inst) = env.state.gc.deref(dest) else {
+            panic!("Failed to find dest, expected primitive array instance. Other kinds are not supported at this time");
+        };
+
+        assert_eq!(dest_inst.element_type, RuntimeTypePrimitive::I8);
+
+        if let Some(src) = src {
+            let src_offset = src_offset as u64;
+            let src_offset: usize = src_offset.try_into().unwrap();
+
+            let src = src.unchecked_as::<PrimitiveArrayInstance>();
+            let Some(src) = env.state.gc.deref(src) else {
+                panic!("Failed to find src, expected primitive array instance. Other kinds are not supported at this time");
+            };
+
+            assert_eq!(src.element_type, RuntimeTypePrimitive::I8);
+
+            let src_bytes = src
+                .elements
+                .iter()
+                .skip(src_offset)
+                .take(count)
+                .copied()
+                .collect::<Vec<_>>();
+
+            let dest = env.state.gc.deref_mut(dest).unwrap();
+
+            for (i, byte) in src_bytes.iter().enumerate() {
+                dest.elements[dest_offset + i] = *byte;
+            }
+        } else {
+            let src_address = unsafe { conv_address(src_offset) };
+
+            let src_bytes = unsafe { env.state.mem_blocks.read_slice(src_address, count) };
+
+            let dest = env.state.gc.deref_mut(dest).unwrap();
+
+            for (i, byte) in src_bytes.iter().enumerate() {
+                let byte = i8::from_be_bytes(u8::to_be_bytes(*byte));
+                dest.elements[dest_offset + i] = RuntimeValuePrimitive::I8(byte);
+            }
+        }
     } else {
         // dest is null, so dest_offset is really just an address
         let address = unsafe { conv_address(dest_offset) };
