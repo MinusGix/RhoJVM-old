@@ -111,6 +111,16 @@ impl MemoryBlocks {
         result
     }
 
+    pub unsafe fn read_slice<'a>(&mut self, ptr: MemoryBlockPtr, count: usize) -> &'a [u8] {
+        let ptr = ptr.get();
+        assert!(
+            isize::try_from(count).is_ok(),
+            "Count was too big for proper pointer arithmetic"
+        );
+
+        std::slice::from_raw_parts(ptr, count)
+    }
+
     /// # Safety
     /// Pointer should be valid and should be owned by [`MemoryBlocks`], if it is not then it is
     /// UB both by Rust and Java's Unsafe spec.
