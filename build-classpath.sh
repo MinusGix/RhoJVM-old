@@ -24,7 +24,7 @@ JFILES="$JFILES ./java/security/AccessController.java"
 JFILES="$JFILES ./java/util/EnumMap.java"
 
 # sun/misc/
-JFILES="$JFILES ./sun/misc/VM.java ./sun/misc/Unsafe.java"
+JFILES="$JFILES ./sun/misc/VM.java ./sun/misc/Unsafe.java ./sun/misc/Perf.java ./sun/misc/PerfCounter.java"
 
 # sun/reflect/
 JFILES="$JFILES ./sun/reflect/Reflection.java"
