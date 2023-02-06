@@ -43,9 +43,9 @@ pub enum ResourceProtocol {
 impl ResourceProtocol {
     pub fn format_resource_name(&self, resource_name: &str) -> String {
         match self {
-            ResourceProtocol::File => format!("file:/{}", resource_name),
+            ResourceProtocol::File => format!("file://{}", resource_name),
             // ResourceProtocol::Jar => format!("jar:/{}"!, resource_name),
-            ResourceProtocol::Jar(jar) => format!("jar:file:/{}!/{}", jar, resource_name),
+            ResourceProtocol::Jar(jar) => format!("jar:file://{}!/{}", jar, resource_name),
         }
     }
 }
