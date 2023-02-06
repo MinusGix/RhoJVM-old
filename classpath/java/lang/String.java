@@ -699,7 +699,9 @@ public final class String implements java.io.Serializable, Comparable<String>, C
     }
 
     public static String valueOf(char chr) {
-        return Character.toString(chr);
+        // This weird indirection is due to Character.toString() using valueOf
+        char v[] = { chr };
+        return new String(v);
     }
 
     public static String valueOf(int val) {
