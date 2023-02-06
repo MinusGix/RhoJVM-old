@@ -541,15 +541,22 @@ pub(crate) fn get_string_contents<'a>(
     let data = data.value();
     let data = data
         .into_reference()
-        .expect("string data field to be a reference")
-        .expect("string data field to be non-null");
+        .expect("string data field to be a reference");
 
-    let data = match state.gc.deref(data).unwrap() {
-        ReferenceInstance::PrimitiveArray(arr) => arr,
-        _ => panic!("Bad type for name text"),
-    };
-    assert_eq!(data.element_type, RuntimeTypePrimitive::Char);
-    Ok(data.elements.as_slice())
+    if let Some(data) = data {
+        let data = match state.gc.deref(data).unwrap() {
+            ReferenceInstance::PrimitiveArray(arr) => arr,
+            _ => panic!("Bad type for name text"),
+        };
+        assert_eq!(data.element_type, RuntimeTypePrimitive::Char);
+        Ok(data.elements.as_slice())
+    } else {
+        // This should only really happen if we're doing logging of all parameters that are created
+        // which could result in a null String data field due to logging it before it is constructed
+        tracing::warn!("String data field is null");
+        // We just do a hacky solution of returning nothing
+        Ok(&[])
+    }
 }
 
 /// NOTE: This should not be used unless it can't be avoided, or it is only used as a temporary
