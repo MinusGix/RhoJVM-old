@@ -522,13 +522,15 @@ fn execute_class_name(
     env.state.entry_point_class = Some(entrypoint_id);
 
     if let Err(err) = verify_from_entrypoint(env, entrypoint_id) {
-        tracing::error!("failed to verify entrypoint class: {:?}", err);
-        return;
+        let err = make_error_pretty(env, err);
+        tracing::error!("failed to verify entrypoint class: {}", err);
+        panic!("Failed to verify entrypoint class: {}", err);
     }
 
     if let Err(err) = initialize_class(env, entrypoint_id) {
+        let err = make_error_pretty(env, err);
         tracing::error!("failed to initialize entrypoint class {:?}", err);
-        return;
+        panic!("Failed to initialize entrypoint class: {}", err);
     }
 
     // We get the main method's id so then we can execute it.
