@@ -101,6 +101,7 @@ const RUNTIME_NAME: &str = "RhoJVM";
 const JNU_ENCODING: &str = "UTF-8";
 const FILE_ENCODING: &str = "UTF-8";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const JAVA_VERSION: &str = "1.8.0";
 const VENDOR: &str = "RhoJVM Contributors";
 const VENDOR_URL: &str = "https://github.com/MinusGix/rhojvm";
 const VENDOR_URL_BUG: &str = "https://github.com/MinusGix/rhojvm/issues";
@@ -220,7 +221,7 @@ impl Properties {
             java_library_path: Cow::Borrowed(""),
             // TODO: Typically the java.vm.version/java.runtime.version have more information
             // such as the build date
-            java_vm_version: VERSION,
+            java_vm_version: JAVA_VERSION,
             java_vm_vendor: VENDOR,
             java_vendor_url: VENDOR_URL,
             java_vendor_url_bug: VENDOR_URL_BUG,
@@ -261,7 +262,7 @@ impl Properties {
             user_country: Cow::Borrowed("US"),
             // TODO: Give a good value?
             java_library_path: Cow::Borrowed(""),
-            java_vm_version: VERSION,
+            java_vm_version: JAVA_VERSION,
             java_vm_vendor: VENDOR,
             java_vendor_url: VENDOR_URL,
             java_vendor_url_bug: VENDOR_URL_BUG,
