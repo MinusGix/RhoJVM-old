@@ -720,9 +720,54 @@ extern "C" fn throw(env: *mut Env, obj: JThrowable) -> JInt {
 }
 
 pub type ThrowNewFn =
-    unsafe extern "C" fn(env: *mut Env, class: JClass, message: *const JChar) -> JInt;
-extern "C" fn throw_new(env: *mut Env, class: JClass, message: *const JChar) -> JInt {
-    unimpl("ThrowNew")
+    unsafe extern "C" fn(env: *mut Env, class: JClass, message: *const c_char) -> JInt;
+extern "C" fn throw_new(env: *mut Env, class: JClass, message: *const c_char) -> JInt {
+    assert_valid_env(env);
+    let env = unsafe { &mut *env };
+
+    assert!(
+        !message.is_null(),
+        "ThrowNew method was passed in a null message ptr"
+    );
+
+    let class = unsafe { env.get_jobject_as_gcref(class) }.unwrap();
+    let class = class.unchecked_as::<StaticFormInstance>();
+
+    let class_id = env
+        .state
+        .gc
+        .deref(class)
+        .unwrap()
+        .of
+        .into_reference()
+        .unwrap();
+
+    // TODO: assert that the obj is actually throwable
+
+    // Safety: Hopefully correct!
+    let message = unsafe { CStr::from_ptr(message) };
+
+    let message = message.to_bytes();
+    // TODO: Convert directly to utf16
+    // The text is in 'modified utf8 encoding' aka cesu8
+    let message = convert_classfile_text(message);
+
+    tracing::info!(
+        "ThrowNew: {}: {:?}",
+        env.class_names.tpath(class_id),
+        message
+    );
+
+    let inst = make_exception(env, class_id, &message).unwrap();
+    let Some(inst) = env.state.extract_value(inst) else {
+        tracing::warn!("Failed to construct exception");
+        return -1;
+    };
+
+    // Throw the exception
+    env.state.fill_native_exception(inst);
+
+    return 0;
 }
 
 pub type ExceptionOccurredFn = unsafe extern "C" fn(env: *mut Env) -> JThrowable;
