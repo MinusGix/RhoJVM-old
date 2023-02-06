@@ -1210,11 +1210,6 @@ pub(crate) fn ref_info(env: &mut Env, re: Option<GcRef<Instance>>) -> String {
                             Locals::new_with_array([RuntimeValue::Reference(re.unchecked_as())]);
                         let frame = Frame::new_locals(locals);
 
-                        println!(
-                            "res: {}   / {}",
-                            env.class_names.tpath(id),
-                            env.class_names.tpath(ClassId::new_unchecked(72))
-                        );
                         let res = eval_method(env, target_method_id, frame).unwrap();
                         let EvalMethodValue::Return(RuntimeValue::Reference(msg)) = res else {
                             env.skip_logging = log;
