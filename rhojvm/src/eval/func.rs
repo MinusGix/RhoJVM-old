@@ -1130,6 +1130,8 @@ impl RunInstContinue for InvokeDynamic {
             inst_index,
         }: RunInstArgsC,
     ) -> Result<RunInstContinueValue, GeneralError> {
+        let span = tracing::span!(tracing::Level::INFO, "invoke_dynamic");
+        let _guard = span.enter();
         // The general idea behind InvokeDynamic is, well, invoking a function dynamically.
         // A Java program typically always knows one of:
         // - InvokeStatic: The literal static function that you're calling (ex a static method)
