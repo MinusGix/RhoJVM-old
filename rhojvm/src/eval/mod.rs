@@ -956,6 +956,16 @@ pub fn eval_method(
                 (
                     DescriptorType::Array { .. }
                     | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Boolean),
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                    DescriptorType::Basic(DescriptorTypeBasic::Long),
+                    DescriptorType::Basic(DescriptorTypeBasic::Boolean),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JBoolean, param3: JLong, param4: JLong, param5: JBoolean));
+                }
+                (
+                    DescriptorType::Array { .. }
+                    | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
                     DescriptorType::Basic(DescriptorTypeBasic::Int),
                     DescriptorType::Array { .. }
                     | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
