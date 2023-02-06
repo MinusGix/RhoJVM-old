@@ -176,7 +176,7 @@ public class Thread implements Runnable {
     }
 
     public ClassLoader getContextClassLoader() {
-        throw new UnsupportedOperationException();
+        return ClassLoader.getSystemClassLoader();
     }
 
     public void setContextClassLoader(ClassLoader loader) {
