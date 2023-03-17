@@ -125,7 +125,10 @@ fn get_field_dest(
         }
     }
 
-    todo!("Field not found exception")
+    todo!(
+        "Field not found exception from: {} for field",
+        env.class_names.tpath(class_id),
+    )
 }
 
 /// Theoretically, this shouldn't error since it would've been checked by stack map verifier
