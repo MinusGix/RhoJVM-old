@@ -194,6 +194,18 @@ pub fn make_fields<F: Fn(&FieldInfoOpt) -> bool>(
     Ok(ValueException::Value(fields))
 }
 
+/// This is a hacky temp function to ensure that we don't ever call `New` and friends on special cased internal structures! If we do, then that needs to be fixed. Hopefully, these structures can't even get `New` called on them, but we might have to handle that?!
+fn check_target_eligibility(class_names: &mut ClassNames, class_id: ClassId) {
+    // Class, Thread, MethodHandle
+    if class_id == class_names.gcid_from_bytes(b"java/lang/Class") {
+        panic!("`New` called on `java/lang/Class`!");
+    } else if class_id == class_names.gcid_from_bytes(b"java/lang/Thread") {
+        panic!("`New` called on `java/lang/Thread`!");
+    } else if class_id == class_names.gcid_from_bytes(b"java/lang/invoke/MethodHandle") {
+        panic!("`New` called on `java/lang/invoke/MethodHandle`!");
+    }
+}
+
 pub fn make_instance_fields(
     env: &mut Env,
     class_id: ClassId,
@@ -267,6 +279,7 @@ impl RunInstContinue for New {
             let thread = ThreadInstance::new(class, None);
             env.state.gc.alloc(thread).into_generic()
         } else {
+            check_target_eligibility(&mut env.class_names, target_class_id);
             env.state.gc.alloc(class).into_generic()
         };
         frame.stack.push(RuntimeValue::Reference(class_ref))?;
