@@ -210,6 +210,10 @@ public final class Unsafe {
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
+    public static void ensureClassInitialized(Class<?> c) {
+        // TODO?
+    }
+
     public int arrayBaseOffset(Class arrayClass) {
         // We do a somewhat amusing thing here, we just return 0 as the base address
         // So then when they use it on an array, we just assume that the offset they've given is to 
