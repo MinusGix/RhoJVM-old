@@ -1,8 +1,10 @@
 package java.lang;
 
+import java.io.BufferedInputStream;
 import java.io.PrintStream;
 import java.io.InputStream;
 import java.io.FileDescriptor;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.Map;
 import java.util.Properties;
@@ -23,11 +25,24 @@ public final class System {
     private System() {}
 
     // TODO: Buffer these?
-    public static final PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true);
-    public static final PrintStream err = new PrintStream(new FileOutputStream(FileDescriptor.err), true);
-    public static final PrintStream in = new PrintStream(new FileOutputStream(FileDescriptor.in), true);
+    // TODO: These are defined as final but setErr and friends can modify them?? Should we have a special marker that says that the field is final but it can be modified? Or should we just make a class that extends PrintStream and let you override its internal true printstream?
+    public static /* final */ PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true);
+    public static /* final */ PrintStream err = new PrintStream(new FileOutputStream(FileDescriptor.err), true);
+    public static /* final */ InputStream in = new BufferedInputStream(new FileInputStream(FileDescriptor.in));
 
     private static SecurityManager securityManager = null;
+
+    public static void setIn(InputStream in) {
+        System.in = in;
+    }
+
+    public static void setOut(PrintStream out) {
+        System.out = out;
+    }
+
+    public static void setErr(PrintStream err) {
+        System.err = err;
+    }
 
     public static native void arraycopy(Object src, int srcOffset, Object dest, int destOffset, int length);
 
