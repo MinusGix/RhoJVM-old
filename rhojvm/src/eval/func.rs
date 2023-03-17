@@ -389,50 +389,52 @@ impl RunInstContinue for InvokeInterface {
             .get(&class_id)
             .ok_or(EvalError::MissingMethodClassFile(class_id))?;
 
-        let info = class_file
-            .get_t(self.index)
-            .ok_or(EvalError::InvalidConstantPoolIndex(
-                self.index.into_generic(),
-            ))?;
-        let target_interface_index = info.class_index;
-        let method_nat_index = info.name_and_type_index;
-
-        let target_interface =
-            class_file
-                .get_t(target_interface_index)
+        let (target_interface_id, method_name, method_descriptor) = {
+            let info = class_file
+                .get_t(self.index)
                 .ok_or(EvalError::InvalidConstantPoolIndex(
-                    target_interface_index.into_generic(),
+                    self.index.into_generic(),
                 ))?;
-        let target_interface_name = class_file.get_text_b(target_interface.name_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(target_interface.name_index.into_generic()),
-        )?;
-        let target_interface_id = env.class_names.gcid_from_bytes(target_interface_name);
+            let target_interface_index = info.class_index;
+            let method_nat_index = info.name_and_type_index;
 
-        let method_nat =
-            class_file
-                .get_t(method_nat_index)
+            let target_interface = class_file.get_t(target_interface_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(target_interface_index.into_generic()),
+            )?;
+            let target_interface_name = class_file.get_text_b(target_interface.name_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(target_interface.name_index.into_generic()),
+            )?;
+            let target_interface_id = env.class_names.gcid_from_bytes(target_interface_name);
+
+            let method_nat =
+                class_file
+                    .get_t(method_nat_index)
+                    .ok_or(EvalError::InvalidConstantPoolIndex(
+                        method_nat_index.into_generic(),
+                    ))?;
+            // TODO: Sadly we have to allocate
+            let method_name = class_file
+                .get_text_b(method_nat.name_index)
                 .ok_or(EvalError::InvalidConstantPoolIndex(
-                    method_nat_index.into_generic(),
-                ))?;
-        // TODO: Sadly we have to allocate
-        let method_name = class_file
-            .get_text_b(method_nat.name_index)
-            .ok_or(EvalError::InvalidConstantPoolIndex(
-                method_nat.name_index.into_generic(),
-            ))?
-            .to_owned();
-        let method_descriptor = class_file.get_text_b(method_nat.descriptor_index).ok_or(
-            EvalError::InvalidConstantPoolIndex(method_nat.descriptor_index.into_generic()),
-        )?;
-        let method_descriptor =
-            MethodDescriptor::from_text(method_descriptor, &mut env.class_names)
-                .map_err(EvalError::InvalidMethodDescriptor)?;
+                    method_nat.name_index.into_generic(),
+                ))?
+                .to_owned();
+            let method_descriptor = class_file.get_text_b(method_nat.descriptor_index).ok_or(
+                EvalError::InvalidConstantPoolIndex(method_nat.descriptor_index.into_generic()),
+            )?;
+            let method_descriptor =
+                MethodDescriptor::from_text(method_descriptor, &mut env.class_names)
+                    .map_err(EvalError::InvalidMethodDescriptor)?;
+
+            (target_interface_id, method_name, method_descriptor)
+        };
 
         // TODO: Some errors should be excpetions
         resolve_derive(env, target_interface_id, class_id)?;
 
         initialize_class(env, target_interface_id)?;
 
+        // Get the necessary locals for the invocation
         let mut locals = Locals::default();
         for parameter in method_descriptor.parameters().iter().rev() {
             let value = grab_runtime_value_from_stack_for_function(env, frame, parameter)?;
@@ -813,35 +815,45 @@ pub fn find_virtual_method(
 
     // This only makes sense to check for things which have a defined class file
     if instance_has_class_file {
-        // TODO: This is probably too lenient.
+        // TODO: This is probably allows past stuff we shouldn't?
         // TODO: Error if it is an instance initialization method?
-        let mut current_check_id = instance_id;
-        loop {
-            let method_id = methods.load_method_from_desc(
-                class_names,
-                class_files,
-                current_check_id,
-                name,
-                descriptor,
-            );
-            match method_id {
-                Ok(method_id) => return Ok(method_id.into()),
-                Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
-                    // Continue to the super class instance
-                    // We assume the class is already loaded
-                    let super_id = classes
-                        .get(&current_check_id)
-                        .ok_or(GeneralError::MissingLoadedClass(current_check_id))?
-                        .super_id();
-                    if let Some(super_id) = super_id {
-                        current_check_id = super_id;
-                        continue;
+        // let mut current_check_id = instance_id;
+        let method_id =
+            methods.load_method_from_desc(class_names, class_files, instance_id, name, descriptor);
+        match method_id {
+            Ok(method_id) => return Ok(method_id.into()),
+            Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+                // Continue to the super class instance
+                // We assume the class is already loaded
+                let super_id = classes
+                    .get(&instance_id)
+                    .ok_or(GeneralError::MissingLoadedClass(instance_id))?
+                    .super_id();
+                if let Some(super_id) = super_id {
+                    let method_id = find_virtual_method(
+                        class_names,
+                        class_files,
+                        classes,
+                        methods,
+                        base_id,
+                        super_id,
+                        name,
+                        descriptor,
+                    );
+                    match method_id {
+                        Ok(method_id) => return Ok(method_id.into()),
+                        Err(GeneralError::Step(StepError::LoadMethod(
+                            LoadMethodError::NonexistentMethodName { .. },
+                        ))) => {
+                            // Silently continue on to checking the interfaces
+                        }
+                        Err(err) => return Err(err.into()),
                     }
-                    // Break out of the loop since we've checked all the way up the chain
-                    break;
                 }
-                // TODO: Or should we just log the error and skip past it?
-                Err(err) => return Err(err.into()),
+            }
+            // TODO: Or should we just log the error and skip past it?
+            Err(err) => {
+                return Err(err.into());
             }
         }
     } else if instance_is_array {
