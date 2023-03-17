@@ -13,7 +13,7 @@ use rhojvm_base::{
     },
     data::{
         class_file_loader::LoadClassFileError,
-        class_files::ClassFiles,
+        class_files::{load_super_class_files_iter, ClassFiles},
         class_names::ClassNames,
         classes::{does_extend_class, Classes},
         methods::Methods,
@@ -29,8 +29,8 @@ use sysinfo::{CpuRefreshKind, RefreshKind, SystemExt};
 use crate::{
     class_instance::{
         ClassInstance, FieldId, FieldIndex, Fields, Instance, MethodHandleInstance,
-        MethodHandleType, PrimitiveArrayInstance, ReferenceInstance, StaticClassInstance,
-        StaticFormInstance,
+        MethodHandleType, PrimitiveArrayInstance, ReferenceArrayInstance, ReferenceInstance,
+        StaticClassInstance, StaticFormInstance,
     },
     eval::{
         eval_method, func::find_virtual_method, instances::make_instance_fields,
@@ -383,6 +383,35 @@ pub(crate) fn make_exception_by_name(
     make_exception(env, exception_id, why)
 }
 
+/// Find the specific named field on this class or any of its superclasses
+pub(crate) fn find_field_with_name_up_tree(
+    class_names: &mut ClassNames,
+    class_files: &mut ClassFiles,
+    class_id: ClassId,
+    target_name: &[u8],
+    filter: impl Fn(&FieldId, &FieldInfoOpt) -> bool,
+) -> Result<Option<(FieldId, FieldInfoOpt)>, GeneralError> {
+    let mut tree_iter = load_super_class_files_iter(class_id);
+    while let Some(target_id) = tree_iter.next_item(class_names, class_files) {
+        let target_id = target_id?;
+        let (_, target_info) = class_names
+            .name_from_gcid(target_id)
+            .map_err(StepError::BadId)?;
+        if target_info.has_class_file() {
+            let Some((field_id, field_info)) = find_field_with_name(class_files, target_id, target_name)? else {
+                continue;
+            };
+
+            if filter(&field_id, &field_info) {
+                return Ok(Some((field_id, field_info)));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+/// Find the specific named field on this class
 pub(crate) fn find_field_with_name(
     class_files: &ClassFiles,
     class_id: ClassId,
@@ -752,6 +781,22 @@ pub(crate) fn make_class_form_of(
     debug_assert!(class_info.class_ref.is_none(), "If this is false then we've initialized it in between our check, which could be an issue? Though it also seems completely possible.");
     class_info.class_ref = Some(static_form_ref);
     Ok(ValueException::Value(static_form_ref))
+}
+
+pub(crate) fn make_empty_ref_array(
+    env: &mut Env,
+    element_id: ClassId,
+) -> Result<GcRef<ReferenceArrayInstance>, GeneralError> {
+    let array_id = env
+        .class_names
+        .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), element_id)
+        .map_err(StepError::BadId)?;
+
+    let array_inst = ReferenceArrayInstance::new(array_id, element_id, Vec::new());
+
+    let array_ref = env.state.gc.alloc(array_inst);
+
+    Ok(array_ref)
 }
 
 /// Convert the runtimevalue into object form.  

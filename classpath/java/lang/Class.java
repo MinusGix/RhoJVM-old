@@ -150,13 +150,9 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public Field getField(String name) {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native Field getField(String name);
 
-    public Field[] getFields() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native Field[] getFields();
 
     public Type[] getGenericInterfaces() {
         throw new UnsupportedOperationException("TODO: Implement this");

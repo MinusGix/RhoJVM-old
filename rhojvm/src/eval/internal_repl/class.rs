@@ -1,14 +1,19 @@
 use std::{borrow::Cow, num::NonZeroUsize};
 
-use classfile_parser::{field_info::FieldInfoOpt, ClassAccessFlags};
+use classfile_parser::{
+    field_info::{FieldAccessFlags, FieldInfoOpt},
+    ClassAccessFlags,
+};
 use rhojvm_base::{
     class::{ArrayComponentType, ClassVariant},
     code::{
         method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
         types::JavaChar,
     },
+    data::class_files::load_super_class_files_iter,
     id::ClassId,
     util::convert_classfile_text,
+    StepError,
 };
 use smallvec::{smallvec, SmallVec};
 
@@ -27,9 +32,10 @@ use crate::{
     jni::{JBoolean, JClass, JObject, JString},
     rv::{RuntimeTypePrimitive, RuntimeTypeVoid, RuntimeValue, RuntimeValuePrimitive},
     util::{
-        self, construct_string, find_field_with_name, get_string_contents_as_rust_string,
-        make_class_form_of, make_err_into_class_not_found_exception, make_primitive_class_form_of,
-        ref_info, to_utf16_arr, Env,
+        self, construct_string, find_field_with_name, find_field_with_name_up_tree,
+        get_string_contents_as_rust_string, make_class_form_of, make_empty_ref_array,
+        make_err_into_class_not_found_exception, make_primitive_class_form_of, ref_info,
+        to_utf16_arr, Env,
     },
     GeneralError,
 };
@@ -306,8 +312,6 @@ pub(crate) extern "C" fn class_get_simple_name(env: *mut Env<'_>, this: JObject)
     unsafe { env.get_local_jobject_for(name.into_generic()) }
 }
 
-// TODO: Could we use &mut Env instead, since we know it will call native methods with a non-null
-// ptr?
 /// java/lang/Class
 /// `public Field getDeclaredField(String name);`
 pub(crate) extern "C" fn class_get_declared_field(
@@ -405,6 +409,121 @@ pub(crate) extern "C" fn class_get_declared_fields(env: *mut Env<'_>, this: JObj
     unsafe { env.get_local_jobject_for(decl_fields.into_generic()) }
 }
 
+pub(crate) unsafe extern "C" fn class_get_fields(env: *mut Env<'_>, this: JObject) -> JObject {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+    let field_class_id = env.class_names.gcid_from_bytes(b"java/lang/reflect/Field");
+
+    let this = unsafe { env.get_jobject_as_gcref(this) }.unwrap();
+    let this = this.unchecked_as::<StaticFormInstance>();
+    let of_id = match env.state.gc.deref(this).unwrap().of {
+        RuntimeTypeVoid::Void | RuntimeTypeVoid::Primitive(_) => {
+            let arr = make_empty_ref_array(env, field_class_id).unwrap();
+            return unsafe { env.get_local_jobject_for(arr.into_generic()) };
+        }
+        RuntimeTypeVoid::Reference(of_id) => of_id,
+    };
+
+    if env.class_names.is_array(of_id).unwrap() {
+        // getFields does not recognize `length` as a field
+        let arr = make_empty_ref_array(env, field_class_id).unwrap();
+        return unsafe { env.get_local_jobject_for(arr.into_generic()) };
+    }
+
+    let mut fields = Vec::new();
+
+    let mut tree_iter = load_super_class_files_iter(of_id);
+    while let Some(target_id) = tree_iter.next_item(&mut env.class_names, &mut env.class_files) {
+        let target_id = target_id.unwrap();
+        let (_, target_info) = env
+            .class_names
+            .name_from_gcid(target_id)
+            .map_err(StepError::BadId)
+            .unwrap();
+
+        if !target_info.has_class_file() {
+            continue;
+        }
+
+        let class_file = env.class_files.get(&target_id).unwrap().clone();
+
+        for (i, field_data) in class_file.load_field_values_iter().enumerate() {
+            let i = FieldIndex::new_unchecked(i as u16);
+            let (field_info, _) = field_data.unwrap();
+            if !field_info.access_flags.contains(FieldAccessFlags::PUBLIC) {
+                continue;
+            }
+
+            let field_id = FieldId::unchecked_compose(target_id, i);
+
+            let field = make_field(env, field_id, field_info);
+            fields.push(Some(field.into_generic()));
+        }
+    }
+
+    let array_id = env
+        .class_names
+        .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), field_class_id)
+        .unwrap();
+    let array_inst = ReferenceArrayInstance::new(array_id, field_class_id, fields);
+
+    let array_ref = env.state.gc.alloc(array_inst);
+
+    unsafe { env.get_local_jobject_for(array_ref.into_generic()) }
+}
+
+pub(crate) unsafe extern "C" fn class_get_field(
+    env: *mut Env<'_>,
+    this: JObject,
+    name: JString,
+) -> JObject {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) }.unwrap();
+    let this = this.unchecked_as::<StaticFormInstance>();
+    let of_id = match env.state.gc.deref(this).unwrap().of {
+        RuntimeTypeVoid::Void | RuntimeTypeVoid::Primitive(_) => {
+            // TODO: Is this always a NoSuchFieldException? or does it do something wacky and goto the underlying class, like `Integer`?
+            todo!()
+        }
+        RuntimeTypeVoid::Reference(of_id) => of_id,
+    };
+
+    if env.class_names.is_array(of_id).unwrap() {
+        // GetField does not work on arrays
+        todo!("NoSuchFieldException")
+    }
+
+    // TODO: NPE if name is null
+    let name = unsafe { env.get_jobject_as_gcref(name) }.unwrap();
+    let name = util::get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        name,
+    )
+    .unwrap();
+
+    // TODO: nosuchfieldexception
+    let (field_id, field_info) = find_field_with_name_up_tree(
+        &mut env.class_names,
+        &mut env.class_files,
+        of_id,
+        name.as_bytes(),
+        |_, info| info.access_flags.contains(FieldAccessFlags::PUBLIC),
+    )
+    .unwrap()
+    .unwrap();
+
+    let field_ref = make_field(env, field_id, field_info);
+
+    unsafe { env.get_local_jobject_for(field_ref.into_generic()) }
+}
+
+/// Construct a `java/lang/reflect/Field` instance.
 fn make_field(env: &mut Env, field_id: FieldId, field_info: FieldInfoOpt) -> GcRef<ClassInstance> {
     let field_class_id = env.class_names.gcid_from_bytes(b"java/lang/reflect/Field");
     let field_internal_class_id = env.class_names.gcid_from_bytes(b"rho/InternalField");
