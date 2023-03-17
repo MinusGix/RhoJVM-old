@@ -13,6 +13,9 @@ public class MethodHandles {
         public static final int PROTECTED = 4;
         public static final int PACKAGE = 8;
 
+        // TODO: Remove
+        static final Lookup IMPL_LOOKUP = new Lookup();
+
         Lookup () {}
 
         public MethodHandle findConstructor(Class<?> target, MethodType type) {
