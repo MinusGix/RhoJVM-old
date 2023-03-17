@@ -815,45 +815,37 @@ pub fn find_virtual_method(
 
     // This only makes sense to check for things which have a defined class file
     if instance_has_class_file {
-        // TODO: This is probably allows past stuff we shouldn't?
+        // TODO: This is probably too lenient.
         // TODO: Error if it is an instance initialization method?
-        // let mut current_check_id = instance_id;
-        let method_id =
-            methods.load_method_from_desc(class_names, class_files, instance_id, name, descriptor);
-        match method_id {
-            Ok(method_id) => return Ok(method_id.into()),
-            Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
-                // Continue to the super class instance
-                // We assume the class is already loaded
-                let super_id = classes
-                    .get(&instance_id)
-                    .ok_or(GeneralError::MissingLoadedClass(instance_id))?
-                    .super_id();
-                if let Some(super_id) = super_id {
-                    let method_id = find_virtual_method(
-                        class_names,
-                        class_files,
-                        classes,
-                        methods,
-                        base_id,
-                        super_id,
-                        name,
-                        descriptor,
-                    );
-                    match method_id {
-                        Ok(method_id) => return Ok(method_id.into()),
-                        Err(GeneralError::Step(StepError::LoadMethod(
-                            LoadMethodError::NonexistentMethodName { .. },
-                        ))) => {
-                            // Silently continue on to checking the interfaces
-                        }
-                        Err(err) => return Err(err.into()),
+        let mut current_check_id = instance_id;
+        loop {
+            let method_id = methods.load_method_from_desc(
+                class_names,
+                class_files,
+                current_check_id,
+                name,
+                descriptor,
+            );
+            match method_id {
+                Ok(method_id) => return Ok(method_id.into()),
+                Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+                    // Continue to the super class instance
+                    // We assume the class is already loaded
+                    let super_id = classes
+                        .get(&current_check_id)
+                        .ok_or(GeneralError::MissingLoadedClass(current_check_id))?
+                        .super_id();
+                    if let Some(super_id) = super_id {
+                        current_check_id = super_id;
+                        continue;
                     }
+                    // Break out of the loop since we've checked all the way up the chain
+                    break;
                 }
-            }
-            // TODO: Or should we just log the error and skip past it?
-            Err(err) => {
-                return Err(err.into());
+                // TODO: Or should we just log the error and skip past it?
+                Err(err) => {
+                    return Err(err.into());
+                }
             }
         }
     } else if instance_is_array {
@@ -901,9 +893,39 @@ pub fn find_virtual_method(
         // base class version..
         // If we simply look up the chain, then we'd always find the base class version before we bother
         // checking the interfaces?
-        Ok(methods
-            .load_method_from_desc(class_names, class_files, base_id, name, descriptor)?
-            .into())
+
+        let method =
+            methods.load_method_from_desc(class_names, class_files, base_id, name, descriptor);
+        match method {
+            Ok(method) => Ok(method.into()),
+            Err(StepError::LoadMethod(LoadMethodError::NonexistentMethodName { .. })) => {
+                let super_id = classes
+                    .get(&instance_id)
+                    .ok_or(GeneralError::MissingLoadedClass(instance_id))?
+                    .super_id();
+                if let Some(super_id) = super_id {
+                    find_virtual_method(
+                        class_names,
+                        class_files,
+                        classes,
+                        methods,
+                        base_id,
+                        super_id,
+                        name,
+                        descriptor,
+                    )
+                } else {
+                    Err(
+                        StepError::LoadMethod(LoadMethodError::NonexistentMethodName {
+                            class_id: instance_id,
+                            name: Cesu8String(name.to_owned()),
+                        })
+                        .into(),
+                    )
+                }
+            }
+            Err(err) => Err(err.into()),
+        }
     } else if instance_is_array {
         if name == b"clone" {
             Ok(MethodId::ArrayClone)
