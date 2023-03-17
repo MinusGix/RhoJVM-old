@@ -21,7 +21,7 @@ use crate::{
     initialize_class,
     jni::{JClass, JObject},
     rv::{RuntimeType, RuntimeTypePrimitive},
-    util::{make_class_form_of, rv_into_object, Env},
+    util::{construct_string_r, make_class_form_of, rv_into_object, Env},
     GeneralError,
 };
 
@@ -31,16 +31,30 @@ struct InternalFieldWrapper {
     field_index_field: FieldId,
 }
 impl InternalFieldWrapper {
-    fn get_off_field(env: &mut Env, field_ref: GcRef<Instance>) -> InternalFieldWrapper {
-        let field_class_id = env.class_names.gcid_from_bytes(b"java/lang/reflect/Field");
+    fn from_internal_field_ref(
+        env: &mut Env,
+        internal_field_ref: GcRef<ReferenceInstance>,
+    ) -> InternalFieldWrapper {
         let field_internal_class_id = env.class_names.gcid_from_bytes(b"rho/InternalField");
-        let internal_field_id = env
-            .state
-            .get_field_internal_field_id(&env.class_files, field_class_id)
-            .unwrap();
+
         let (class_id_field, field_index_field, _) = env
             .state
             .get_internal_field_ids(&env.class_files, field_internal_class_id)
+            .unwrap();
+        let internal_field_ref = env.state.gc.checked_as(internal_field_ref).unwrap();
+
+        InternalFieldWrapper {
+            internal_field_ref,
+            class_id_field,
+            field_index_field,
+        }
+    }
+
+    fn get_off_field(env: &mut Env, field_ref: GcRef<Instance>) -> InternalFieldWrapper {
+        let field_class_id = env.class_names.gcid_from_bytes(b"java/lang/reflect/Field");
+        let internal_field_id = env
+            .state
+            .get_field_internal_field_id(&env.class_files, field_class_id)
             .unwrap();
 
         let field = env.state.gc.deref(field_ref).unwrap();
@@ -57,13 +71,8 @@ impl InternalFieldWrapper {
             .into_reference()
             .expect("internal field should be a reference")
             .expect("Got null ptr for internal field");
-        let internal_field_ref = env.state.gc.checked_as(internal_field_ref).unwrap();
 
-        InternalFieldWrapper {
-            internal_field_ref,
-            class_id_field,
-            field_index_field,
-        }
+        InternalFieldWrapper::from_internal_field_ref(env, internal_field_ref)
     }
 
     fn class_id(&self, gc: &Gc) -> ClassId {
@@ -247,4 +256,33 @@ pub(crate) extern "C" fn field_get(env: *mut Env<'_>, field: JObject, obj: JObje
     } else {
         JObject::null()
     }
+}
+
+pub(crate) extern "C" fn internal_field_get_name(env: *mut Env<'_>, field: JObject) -> JObject {
+    assert!(!env.is_null(), "Env was null. Internal bug?");
+    let env = unsafe { &mut *env };
+
+    let field_ref = unsafe { env.get_jobject_as_gcref(field) };
+    let field_ref = field_ref.unwrap().unchecked_as();
+
+    let internal_field = InternalFieldWrapper::from_internal_field_ref(env, field_ref);
+
+    let class_id = internal_field.class_id(&env.state.gc);
+
+    let field_info = internal_field.find_field_info(&env.class_files, &env.state.gc);
+
+    let class_file = env.class_files.get(&class_id).unwrap();
+
+    let name = class_file
+        .getr_text(field_info.name_index)
+        .unwrap()
+        .into_owned();
+    // TODO: this conversion could go directly from cesu8 to utf16
+    let string_ref = construct_string_r(env, &name, true).unwrap();
+
+    let Some(string_ref) = env.state.extract_value(string_ref) else {
+        return JObject::null();
+    };
+
+    unsafe { env.get_local_jobject_for(string_ref.into_generic()) }
 }

@@ -15,7 +15,5 @@ public class InternalField {
     private InternalField () {}
 
     /// Returns the string representing the field's name
-    public String getName() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native String getName();
 }

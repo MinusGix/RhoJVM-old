@@ -202,6 +202,8 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_rho_invoke_MethodHandleInfoInst_getName" => {
                 into_opaque2ret(method_handle_info::mh_info_get_name)
             }
+            // rho/InternalField
+            b"Java_rho_InternalField_getName" => into_opaque2ret(field::internal_field_get_name),
             // rho/util/Log
             b"Java_rho_util_Log_info" => into_opaque3ret(log::info),
             b"Java_rho_util_Log_warn" => into_opaque3ret(log::warn),
