@@ -504,14 +504,14 @@ impl AnonBasedClassFileData {
         based_class: ClassId,
         class_file_data: Rc<[u8]>,
         class_file: ClassFileOpt,
-        patches: MapConstantPool,
+        const_pool: ShadowConstantPool<MapConstantPool, ConstantPool>,
         shadow_text: IndexMap<ConstantPoolIndex<Utf8Constant>, Rc<[u8]>>,
     ) -> AnonBasedClassFileData {
         AnonBasedClassFileData {
             id,
             based_class,
             class_file_data,
-            const_pool: ShadowConstantPool::new(patches, class_file.const_pool.clone()),
+            const_pool,
             class_file,
             shadow_text,
         }

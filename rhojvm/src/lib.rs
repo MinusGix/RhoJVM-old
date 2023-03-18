@@ -1079,21 +1079,20 @@ fn resolve_class_interface(
         }
     }
 
-    // TODO: Currently we treat anonymous classes as being able to access anywhere and also being accessible from anywhere, which isn't accurate! I believe it should be using its base class
-    // for the accessing
-    let is_origin_anon = env
-        .class_names
-        .name_from_gcid(origin_class_id)
-        .map(|(_, info)| info.is_anonymous())
-        .map_err(StepError::BadId)?;
-    let is_anon = env
-        .class_names
-        .name_from_gcid(class_id)
-        .map(|(_, info)| info.is_anonymous())
-        .map_err(StepError::BadId)?;
+    // TODO: We treat synthetic (typically anonymous, like lambdas) as accessible from anywhere, which probably isn't correct! Likely it should be if the parent/owning class is accessible?
+    let is_origin_syn = env
+        .class_files
+        .get(&origin_class_id)
+        .map(|cf| cf.access_flags().contains(ClassAccessFlags::SYNTHETIC))
+        .unwrap_or(false);
+    let is_syn = env
+        .class_files
+        .get(&class_id)
+        .map(|cf| cf.access_flags().contains(ClassAccessFlags::SYNTHETIC))
+        .unwrap_or(false);
 
-    if !is_anon
-        && !is_origin_anon
+    if !is_syn
+        && !is_origin_syn
         && !can_access_class_from_class(
             &mut env.class_names,
             &mut env.class_files,

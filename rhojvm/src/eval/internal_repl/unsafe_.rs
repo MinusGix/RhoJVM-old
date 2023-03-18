@@ -4,7 +4,7 @@ use classfile_parser::{class_parser_opt, parser::ParseData};
 use indexmap::IndexMap;
 use rhojvm_base::{
     class::{AnonBasedClassFileData, ClassFileInfo},
-    constant_pool::MapConstantPool,
+    constant_pool::{ConstantInfoPool, MapConstantPool, ShadowConstantPool},
     data::class_file_loader::LoadClassFileError,
     id::ClassId,
 };
@@ -840,8 +840,6 @@ pub(crate) extern "C" fn unsafe_define_anon_class(
         MapConstantPool::default()
     };
 
-    let new_class_id = env.class_names.init_new_id(true);
-    let shadow_text = IndexMap::default();
     let opt = {
         let (rem_data, class_file) = class_parser_opt(ParseData::new(&data))
             .map_err(|x| format!("{:?}", x))
@@ -851,12 +849,24 @@ pub(crate) extern "C" fn unsafe_define_anon_class(
 
         class_file
     };
+
+    let const_pool = ShadowConstantPool::new(patches, opt.const_pool.clone());
+
+    let new_class_name = const_pool.get_t(opt.this_class).unwrap();
+    let new_class_name = const_pool
+        .get_t(new_class_name.name_index)
+        .unwrap()
+        .as_bytes(&data);
+    let new_class_id = env.class_names.gcid_from_bytes(new_class_name);
+
+    // let new_class_id = env.class_names.init_new_id(true);
+    let shadow_text = IndexMap::default();
     let class_file = AnonBasedClassFileData::new(
         new_class_id,
         base_class_of,
         data.clone(),
         opt,
-        patches,
+        const_pool,
         shadow_text,
     );
 
