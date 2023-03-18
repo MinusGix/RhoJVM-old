@@ -532,6 +532,73 @@ fn execute_class_name(
         tracing::error!("failed to initialize entrypoint class {:?}", err);
         panic!("Failed to initialize entrypoint class: {}", err);
     }
+    pre_execute(env);
+
+    {
+        // Load System early so we can initialize std{in,out,err}
+        let system_class_id = env.class_names.gcid_from_bytes(b"java/lang/System");
+        env.classes
+            .load_class(
+                &mut env.class_names,
+                &mut env.class_files,
+                &mut env.packages,
+                system_class_id,
+            )
+            .unwrap();
+
+        if let Err(err) = verify_from_entrypoint(env, system_class_id) {
+            let err = make_error_pretty(env, err);
+            tracing::error!("failed to verify system class: {}", err);
+            panic!("Failed to verify system class: {}", err);
+        }
+
+        if let Err(err) = initialize_class(env, system_class_id) {
+            let err = make_error_pretty(env, err);
+            tracing::error!("failed to initialize system class {:?}", err);
+            panic!(
+                "Failed to initialize system class before even executing program: {}",
+                err
+            );
+        }
+
+        let init_name = b"init";
+        let init_descriptor = MethodDescriptor::new_empty();
+        let init_method_id = env
+            .methods
+            .load_method_from_desc(
+                &mut env.class_names,
+                &mut env.class_files,
+                system_class_id,
+                init_name,
+                &init_descriptor,
+            )
+            .expect("Failed to load System#init method");
+        let frame = Frame::new_locals(Locals::new_with_array([]));
+
+        match eval_method(env, init_method_id.into(), frame) {
+            Ok(res) => match res {
+                EvalMethodValue::ReturnVoid | EvalMethodValue::Return(_) => {}
+                // TODO: Call the method to get a string from the exception
+                EvalMethodValue::Exception(exc) => {
+                    eprintln!("There was an unhandled exception during System#init.");
+                    let text = to_string_for(env, exc)
+                        .expect("Got an internal error when calling toString on exception.");
+                    match text {
+                        ValueException::Value(text) => eprintln!("{}", text),
+                        // TODO: We could provide some info.
+                        ValueException::Exception(_) => eprintln!(
+                            "There was an exception calling toString on the thrown exception. Skipping trying to call toString on that exception.."
+                        ),
+                    }
+                }
+            },
+            Err(err) => {
+                let res = make_error_pretty(env, err);
+                tracing::error!("There was an error in running the System#init method: {res}");
+                eprintln!("There was an internal error in running the System#init method: {res}");
+            }
+        }
+    }
 
     // We get the main method's id so then we can execute it.
     // We could check this early to make so errors from a missing main show up faster, but that is
@@ -563,8 +630,6 @@ fn execute_class_name(
             array_ref.into_generic()
         };
         let frame = Frame::new_locals(Locals::new_with_array([RuntimeValue::Reference(args)]));
-
-        pre_execute(env);
 
         match eval_method(env, main_method_id.into(), frame) {
             Ok(res) => match res {

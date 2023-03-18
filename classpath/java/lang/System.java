@@ -26,11 +26,19 @@ public final class System {
 
     // TODO: Buffer these?
     // TODO: These are defined as final but setErr and friends can modify them?? Should we have a special marker that says that the field is final but it can be modified? Or should we just make a class that extends PrintStream and let you override its internal true printstream?
-    public static /* final */ PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true);
-    public static /* final */ PrintStream err = new PrintStream(new FileOutputStream(FileDescriptor.err), true);
-    public static /* final */ InputStream in = new BufferedInputStream(new FileInputStream(FileDescriptor.in));
+    public static /* final */ PrintStream out = null;
+    public static /* final */ PrintStream err = null;
+    public static /* final */ InputStream in = null;
 
     private static SecurityManager securityManager = null;
+
+    private static void init() {
+        // Lazily initialize out/err/in since they depend on charset but charset can depend on 
+        // System, and so you can get a loop.
+        out = new PrintStream(new FileOutputStream(FileDescriptor.out), true);
+        err = new PrintStream(new FileOutputStream(FileDescriptor.err), true);
+        in = new BufferedInputStream(new FileInputStream(FileDescriptor.in));
+    }
 
     public static void setIn(InputStream in) {
         System.in = in;
