@@ -24,7 +24,7 @@ use crate::{
     jni::{self, JBoolean, JByte, JChar, JDouble, JFloat, JInt, JLong, JObject, JShort},
     method::NativeMethod,
     rv::{RuntimeType, RuntimeTypePrimitive, RuntimeValue, RuntimeValuePrimitive},
-    util::{make_class_form_of, make_exception, Env},
+    util::{make_class_form_of, make_exception, ref_info, Env},
     GeneralError,
 };
 
@@ -190,6 +190,15 @@ impl Locals {
     pub fn new_with_array<const N: usize>(locals: [RuntimeValue; N]) -> Locals {
         let locals = locals
             .into_iter()
+            .flat_map(Local::from_runtime_value)
+            .flatten()
+            .collect();
+        Locals { locals }
+    }
+
+    #[must_use]
+    pub fn new_from_iter(locals: impl Iterator<Item = RuntimeValue>) -> Locals {
+        let locals = locals
             .flat_map(Local::from_runtime_value)
             .flatten()
             .collect();
@@ -887,6 +896,13 @@ pub fn eval_method(
                     DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
                     DescriptorType::Array { .. },
                     DescriptorType::Array { .. },
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JObject, param3: JObject));
+                }
+                (
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
                 ) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JObject, param3: JObject));
                 }

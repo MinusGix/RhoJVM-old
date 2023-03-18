@@ -241,12 +241,6 @@ pub(crate) unsafe extern "C" fn mhs_lookup_find_static(
         &env.state.gc,
         method_type,
     );
-    println!(
-        "findStatic: {:?}; desc: {} on {}",
-        name,
-        desc,
-        env.class_names.tpath(target_class_id)
-    );
 
     let desc = MethodDescriptor::from_text(desc.as_bytes(), &mut env.class_names).unwrap();
 
