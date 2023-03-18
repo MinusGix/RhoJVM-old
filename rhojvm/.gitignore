@@ -3,3 +3,5 @@
 /ex/*.class
 /ex/*.jar
 /ex/*.java
+/ex/*.sh
+/ex/**/
