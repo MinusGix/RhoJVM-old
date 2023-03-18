@@ -14,9 +14,13 @@ public class MethodHandles {
         public static final int PACKAGE = 8;
 
         // TODO: Remove
-        static final Lookup IMPL_LOOKUP = new Lookup();
+        static final Lookup IMPL_LOOKUP = new Lookup(void.class);
 
-        Lookup () {}
+        private Class<?> referent = null;
+
+        Lookup (Class<?> referent) {
+            this.referent = referent;
+        }
 
         public MethodHandle findConstructor(Class<?> target, MethodType type) {
             throw new UnsupportedOperationException();
@@ -92,11 +96,9 @@ public class MethodHandles {
         }
     }
 
-    private static Lookup lookupInst = new Lookup();
+    // private static Lookup lookupInst = new Lookup();
 
-    public static Lookup lookup() {
-        return MethodHandles.lookupInst;
-    }
+    public native static Lookup lookup();
     
     private static native MethodHandleInfo revealDirect(MethodHandle target);
 

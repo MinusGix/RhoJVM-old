@@ -1,18 +1,71 @@
-use rhojvm_base::code::method::MethodDescriptor;
+use rhojvm_base::{
+    code::method::{DescriptorType, DescriptorTypeBasic, MethodDescriptor},
+    data::{class_files::ClassFiles, class_names::ClassNames},
+};
+use smallvec::smallvec;
 
 use crate::{
     class_instance::{
-        ClassInstance, Fields, MethodHandleInfoInstance, MethodHandleInstance, MethodHandleType,
-        StaticFormInstance,
+        ClassInstance, Field, FieldId, Fields, MethodHandleInfoInstance, MethodHandleInstance,
+        MethodHandleType, ReferenceInstance, StaticFormInstance,
     },
-    eval::internal_repl::method_type::{method_type_to_desc_string, MethodTypeWrapper},
-    gc::GcRef,
+    eval::{
+        eval_method,
+        instances::make_instance_fields,
+        internal_repl::method_type::{method_type_to_desc_string, MethodTypeWrapper},
+        EvalMethodValue, Frame, Locals,
+    },
+    gc::{Gc, GcRef},
     initialize_class,
     jni::{JClass, JObject},
     resolve_derive,
-    rv::{RuntimeType, RuntimeTypeVoid},
-    util::{construct_method_handle, get_string_contents_as_rust_string, make_class_form_of, Env},
+    rv::{RuntimeType, RuntimeTypeVoid, RuntimeValue},
+    util::{
+        construct_method_handle, find_field_with_name, get_string_contents_as_rust_string,
+        make_class_form_of, Env,
+    },
 };
+
+struct LookupWrapper {
+    pub target: GcRef<ClassInstance>,
+    pub referent_field: FieldId,
+}
+impl LookupWrapper {
+    pub fn from_ref(
+        class_names: &mut ClassNames,
+        class_files: &ClassFiles,
+        target: GcRef<ClassInstance>,
+    ) -> LookupWrapper {
+        let lookup_class_id = class_names.gcid_from_bytes(b"java/lang/invoke/MethodHandles$Lookup");
+
+        let (referent_field_id, _) =
+            find_field_with_name(class_files, lookup_class_id, b"referent")
+                .unwrap()
+                .expect("Failed to find referent field in Lookup class");
+
+        LookupWrapper {
+            target,
+            referent_field: referent_field_id,
+        }
+    }
+
+    pub fn referent_field<'gc>(&self, gc: &'gc Gc) -> &'gc Field {
+        let target = gc.deref(self.target).unwrap();
+        target
+            .fields
+            .get(self.referent_field)
+            .expect("Failed to get referent field from Lookup instance")
+    }
+
+    pub fn referent_ref(&self, gc: &Gc) -> GcRef<ReferenceInstance> {
+        let referent = self.referent_field(gc);
+        referent
+            .value()
+            .into_reference()
+            .expect("Lookup#referent should be a reference")
+            .expect("Lookup#referent was null")
+    }
+}
 
 pub(crate) extern "C" fn mh_lookup_reveal_direct(
     env: *mut Env,
@@ -56,18 +109,29 @@ pub(crate) extern "C" fn mh_lookup_reveal_direct(
     unsafe { env.get_local_jobject_for(mh_info_ref.into_generic()) }
 }
 
-pub(crate) extern "C" fn mhs_lookup_lookup_class(env: *mut Env, _this: JObject) -> JObject {
+pub(crate) extern "C" fn mhs_lookup_lookup_class(env: *mut Env, this: JObject) -> JObject {
     assert!(!env.is_null());
 
     let env = unsafe { &mut *env };
 
-    if env.call_stack.len() < 2 {
-        panic!("MethodHandles.Lookup#lookupClass called from outside of a method");
-    }
+    let this = unsafe { env.get_jobject_as_gcref(this) }.expect("this was null");
+    let this = this.unchecked_as::<ClassInstance>();
 
-    let cstack_entry = &env.call_stack[env.call_stack.len() - 2];
+    let lookup = LookupWrapper::from_ref(&mut env.class_names, &env.class_files, this);
+
+    let referent = lookup.referent_ref(&env.state.gc);
+
+    unsafe { env.get_local_jobject_for(referent.into_generic()) }
+}
+
+pub(crate) extern "C" fn mhs_lookup(env: *mut Env, _: JObject) -> JObject {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    let cstack_entry = &env.call_stack[env.call_stack.len() - 1];
     let Some((caller_class_id, _)) = cstack_entry.called_from.decompose() else {
-        panic!("MethodHandles.Lookup#lookupClass called from non-normal method");
+        panic!("MethodHandles.Lookup#lookup called from non-normal method");
     };
 
     let mhl_class_id = env
@@ -80,7 +144,61 @@ pub(crate) extern "C" fn mhs_lookup_lookup_class(env: *mut Env, _this: JObject) 
         return JClass::null();
     };
 
-    unsafe { env.get_local_jobject_for(class_inst.into_generic()) }
+    let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+
+    let lookup_static_ref = initialize_class(env, mhl_class_id).unwrap().into_value();
+    let Some(lookup_static_ref) = env.state.extract_value(lookup_static_ref) else {
+        // exception
+        return JClass::null();
+    };
+
+    let lookup_fields = make_instance_fields(env, mhl_class_id).unwrap();
+    let Some(lookup_fields) = env.state.extract_value(lookup_fields) else {
+        // exception
+        return JClass::null();
+    };
+
+    let lookup_desc = MethodDescriptor::new(
+        smallvec![DescriptorType::Basic(DescriptorTypeBasic::Class(
+            class_class_id
+        ))],
+        None,
+    );
+
+    let lookup_init = env
+        .methods
+        .load_method_from_desc(
+            &mut env.class_names,
+            &mut env.class_files,
+            mhl_class_id,
+            b"<init>",
+            &lookup_desc,
+        )
+        .unwrap();
+
+    let lookup_inst = ClassInstance {
+        instanceof: mhl_class_id,
+        static_ref: lookup_static_ref,
+        fields: lookup_fields,
+    };
+    let lookup_inst = env.state.gc.alloc(lookup_inst);
+
+    let frame = Frame::new_locals(Locals::new_with_array([
+        RuntimeValue::Reference(lookup_inst.into_generic()),
+        RuntimeValue::Reference(class_inst.into_generic()),
+    ]));
+
+    let res = eval_method(env, lookup_init.into(), frame).unwrap();
+    match res {
+        EvalMethodValue::ReturnVoid => unsafe {
+            env.get_local_jobject_for(lookup_inst.into_generic())
+        },
+        EvalMethodValue::Return(_) => unreachable!(),
+        EvalMethodValue::Exception(exc) => {
+            env.state.fill_native_exception(exc);
+            JObject::null()
+        }
+    }
 }
 
 pub(crate) unsafe extern "C" fn mhs_lookup_find_static(
