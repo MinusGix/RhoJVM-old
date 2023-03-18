@@ -315,20 +315,15 @@ pub enum MethodHandleType {
         return_ty: RuntimeType<ClassId>,
     },
     InvokeStatic(ExactMethodId),
+    InvokeInterface(ExactMethodId),
 }
 impl MethodHandleType {
     pub fn direct_kind(&self) -> Option<u8> {
         Some(match self {
             MethodHandleType::Constant { .. } => return None,
             MethodHandleType::InvokeStatic(_) => 6,
+            MethodHandleType::InvokeInterface(_) => 9,
         })
-    }
-
-    pub fn is_direct(&self) -> bool {
-        match self {
-            MethodHandleType::Constant { .. } => false,
-            MethodHandleType::InvokeStatic(_) => true,
-        }
     }
 }
 /// An instance of `rho/invoke/MainMethodHandle`

@@ -48,7 +48,8 @@ pub fn get_init_method_type_from_mh(
             todo!("Should we handle this? As-of-this-writing, it is only used for MethodHandleInfo which needs direct method handles")
         }
         // TODO: Do we need to initialize based on the id?
-        MethodHandleType::InvokeStatic(method_id) => {
+        MethodHandleType::InvokeStatic(method_id)
+        | MethodHandleType::InvokeInterface(method_id) => {
             env.methods.get(&method_id).unwrap().descriptor()
         }
     };

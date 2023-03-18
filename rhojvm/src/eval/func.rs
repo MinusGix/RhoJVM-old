@@ -1103,7 +1103,11 @@ impl RunInstContinue for InvokeVirtual {
             .into_reference()
             .ok_or(EvalError::ExpectedStackValueReference)?;
         let Some(instance_ref) = instance_ref else {
-            let exc = make_exception_by_name(env, b"java/lang/NullPointerException", "Instance for function was null")?;
+            let why = format!(
+                "Instance for function was null. Call stack: {}",
+                env.pretty_call_stack(true)
+            );
+            let exc = make_exception_by_name(env, b"java/lang/NullPointerException",  &why)?;
             return Ok(RunInstContinueValue::Exception(exc.flatten()));
         };
         let instance = env
@@ -1152,6 +1156,69 @@ impl RunInstContinue for InvokeVirtual {
 
         Ok(RunInstContinueValue::Continue)
     }
+}
+
+fn assert_function_returns_callsite(class_names: &mut ClassNames, desc: &MethodDescriptor) {
+    // Ensure that the bootstrap method returns a `CallSite` instance.
+    // TODO: What if it returns something which extends a `CallSite`?
+
+    let callsite_class_id = class_names.gcid_from_bytes(b"java/lang/invoke/CallSite");
+
+    if let Some(DescriptorType::Basic(DescriptorTypeBasic::Class(ret_class_id))) =
+        desc.return_type()
+    {
+        if *ret_class_id != callsite_class_id {
+            tracing::error!(
+                "Bootstrap method handle returned a class that wasn't a callsite: {:?}",
+                class_names.tpath(*ret_class_id)
+            );
+            panic!("Bootstrap method handle returned a class that wasn't a callsite");
+        }
+    } else {
+        tracing::error!(
+            "Bootstrap method handle returned a non-class type {:?}",
+            desc.return_type()
+        );
+        panic!("Bootstrap method handle returned a non-class type");
+    }
+}
+
+fn get_mh_lookup(env: &mut Env) -> Result<ValueException<GcRef<ReferenceInstance>>, GeneralError> {
+    // Load the method handles class
+    let mh_class_id = env
+        .class_names
+        .gcid_from_bytes(b"java/lang/invoke/MethodHandles");
+    env.class_files
+        .load_by_class_path_id(&mut env.class_names, mh_class_id)
+        .map_err(StepError::from)?;
+    // Get the id for the lookup class
+    let mh_lookup_class_id = env
+        .class_names
+        .gcid_from_bytes(b"java/lang/invoke/MethodHandles$Lookup");
+
+    // TODO: A reference to lookup could be stored in a field to make this more efficient
+    let lookup_method_id = {
+        // Create the descriptor for the lookup method
+        let method_handles_lookup_desc = MethodDescriptor::new_ret(DescriptorType::Basic(
+            DescriptorTypeBasic::Class(mh_lookup_class_id),
+        ));
+        env.methods.load_method_from_desc(
+            &mut env.class_names,
+            &mut env.class_files,
+            mh_class_id,
+            b"lookup",
+            &method_handles_lookup_desc,
+        )?
+    };
+
+    let frame = Frame::default();
+    let lookup = exc_eval_value!(ret (expect_return: reference)
+            ("Method Handle lookup"):
+            eval_method(env, lookup_method_id.into(), frame)?
+    )
+    .expect("Null method handle lookup reference");
+
+    Ok(ValueException::Value(lookup))
 }
 
 impl RunInstContinue for InvokeDynamic {
@@ -1294,96 +1361,24 @@ impl RunInstContinue for InvokeDynamic {
 
                     let desc = method.descriptor();
 
-                    // Ensure that the bootstrap method returns a `CallSite` instance.
-                    // TODO: What if it returns something which extends a `CallSite`?
-                    {
-                        let callsite_class_id = env
-                            .class_names
-                            .gcid_from_bytes(b"java/lang/invoke/CallSite");
-
-                        if let Some(DescriptorType::Basic(DescriptorTypeBasic::Class(
-                            ret_class_id,
-                        ))) = desc.return_type()
-                        {
-                            if *ret_class_id != callsite_class_id {
-                                tracing::error!("Bootstrap method handle returned a class that wasn't a callsite: {:?}", env.class_names.tpath(*ret_class_id));
-                                panic!(
-                                "Bootstrap method handle returned a class that wasn't a callsite"
-                            );
-                            }
-                        } else {
-                            tracing::error!(
-                                "Bootstrap method handle returned a non-class type {:?}",
-                                desc.return_type()
-                            );
-                            panic!("Bootstrap method handle returned a non-class type");
-                        }
-                    }
+                    assert_function_returns_callsite(&mut env.class_names, desc);
 
                     // The MethodHandles$Lookup reference
                     // This is expected to be the first argument to the bootstrap method
-                    let lookup = {
-                        // Load the method handles class
-                        let mh_class_id = env
-                            .class_names
-                            .gcid_from_bytes(b"java/lang/invoke/MethodHandles");
-                        env.class_files
-                            .load_by_class_path_id(&mut env.class_names, mh_class_id)
-                            .map_err(StepError::from)?;
-                        // Get the id for the lookup class
-                        let mh_lookup_class_id = env
-                            .class_names
-                            .gcid_from_bytes(b"java/lang/invoke/MethodHandles$Lookup");
-
-                        // TODO: A reference to lookup could be stored in a field to make this more efficient
-                        let lookup_method_id = {
-                            // Create the descriptor for the lookup method
-                            let method_handles_lookup_desc =
-                                MethodDescriptor::new_ret(DescriptorType::Basic(
-                                    DescriptorTypeBasic::Class(mh_lookup_class_id),
-                                ));
-                            env.methods.load_method_from_desc(
-                                &mut env.class_names,
-                                &mut env.class_files,
-                                mh_class_id,
-                                b"lookup",
-                                &method_handles_lookup_desc,
-                            )?
-                        };
-
-                        let frame = Frame::default();
-                        exc_eval_value!(ret inst (expect_return: reference)
-                                ("Method Handle lookup"):
-                                eval_method(env, lookup_method_id.into(), frame)?
-                        )
-                        .expect("Null method handle lookup reference")
-                    };
+                    let lookup = exc_value!(ret inst: get_mh_lookup(env)?);
                     let call_site_name =
                         exc_value!(ret inst: construct_string_r(env, inv_name.as_ref(), true)?);
                     // we have the method type already
 
-                    // there are additional parameters
-                    // ex:
-                    // - (Ljava/long/Object;)Z is an erased method signature
-                    // - The REF_invokeStatic Main.lambda$main$o:(Ljava/lang/String;)Z is the MethodHandle to the actual lambda logic
-                    // - The (Ljava/lang/String;)Z is a non-erased method signature accepting one string and returning a boolean
-                    // The jvm will pass all the info to the bootstrap method
-                    // The bootstrap method will then use that info to create an instance of Predicate (our callsite?)
-                    // then the jvm will pass that to the filter method
-
-                    let frame = Frame::new_locals({
-                        let mut locals = Locals::new_with_array([
+                    let frame = Frame::new_locals(Locals::new_from_iter(
+                        [
                             RuntimeValue::Reference(lookup),
                             RuntimeValue::Reference(call_site_name.into_generic()),
                             RuntimeValue::Reference(method_type.into_generic()),
-                        ]);
-
-                        for barg in bargs_rv {
-                            locals.push_transform(barg);
-                        }
-
-                        locals
-                    });
+                        ]
+                        .into_iter()
+                        .chain(bargs_rv),
+                    ));
 
                     let call_site = exc_eval_value!(ret inst (expect_return: reference)
                             ("Bootstrap method"):
@@ -1394,6 +1389,9 @@ impl RunInstContinue for InvokeDynamic {
                     // TODO: Store the call site on the ?class?, ?method?, ?general cache?
 
                     call_site
+                }
+                MethodHandleType::InvokeInterface(method_id) => {
+                    todo!()
                 }
             }
         };
@@ -1477,6 +1475,9 @@ impl RunInstContinue for InvokeDynamic {
                     invoke_static_method(env, frame, inv_method_id, method_id.into(), inst_index);
                 tracing::info!("Finished static method");
                 res
+            }
+            MethodHandleType::InvokeInterface(inv_method_id) => {
+                todo!()
             }
         }
     }
