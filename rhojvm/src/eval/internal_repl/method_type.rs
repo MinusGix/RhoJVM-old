@@ -166,10 +166,7 @@ fn static_form_instance_to_desc(
             }
         }
         RuntimeTypeVoid::Reference(class_id) => {
-            let (name, info) = class_names.name_from_gcid(*class_id).unwrap();
-            if info.is_anonymous() {
-                panic!("Don't know how to use anonymous class in method descriptor string");
-            }
+            let (name, _) = class_names.name_from_gcid(*class_id).unwrap();
 
             out.push('L');
             out.push_str(&format!("{}", Cesu8Str(name.get())));

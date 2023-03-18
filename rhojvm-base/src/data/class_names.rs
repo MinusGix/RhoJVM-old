@@ -268,16 +268,11 @@ impl<'a, I: Iterator<Item = &'a [u8]> + Clone> Equivalent<RawClassName>
 #[derive(Debug, Clone)]
 pub struct ClassNameInfo {
     kind: Option<InternalKind>,
-    anonymous: bool,
     id: ClassId,
 }
 impl ClassNameInfo {
     fn new_kind(kind: Option<InternalKind>, id: ClassId) -> Self {
-        ClassNameInfo {
-            kind,
-            anonymous: false,
-            id,
-        }
+        ClassNameInfo { kind, id }
     }
 
     #[must_use]
@@ -292,11 +287,6 @@ impl ClassNameInfo {
     #[must_use]
     pub fn is_array(&self) -> bool {
         matches!(self.kind, Some(InternalKind::Array))
-    }
-
-    #[must_use]
-    pub fn is_anonymous(&self) -> bool {
-        self.anonymous
     }
 }
 
@@ -326,24 +316,6 @@ impl ClassNames {
         // Based on https://en.cppreference.com/w/cpp/atomic/memory_order in the Relaxed ordering
         // section, Relaxed ordering should work good for a counter that is only incrementing.
         ClassId::new_unchecked(self.next_id.fetch_add(1, atomic::Ordering::Relaxed))
-    }
-
-    pub fn init_new_id(&mut self, anonymous: bool) -> ClassId {
-        let id = self.get_new_id();
-        let name = if anonymous {
-            RawClassName::new_uniq(Vec::new(), id)
-        } else {
-            RawClassName::new(Vec::new())
-        };
-        self.names.insert(
-            name,
-            ClassNameInfo {
-                kind: None,
-                anonymous,
-                id,
-            },
-        );
-        id
     }
 
     /// Get the id of `b"java/lang/Object"`. Cached.
