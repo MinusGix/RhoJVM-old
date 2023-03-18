@@ -4,12 +4,81 @@ use rhojvm_base::{
 };
 
 use crate::{
-    class_instance::{ClassInstance, ReferenceArrayInstance, StaticFormInstance},
+    class_instance::{ClassInstance, Field, FieldId, ReferenceArrayInstance, StaticFormInstance},
     gc::{Gc, GcRef},
     jni::JObject,
     rv::{RuntimeTypePrimitive, RuntimeTypeVoid},
     util::{construct_string_r, find_field_with_name, Env},
 };
+
+pub(crate) struct MethodTypeWrapper {
+    pub target: GcRef<ClassInstance>,
+    pub return_ty_field: FieldId,
+    pub param_tys_field: FieldId,
+}
+impl MethodTypeWrapper {
+    pub fn from_ref(
+        class_names: &mut ClassNames,
+        class_files: &ClassFiles,
+        target: GcRef<ClassInstance>,
+    ) -> MethodTypeWrapper {
+        let mt_class_id = class_names.gcid_from_bytes(b"java/lang/invoke/MethodType");
+
+        // TODO: Cache this?
+        let (return_ty_field_id, _) = find_field_with_name(class_files, mt_class_id, b"returnTy")
+            .unwrap()
+            .expect("Failed to find returnTy field in MethodType class");
+        let (param_tys_field_id, _) = find_field_with_name(class_files, mt_class_id, b"paramTys")
+            .unwrap()
+            .expect("Failed to find paramTys field in MethodType class");
+
+        MethodTypeWrapper {
+            target,
+            return_ty_field: return_ty_field_id,
+            param_tys_field: param_tys_field_id,
+        }
+    }
+
+    pub fn return_ty_field<'gc>(&self, gc: &'gc Gc) -> &'gc Field {
+        let target = gc.deref(self.target).unwrap();
+        target
+            .fields
+            .get(self.return_ty_field)
+            .expect("Failed to get returnTy field from MethodType instance")
+    }
+
+    /// `void.class` for void return type  
+    /// otherwise a normal `Class` instance
+    pub fn return_ty_ref(&self, gc: &Gc) -> GcRef<StaticFormInstance> {
+        let return_ty = self.return_ty_field(gc);
+        return_ty
+            .value()
+            .into_reference()
+            .expect("MethodType#returnTy should be a reference")
+            .expect("MethodType#returnTy was null")
+            .checked_as(gc)
+            .expect("MethodType#returnTy was not a StaticFormInstance")
+    }
+
+    pub fn param_tys_field<'gc>(&self, gc: &'gc Gc) -> &'gc Field {
+        let target = gc.deref(self.target).unwrap();
+        target
+            .fields
+            .get(self.param_tys_field)
+            .expect("Failed to get paramTys field from MethodType instance")
+    }
+
+    pub fn param_tys_ref(&self, gc: &Gc) -> GcRef<ReferenceArrayInstance> {
+        let param_tys = self.param_tys_field(gc);
+        param_tys
+            .value()
+            .into_reference()
+            .expect("MethodType#paramTys should be a reference")
+            .expect("MethodType#paramTys was null")
+            .checked_as(gc)
+            .expect("MethodType#paramTys was not a ReferenceArrayInstance")
+    }
+}
 
 /// Convert a `java/lang/String` instance into a method descriptor string  
 /// Panic heavy.
@@ -19,44 +88,10 @@ pub(crate) fn method_type_to_desc_string(
     gc: &Gc,
     target: GcRef<ClassInstance>,
 ) -> String {
-    let mt_class_id = class_names.gcid_from_bytes(b"java/lang/invoke/MethodType");
+    let target = MethodTypeWrapper::from_ref(class_names, class_files, target);
 
-    // TODO: Cache this?
-    let (return_ty_field_id, _) = find_field_with_name(class_files, mt_class_id, b"returnTy")
-        .unwrap()
-        .expect("Failed to find returnTy field in MethodType class");
-    let (param_tys_field_id, _) = find_field_with_name(class_files, mt_class_id, b"paramTys")
-        .unwrap()
-        .expect("Failed to find paramTys field in MethodType class");
-
-    let target = gc.deref(target).unwrap();
-
-    let return_ty = target
-        .fields
-        .get(return_ty_field_id)
-        .expect("Failed to get returnTy field from MethodType instance");
-    let param_tys = target
-        .fields
-        .get(param_tys_field_id)
-        .expect("Failed to get paramTys field from MethodType instance");
-
-    // TODO: These panics could be replaced with some function/macro that automatically does them
-    // and just does formats, so if we do this a lot then it won't fill the binary with strings as
-    // much
-    let return_ty = return_ty
-        .value()
-        .into_reference()
-        .expect("MethodType#returnTy is not a reference")
-        .expect("MethodType#returnTy was null")
-        .checked_as::<StaticFormInstance>(gc)
-        .expect("MethodType#returnTy is not a StaticFormInstance");
-    let param_tys = param_tys
-        .value()
-        .into_reference()
-        .expect("MethodType#paramTys is not a reference")
-        .expect("MethodType#paramTys was null")
-        .checked_as::<ReferenceArrayInstance>(gc)
-        .expect("MethodType#paramTys is not a ReferenceArrayInstance");
+    let return_ty = target.return_ty_ref(gc);
+    let param_tys = target.param_tys_ref(gc);
 
     // TODO: Could we do this directly in utf16?
     let mut out = "(".to_string();

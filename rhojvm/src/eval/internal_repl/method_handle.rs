@@ -1,14 +1,17 @@
+use rhojvm_base::code::method::MethodDescriptor;
+
 use crate::{
     class_instance::{
         ClassInstance, Fields, MethodHandleInfoInstance, MethodHandleInstance, MethodHandleType,
         StaticFormInstance,
     },
+    eval::internal_repl::method_type::{method_type_to_desc_string, MethodTypeWrapper},
     gc::GcRef,
     initialize_class,
     jni::{JClass, JObject},
     resolve_derive,
     rv::{RuntimeType, RuntimeTypeVoid},
-    util::{construct_method_handle, make_class_form_of, Env},
+    util::{construct_method_handle, get_string_contents_as_rust_string, make_class_form_of, Env},
 };
 
 pub(crate) extern "C" fn mh_lookup_reveal_direct(
@@ -78,6 +81,79 @@ pub(crate) extern "C" fn mhs_lookup_lookup_class(env: *mut Env, _this: JObject) 
     };
 
     unsafe { env.get_local_jobject_for(class_inst.into_generic()) }
+}
+
+pub(crate) unsafe extern "C" fn mhs_lookup_find_static(
+    env: *mut Env,
+    _this: JObject,
+    target: JObject,
+    name: JObject,
+    method_type: JObject,
+) -> JObject {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    let target: GcRef<_> = unsafe { env.get_jobject_as_gcref(target) }.unwrap();
+    let target: GcRef<StaticFormInstance> = target.unchecked_as();
+    let target_class_id = env
+        .state
+        .gc
+        .deref(target)
+        .unwrap()
+        .of
+        .into_reference()
+        .unwrap();
+
+    let name: GcRef<_> = unsafe { env.get_jobject_as_gcref(name) }.unwrap();
+    let name = get_string_contents_as_rust_string(
+        &env.class_files,
+        &mut env.class_names,
+        &mut env.state,
+        name,
+    )
+    .unwrap();
+
+    let method_type = unsafe { env.get_jobject_as_gcref(method_type) }.unwrap();
+    let method_type = method_type.unchecked_as();
+    // TODO: We could more directly convert it to a MethodDescriptor
+    let desc = method_type_to_desc_string(
+        &mut env.class_names,
+        &env.class_files,
+        &env.state.gc,
+        method_type,
+    );
+    println!(
+        "findStatic: {:?}; desc: {} on {}",
+        name,
+        desc,
+        env.class_names.tpath(target_class_id)
+    );
+
+    let desc = MethodDescriptor::from_text(desc.as_bytes(), &mut env.class_names).unwrap();
+
+    // TODO: check that the class and arg types are accessible to the lookup inst
+    let method_id = env
+        .methods
+        .load_method_from_desc(
+            &mut env.class_names,
+            &mut env.class_files,
+            target_class_id,
+            // TODO: CESU8
+            name.as_bytes(),
+            &desc,
+        )
+        .unwrap();
+
+    // TODO: variable arity flag?
+    let method_handle =
+        construct_method_handle(env, MethodHandleType::InvokeStatic(method_id)).unwrap();
+    let Some(method_handle) = env.state.extract_value(method_handle) else {
+        // exception
+        return JObject::null();
+    };
+
+    unsafe { env.get_local_jobject_for(method_handle.into_generic()) }
 }
 
 /// `MethodHandle constant(Class<?> type, Object value)`

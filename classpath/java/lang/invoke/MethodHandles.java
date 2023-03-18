@@ -30,13 +30,11 @@ public class MethodHandles {
             throw new UnsupportedOperationException();
         }
 
-        public MethodHandle findSpecial(Class<?> target, String name, Class<?> type) {
+        public MethodHandle findSpecial(Class<?> target, String name, MethodType type, Class<?> specialCaller) {
             throw new UnsupportedOperationException();
         }
 
-        public MethodHandle findStatic(Class<?> target, String name, Class<?> type) {
-            throw new UnsupportedOperationException();
-        }
+        public native MethodHandle findStatic(Class<?> target, String name, MethodType type);
 
         public MethodHandle findStaticGetter(Class<?> target, String name, Class<?> type) {
             throw new UnsupportedOperationException();
@@ -46,7 +44,7 @@ public class MethodHandles {
             throw new UnsupportedOperationException();
         }
 
-        public MethodHandle findVirtual(Class<?> target, String name, Class<?> type) {
+        public MethodHandle findVirtual(Class<?> target, String name, MethodType type) {
             throw new UnsupportedOperationException();
         }
 
