@@ -26,6 +26,7 @@ pub(crate) extern "C" fn mh_info_get_declaring_class(env: *mut Env, this: JObjec
         // Non direct method handle, so it shouldn't be constructable
         MethodHandleType::Constant { .. } => unreachable!(),
         MethodHandleType::InvokeStatic(method_id)
+        | MethodHandleType::NewInvokeSpecial(method_id)
         | MethodHandleType::InvokeInterface(method_id) => method_id.decompose().0,
     };
 
@@ -104,6 +105,7 @@ pub(crate) extern "C" fn mh_info_get_name(env: *mut Env, this: JObject) -> JObje
         // Non direct method handle, so it shouldn't be constructable
         MethodHandleType::Constant { .. } => unreachable!(),
         MethodHandleType::InvokeStatic(method_id)
+        | MethodHandleType::NewInvokeSpecial(method_id)
         | MethodHandleType::InvokeInterface(method_id) => method_id,
     };
 

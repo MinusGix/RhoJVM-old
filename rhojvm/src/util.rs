@@ -2,7 +2,7 @@ use std::{borrow::Cow, num::NonZeroUsize};
 
 use classfile_parser::{
     attribute_info::InstructionIndex,
-    constant_info::{ConstantInfo, MethodHandleConstant},
+    constant_info::{ClassConstant, ConstantInfo, MethodHandleConstant, NameAndTypeConstant},
     constant_pool::ConstantPoolIndexRaw,
     field_info::FieldInfoOpt,
 };
@@ -18,7 +18,7 @@ use rhojvm_base::{
         classes::{does_extend_class, Classes},
         methods::Methods,
     },
-    id::{ClassId, MethodId},
+    id::{ClassId, ExactMethodId, MethodId},
     package::Packages,
     util::MemorySize,
     StepError,
@@ -958,7 +958,7 @@ pub(crate) fn make_method_handle(
         // invokeSpecial
         7 => todo!(),
         // newInvokeSpecial
-        8 => todo!(),
+        8 => make_new_invoke_special_method_handle(env, class_id, *reference_index),
         // invokeInterface
         9 => make_invoke_interface_method_handle(env, class_id, *reference_index),
         _ => panic!("Unknown MethodHandle reference kind: {}", reference_kind),
@@ -970,64 +970,44 @@ pub(crate) fn make_invoke_static_method_handle(
     class_id: ClassId,
     reference_index: ConstantPoolIndexRaw<ConstantInfo>,
 ) -> Result<ValueException<GcRef<MethodHandleInstance>>, GeneralError> {
-    let class_file = env
-        .class_files
-        .get(&class_id)
-        .ok_or(EvalError::MissingMethodClassFile(class_id))?;
-
-    let reference_value = class_file
-        .get_t(reference_index)
-        .ok_or(EvalError::InvalidConstantPoolIndex(reference_index))?;
-
-    let (nat_index, class_index) = match reference_value {
-        ConstantInfo::MethodRef(method) => (method.name_and_type_index, method.class_index),
-        ConstantInfo::InterfaceMethodRef(method) => {
-            if let Some(version) = class_file.version() {
-                if version.major < 52 {
-                    panic!("InterfaceMethodRef found for pre version 52 class file")
+    let class_file = env.class_files.get(&class_id).unwrap();
+    let version = class_file.version();
+    construct_method_handle_like(
+        env,
+        class_id,
+        reference_index,
+        |val| match val {
+            ConstantInfo::MethodRef(method) => Ok((method.name_and_type_index, method.class_index)),
+            ConstantInfo::InterfaceMethodRef(method) => {
+                if let Some(version) = version {
+                    if version.major < 52 {
+                        panic!("InterfaceMethodRef found for pre version 52 class file")
+                    }
                 }
+
+                Ok((method.name_and_type_index, method.class_index))
             }
+            _ => panic!("MethodHandle constant info reference index was not a method ref"),
+        },
+        MethodHandleType::InvokeStatic,
+    )
+}
 
-            (method.name_and_type_index, method.class_index)
-        }
-        _ => panic!("MethodHandle constant info reference index was not a method ref"),
-    };
-
-    let class = class_file.getr(class_index)?;
-    // Get the name of the class/interface the method is on
-    let target_class_id = {
-        let target_class_name = class_file.getr_text_b(class.name_index)?;
-        env.class_names.gcid_from_bytes(target_class_name)
-    };
-    // Get the name of the method and the descriptor of it
-    let (target_method_name, target_desc) = {
-        let nat = class_file.getr(nat_index)?;
-        let target_method_name = class_file.getr_text_b(nat.name_index)?;
-
-        let target_desc = {
-            let target_desc = class_file.getr_text_b(nat.descriptor_index)?;
-            MethodDescriptor::from_text(target_desc, &mut env.class_names)
-                .map_err(EvalError::InvalidMethodDescriptor)?
-        };
-
-        (target_method_name, target_desc)
-    };
-
-    // Unfortunately we have to collect since we need mutable access to class_files
-    let target_method_name: SmallVec<[_; 16]> = target_method_name.to_smallvec();
-    // Find the method
-    let target_method_id = env.methods.load_method_from_desc(
-        &mut env.class_names,
-        &mut env.class_files,
-        target_class_id,
-        &target_method_name,
-        &target_desc,
-    )?;
-
-    let method_handle =
-        construct_method_handle(env, MethodHandleType::InvokeStatic(target_method_id))?;
-
-    Ok(method_handle)
+pub(crate) fn make_new_invoke_special_method_handle(
+    env: &mut Env,
+    class_id: ClassId,
+    reference_index: ConstantPoolIndexRaw<ConstantInfo>,
+) -> Result<ValueException<GcRef<MethodHandleInstance>>, GeneralError> {
+    construct_method_handle_like(
+        env,
+        class_id,
+        reference_index,
+        |val| match val {
+            ConstantInfo::MethodRef(method) => Ok((method.name_and_type_index, method.class_index)),
+            _ => panic!("MethodHandle constant info reference index was not a method ref"),
+        },
+        MethodHandleType::NewInvokeSpecial,
+    )
 }
 
 pub(crate) fn make_invoke_interface_method_handle(
@@ -1035,6 +1015,41 @@ pub(crate) fn make_invoke_interface_method_handle(
     class_id: ClassId,
     reference_index: ConstantPoolIndexRaw<ConstantInfo>,
 ) -> Result<ValueException<GcRef<MethodHandleInstance>>, GeneralError> {
+    construct_method_handle_like(
+        env,
+        class_id,
+        reference_index,
+        |val| match val {
+            ConstantInfo::InterfaceMethodRef(method) => {
+                Ok((method.name_and_type_index, method.class_index))
+            }
+            _ => {
+                panic!("MethodHandle constant info reference index was not an interface method ref")
+            }
+        },
+        MethodHandleType::InvokeInterface,
+    )
+}
+
+fn construct_method_handle_like<F, H>(
+    env: &mut Env,
+    class_id: ClassId,
+    reference_index: ConstantPoolIndexRaw<ConstantInfo>,
+    reference_filter: F,
+    make_mh_type: H,
+) -> Result<ValueException<GcRef<MethodHandleInstance>>, GeneralError>
+where
+    F: FnOnce(
+        &ConstantInfo,
+    ) -> Result<
+        (
+            ConstantPoolIndexRaw<NameAndTypeConstant>,
+            ConstantPoolIndexRaw<ClassConstant>,
+        ),
+        GeneralError,
+    >,
+    H: FnOnce(ExactMethodId) -> MethodHandleType,
+{
     let class_file = env
         .class_files
         .get(&class_id)
@@ -1044,14 +1059,10 @@ pub(crate) fn make_invoke_interface_method_handle(
         .get_t(reference_index)
         .ok_or(EvalError::InvalidConstantPoolIndex(reference_index))?;
 
-    let (nat_index, class_index) = match reference_value {
-        ConstantInfo::InterfaceMethodRef(method) => {
-            (method.name_and_type_index, method.class_index)
-        }
-        _ => panic!("MethodHandle constant info reference index was not an interface method ref"),
-    };
+    let (nat_index, class_index) = reference_filter(reference_value)?;
 
     let class = class_file.getr(class_index)?;
+
     // Get the name of the class/interface the method is on
     let target_class_id = {
         let target_class_name = class_file.getr_text_b(class.name_index)?;
@@ -1084,8 +1095,7 @@ pub(crate) fn make_invoke_interface_method_handle(
         &target_desc,
     )?;
 
-    let method_handle =
-        construct_method_handle(env, MethodHandleType::InvokeInterface(target_method_id))?;
+    let method_handle = construct_method_handle(env, make_mh_type(target_method_id))?;
 
     Ok(method_handle)
 }
@@ -1277,49 +1287,55 @@ pub(crate) fn mh_info(env: &mut Env, re: GcRef<MethodHandleInstance>) -> String 
                 return_ty
             )
         }
-        MethodHandleType::InvokeStatic(id) => {
-            let Some(method) = env.methods.get(&id) else {
-                return "MethodHandle(InvokeStatic(<Bad MethodId>))".to_string();
-            };
-
-            let class_id = method.id().decompose().0;
-            let desc = method.descriptor();
-            let name = env
-                .class_files
-                .get(&class_id)
-                .unwrap()
-                .get_text_t(method.name_index())
-                .unwrap();
-
-            format!(
-                "MethodHandle(InvokeStatic({}::{}, {}))",
-                env.class_names.tpath(class_id),
-                name,
-                desc.as_pretty_string(&env.class_names)
-            )
-        }
-        MethodHandleType::InvokeInterface(id) => {
-            let Some(method) = env.methods.get(&id) else {
-                return "MethodHandle(InvokeInterface(<Bad MethodId>))".to_string();
-            };
-
-            let class_id = method.id().decompose().0;
-            let desc = method.descriptor();
-            let name = env
-                .class_files
-                .get(&class_id)
-                .unwrap()
-                .get_text_t(method.name_index())
-                .unwrap();
-
-            format!(
-                "MethodHandle(InvokeInterface({}::{}, {}))",
-                env.class_names.tpath(class_id),
-                name,
-                desc.as_pretty_string(&env.class_names)
-            )
-        }
+        MethodHandleType::InvokeStatic(id) => mh_info_id(
+            &env.class_names,
+            &env.class_files,
+            &env.methods,
+            "InvokeStatic",
+            id,
+        ),
+        MethodHandleType::NewInvokeSpecial(id) => mh_info_id(
+            &env.class_names,
+            &env.class_files,
+            &env.methods,
+            "NewInvokeSpecial",
+            id,
+        ),
+        MethodHandleType::InvokeInterface(id) => mh_info_id(
+            &env.class_names,
+            &env.class_files,
+            &env.methods,
+            "InvokeInterface",
+            id,
+        ),
     }
+}
+fn mh_info_id(
+    class_names: &ClassNames,
+    class_files: &ClassFiles,
+    methods: &Methods,
+    text: &str,
+    method_id: ExactMethodId,
+) -> String {
+    let Some(method) = methods.get(&method_id) else {
+        return format!("MethodHandle({}(<Bad MethodId>))", text);
+    };
+
+    let class_id = method.id().decompose().0;
+    let desc = method.descriptor();
+    let name = class_files
+        .get(&class_id)
+        .unwrap()
+        .get_text_t(method.name_index())
+        .unwrap();
+
+    format!(
+        "MethodHandle({}({}::{}, {}))",
+        text,
+        class_names.tpath(class_id),
+        name,
+        desc.as_pretty_string(class_names)
+    )
 }
 
 pub(crate) fn ref_info<T>(env: &mut Env, re: GcRef<T>) -> String

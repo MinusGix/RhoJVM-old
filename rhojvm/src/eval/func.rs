@@ -1390,6 +1390,7 @@ impl RunInstContinue for InvokeDynamic {
 
                     call_site
                 }
+                MethodHandleType::NewInvokeSpecial(method_id) => todo!(),
                 MethodHandleType::InvokeInterface(method_id) => {
                     todo!()
                 }
@@ -1476,6 +1477,7 @@ impl RunInstContinue for InvokeDynamic {
                 tracing::info!("Finished static method");
                 res
             }
+            MethodHandleType::NewInvokeSpecial(inv_method_id) => todo!(),
             MethodHandleType::InvokeInterface(inv_method_id) => {
                 todo!()
             }

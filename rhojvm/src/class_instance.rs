@@ -315,6 +315,7 @@ pub enum MethodHandleType {
         return_ty: RuntimeType<ClassId>,
     },
     InvokeStatic(ExactMethodId),
+    NewInvokeSpecial(ExactMethodId),
     InvokeInterface(ExactMethodId),
 }
 impl MethodHandleType {
@@ -322,6 +323,7 @@ impl MethodHandleType {
         Some(match self {
             MethodHandleType::Constant { .. } => return None,
             MethodHandleType::InvokeStatic(_) => 6,
+            MethodHandleType::NewInvokeSpecial(_) => 8,
             MethodHandleType::InvokeInterface(_) => 9,
         })
     }

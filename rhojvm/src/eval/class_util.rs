@@ -49,6 +49,7 @@ pub fn get_init_method_type_from_mh(
         }
         // TODO: Do we need to initialize based on the id?
         MethodHandleType::InvokeStatic(method_id)
+        | MethodHandleType::NewInvokeSpecial(method_id)
         | MethodHandleType::InvokeInterface(method_id) => {
             env.methods.get(&method_id).unwrap().descriptor()
         }
