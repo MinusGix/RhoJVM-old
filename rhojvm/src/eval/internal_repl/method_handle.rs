@@ -334,6 +334,7 @@ pub(crate) extern "C" fn mh_inst_type(env: *mut Env<'_>, this: JObject) -> JObje
             make_method_type_ref_vec(env, return_ty_class, Vec::new())
         }
         MethodHandleType::InvokeStatic(method_id)
+        | MethodHandleType::InvokeSpecial(method_id)
         | MethodHandleType::NewInvokeSpecial(method_id)
         | MethodHandleType::InvokeInterface(method_id) => {
             let method = env.methods.get(method_id).unwrap();
@@ -343,16 +344,9 @@ pub(crate) extern "C" fn mh_inst_type(env: *mut Env<'_>, this: JObject) -> JObje
             // Get the `this` reference type if it is an instance method
             let self_ref: Option<GcRef<ReferenceInstance>> = match this_typ {
                 MethodHandleType::InvokeStatic(_) => None,
-                MethodHandleType::InvokeInterface(_) => {
-                    let re = make_type_class_form_of(env, Some(RuntimeType::Reference(class_id)))
-                        .unwrap();
-                    let Some(re) = env.state.extract_value(re) else {
-                        return JObject::null();
-                    };
-
-                    Some(re.into_generic())
-                }
-                MethodHandleType::NewInvokeSpecial(_) => {
+                MethodHandleType::InvokeInterface(_)
+                | MethodHandleType::InvokeSpecial(_)
+                | MethodHandleType::NewInvokeSpecial(_) => {
                     let re = make_type_class_form_of(env, Some(RuntimeType::Reference(class_id)))
                         .unwrap();
                     let Some(re) = env.state.extract_value(re) else {

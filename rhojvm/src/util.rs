@@ -956,7 +956,7 @@ pub(crate) fn make_method_handle(
         // invokeStatic
         6 => make_invoke_static_method_handle(env, class_id, *reference_index),
         // invokeSpecial
-        7 => todo!(),
+        7 => make_invoke_special_method_handle(env, class_id, *reference_index),
         // newInvokeSpecial
         8 => make_new_invoke_special_method_handle(env, class_id, *reference_index),
         // invokeInterface
@@ -990,6 +990,23 @@ pub(crate) fn make_invoke_static_method_handle(
             _ => panic!("MethodHandle constant info reference index was not a method ref"),
         },
         MethodHandleType::InvokeStatic,
+    )
+}
+
+pub(crate) fn make_invoke_special_method_handle(
+    env: &mut Env,
+    class_id: ClassId,
+    reference_index: ConstantPoolIndexRaw<ConstantInfo>,
+) -> Result<ValueException<GcRef<MethodHandleInstance>>, GeneralError> {
+    construct_method_handle_like(
+        env,
+        class_id,
+        reference_index,
+        |val| match val {
+            ConstantInfo::MethodRef(method) => Ok((method.name_and_type_index, method.class_index)),
+            _ => panic!("MethodHandle constant info reference index was not a method ref"),
+        },
+        MethodHandleType::InvokeSpecial,
     )
 }
 
@@ -1292,6 +1309,13 @@ pub(crate) fn mh_info(env: &mut Env, re: GcRef<MethodHandleInstance>) -> String 
             &env.class_files,
             &env.methods,
             "InvokeStatic",
+            id,
+        ),
+        MethodHandleType::InvokeSpecial(id) => mh_info_id(
+            &env.class_names,
+            &env.class_files,
+            &env.methods,
+            "InvokeSpecial",
             id,
         ),
         MethodHandleType::NewInvokeSpecial(id) => mh_info_id(
