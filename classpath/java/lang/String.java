@@ -580,6 +580,14 @@ public final class String implements java.io.Serializable, Comparable<String>, C
         }
     }
 
+    public String replace(CharSequence prev, CharSequence repl) {
+        if (prev.equals(repl)) {
+            return this;
+        }
+
+        return Pattern.compile(prev.toString(), Pattern.LITERAL).matcher(this).replaceAll(repl.toString());
+    }
+
     public boolean matches(String re) {
         return Pattern.matches(re, this);
     }
