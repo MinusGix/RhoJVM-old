@@ -159,7 +159,15 @@ public final class Integer extends Number implements Comparable<Integer> {
     
     // public static int number numberOfLeadingZeros(int value) {}
 
-    // public static int numberOfTrailingZeroes(int value) {}
+    public static int numberOfTrailingZeros(int value) {
+        int count = 0;
+        while ((value & 1) == 0) {
+            count++;
+            value >>= 1;
+        }
+
+        return count;
+    }
 
     // public static int reverse(int value) {}
 
