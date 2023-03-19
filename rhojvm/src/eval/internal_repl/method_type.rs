@@ -1,6 +1,7 @@
 use std::num::NonZeroUsize;
 
 use rhojvm_base::{
+    code::method::{DescriptorType, MethodDescriptor},
     data::{class_files::ClassFiles, class_names::ClassNames},
     util::Cesu8Str,
 };
@@ -120,6 +121,8 @@ pub(crate) fn method_type_to_desc_string(
     let return_ty = target.return_ty_ref(gc);
     let param_tys = target.param_tys_ref(gc);
 
+    // TODO: this code could convert it to descriptor types or something, so that we have a general purpose function for it rather than having multiple functions to convert back to descriptor strings.
+
     // TODO: Could we do this directly in utf16?
     let mut out = "(".to_string();
 
@@ -193,11 +196,16 @@ fn static_form_instance_to_desc(
             }
         }
         RuntimeTypeVoid::Reference(class_id) => {
-            let (name, _) = class_names.name_from_gcid(*class_id).unwrap();
+            let (name, info) = class_names.name_from_gcid(*class_id).unwrap();
 
-            out.push('L');
-            out.push_str(&format!("{}", Cesu8Str(name.get())));
-            out.push(';');
+            if info.is_array() {
+                // Arrays already have the L; in them
+                out.push_str(&format!("{}", Cesu8Str(name.get())));
+            } else {
+                out.push('L');
+                out.push_str(&format!("{}", Cesu8Str(name.get())));
+                out.push(';');
+            }
         }
     }
 }

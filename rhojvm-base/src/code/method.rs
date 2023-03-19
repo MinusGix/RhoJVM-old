@@ -279,11 +279,11 @@ impl DescriptorTypeBasic {
 
     /// Returns an iterator over the desc type
     /// Most of the returned strings are static, but class would have one that is owned by names
-    pub(crate) fn as_desc_iter(
+    pub(crate) fn as_desc_iter<'cn>(
         self,
-        class_names: &ClassNames,
+        class_names: &'cn ClassNames,
     ) -> Result<
-        Either<impl Iterator<Item = &'_ [u8]> + Clone, impl Iterator<Item = &'_ [u8]> + Clone>,
+        Either<impl Iterator<Item = &'cn [u8]> + Clone, impl Iterator<Item = &'cn [u8]> + Clone>,
         BadIdError,
     > {
         Ok(Either::Left(match self {
@@ -453,6 +453,23 @@ impl DescriptorType {
             }
         }
     }
+
+    #[must_use]
+    pub fn as_desc_iter<'cn>(
+        &self,
+        class_names: &'cn ClassNames,
+    ) -> Result<impl Iterator<Item = &'cn [u8]>, BadIdError> {
+        match self {
+            DescriptorType::Basic(basic) => Ok(Either::Left(basic.as_desc_iter(class_names)?)),
+            DescriptorType::Array { level, component } => {
+                let result = component.as_desc_iter(class_names)?;
+                let result = std::iter::repeat(b"[" as &[u8])
+                    .take(level.get())
+                    .chain(result);
+                Ok(Either::Right(result))
+            }
+        }
+    }
 }
 impl From<DescriptorTypeBasic> for DescriptorType {
     fn from(basic: DescriptorTypeBasic) -> Self {
@@ -566,6 +583,32 @@ impl MethodDescriptor {
         }
 
         result
+    }
+
+    #[must_use]
+    pub fn to_descriptor_text(&self, class_names: &mut ClassNames) -> Result<Vec<u8>, BadIdError> {
+        let mut result = Vec::new();
+
+        result.push(b'(');
+        for parameter in self.parameters.iter() {
+            let v = parameter.as_desc_iter(class_names)?;
+            for x in v {
+                result.extend_from_slice(x);
+            }
+        }
+
+        result.push(b')');
+
+        if let Some(return_type) = &self.return_type {
+            let v = return_type.as_desc_iter(class_names)?;
+            for x in v {
+                result.extend_from_slice(x);
+            }
+        } else {
+            result.push(b'V');
+        }
+
+        Ok(result)
     }
 
     /// Checks if the descriptor is strictly equal to an unparsed descriptor
