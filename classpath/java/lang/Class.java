@@ -213,9 +213,7 @@ public final class Class<T> implements AnnotatedElement, GenericDeclaration, Typ
         throw new UnsupportedOperationException("TODO: Implement this");
     }
 
-    public Class<? super T> getSuperclass() {
-        throw new UnsupportedOperationException("TODO: Implement this");
-    }
+    public native Class<? super T> getSuperclass();
 
     public String getTypeName() {
         throw new UnsupportedOperationException("TODO: Implement this");

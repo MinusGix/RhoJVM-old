@@ -852,6 +852,49 @@ pub(crate) extern "C" fn class_new_instance(env: *mut Env<'_>, this: JObject) ->
     unsafe { env.get_local_jobject_for(class_ref.into_generic()) }
 }
 
+pub(crate) extern "C" fn class_get_super_class(env: *mut Env<'_>, this: JObject) -> JObject {
+    assert!(!env.is_null());
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) }.unwrap();
+    let this = this.unchecked_as::<StaticFormInstance>();
+    let this_of = env.state.gc.deref(this).unwrap().of;
+    let Some(this_id) = this_of.into_reference() else {
+        // Primitive and Void Class<?> instances have no super class
+        return JObject::null();
+    };
+
+    if this_id == env.class_names.object_id() {
+        // Object has no super class
+        return JObject::null();
+    }
+
+    let class_file = env.class_files.get(&this_id).unwrap();
+
+    if class_file
+        .access_flags()
+        .contains(ClassAccessFlags::INTERFACE)
+    {
+        // Interfaces have no super class
+        return JObject::null();
+    }
+
+    let super_class_id = class_file.get_super_class_id(&mut env.class_names).unwrap();
+
+    if let Some(super_class_id) = super_class_id {
+        let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+        let super_class_form = make_class_form_of(env, class_class_id, super_class_id).unwrap();
+        let Some(super_class_form) = env.state.extract_value(super_class_form) else {
+            // Exception
+            return JObject::null();
+        };
+
+        unsafe { env.get_local_jobject_for(super_class_form.into_generic()) }
+    } else {
+        JObject::null()
+    }
+}
+
 // TODO: Cache created packages
 pub(crate) extern "C" fn class_get_package(env: *mut Env<'_>, this: JObject) -> JObject {
     assert!(!env.is_null(), "Env was null. Internal bug?");

@@ -136,6 +136,7 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             }
             b"Java_java_lang_Class_getName" => into_opaque2ret(class::class_get_name),
             b"Java_java_lang_Class_getSimpleName" => into_opaque2ret(class::class_get_simple_name),
+            b"Java_java_lang_Class_getSuperclass" => into_opaque2ret(class::class_get_super_class),
             b"Java_java_lang_Class_getPackage" => into_opaque2ret(class::class_get_package),
             b"Java_java_lang_Class_getFields" => into_opaque2ret(class::class_get_fields),
             b"Java_java_lang_Class_getField" => into_opaque3ret(class::class_get_field),

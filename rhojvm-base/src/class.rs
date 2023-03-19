@@ -243,7 +243,7 @@ impl ClassFileInfo {
         }
     }
 
-    pub(crate) fn get_super_class_id(
+    pub fn get_super_class_id(
         &self,
         class_names: &mut ClassNames,
     ) -> Result<Option<ClassId>, ClassFileIndexError> {
@@ -468,7 +468,7 @@ impl ClassFileData {
             .ok_or(ClassFileIndexError::InvalidSuperClassNameIndex)
     }
 
-    pub(crate) fn get_super_class_id(
+    pub fn get_super_class_id(
         &self,
         class_names: &mut ClassNames,
     ) -> Result<Option<ClassId>, ClassFileIndexError> {
@@ -704,7 +704,7 @@ impl AnonBasedClassFileData {
             .ok_or(ClassFileIndexError::InvalidSuperClassNameIndex)
     }
 
-    pub(crate) fn get_super_class_id(
+    pub fn get_super_class_id(
         &self,
         class_names: &mut ClassNames,
     ) -> Result<Option<ClassId>, ClassFileIndexError> {
