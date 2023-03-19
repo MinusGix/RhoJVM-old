@@ -326,7 +326,7 @@ impl MethodHandleType {
         })
     }
 }
-/// An instance of `rho/invoke/MainMethodHandle`
+/// An instance of `rho/invoke/MethodHandleInst`
 /// This is legal since by the official java docs, users cannot extend `MethodHandle` so we can
 /// strictly rely upon our own implementation.
 #[derive(Debug, Clone)]

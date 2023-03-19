@@ -1,14 +1,23 @@
+use std::num::NonZeroUsize;
+
 use rhojvm_base::{
     data::{class_files::ClassFiles, class_names::ClassNames},
     util::Cesu8Str,
 };
 
 use crate::{
-    class_instance::{ClassInstance, Field, FieldId, ReferenceArrayInstance, StaticFormInstance},
+    class_instance::{
+        ClassInstance, Field, FieldId, ReferenceArrayInstance, ReferenceInstance,
+        StaticFormInstance,
+    },
+    eval::{instances::make_instance_fields, ValueException},
+    exc_value,
     gc::{Gc, GcRef},
+    initialize_class,
     jni::JObject,
-    rv::{RuntimeTypePrimitive, RuntimeTypeVoid},
+    rv::{RuntimeTypePrimitive, RuntimeTypeVoid, RuntimeValue},
     util::{construct_string_r, find_field_with_name, Env},
+    GeneralError,
 };
 
 pub(crate) struct MethodTypeWrapper {
@@ -17,6 +26,24 @@ pub(crate) struct MethodTypeWrapper {
     pub param_tys_field: FieldId,
 }
 impl MethodTypeWrapper {
+    pub fn return_ty_field_id(class_names: &mut ClassNames, class_files: &ClassFiles) -> FieldId {
+        let mt_class_id = class_names.gcid_from_bytes(b"java/lang/invoke/MethodType");
+        let (return_ty_field_id, _) = find_field_with_name(class_files, mt_class_id, b"returnTy")
+            .unwrap()
+            .expect("Failed to find returnTy field in MethodType class");
+
+        return_ty_field_id
+    }
+
+    pub fn param_tys_field_id(class_names: &mut ClassNames, class_files: &ClassFiles) -> FieldId {
+        let mt_class_id = class_names.gcid_from_bytes(b"java/lang/invoke/MethodType");
+        let (param_tys_field_id, _) = find_field_with_name(class_files, mt_class_id, b"paramTys")
+            .unwrap()
+            .expect("Failed to find paramTys field in MethodType class");
+
+        param_tys_field_id
+    }
+
     pub fn from_ref(
         class_names: &mut ClassNames,
         class_files: &ClassFiles,
@@ -173,4 +200,55 @@ fn static_form_instance_to_desc(
             out.push(';');
         }
     }
+}
+
+/// Construct a `java/lang/invoke/MethodType` instance.  
+/// `return_ty` is the `Class<?>` return type. Should be `void.class` if it returns nothing.  
+/// `params` is a list of `Class<?>` parameters.
+pub(crate) fn make_method_type_ref_vec(
+    env: &mut Env,
+    return_ty: GcRef<StaticFormInstance>,
+    params: Vec<Option<GcRef<ReferenceInstance>>>,
+) -> Result<ValueException<GcRef<ReferenceInstance>>, GeneralError> {
+    let method_type_id = env
+        .class_names
+        .gcid_from_bytes(b"java/lang/invoke/MethodType");
+
+    let static_method_type = exc_value!(ret: initialize_class(env, method_type_id)?.into_value());
+
+    let mut method_type_fields = exc_value!(ret: make_instance_fields(env, method_type_id)?);
+
+    let return_ty_field_id =
+        MethodTypeWrapper::return_ty_field_id(&mut env.class_names, &env.class_files);
+    let param_tys_field_id =
+        MethodTypeWrapper::param_tys_field_id(&mut env.class_names, &env.class_files);
+
+    *method_type_fields
+        .get_mut(return_ty_field_id)
+        .unwrap()
+        .value_mut() = RuntimeValue::Reference(return_ty.into_generic());
+
+    let class_class_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+    let params_id = env
+        .class_names
+        .gcid_from_level_array_of_class_id(NonZeroUsize::new(1).unwrap(), class_class_id)
+        .unwrap();
+    let params = ReferenceArrayInstance::new(params_id, class_class_id, params);
+    let params_ref = env.state.gc.alloc(params);
+
+    *method_type_fields
+        .get_mut(param_tys_field_id)
+        .unwrap()
+        .value_mut() = RuntimeValue::Reference(params_ref.into_generic());
+
+    // TODO: this is skipping calling the constructor. The constructor does some extra verification that we should be doing. Either we should call the constructor or we should manually do the same verification.
+    let method_type_inst = ClassInstance {
+        instanceof: method_type_id,
+        static_ref: static_method_type,
+        fields: method_type_fields,
+    };
+
+    let method_type_ref = env.state.gc.alloc(method_type_inst);
+
+    Ok(ValueException::Value(method_type_ref.into_generic()))
 }

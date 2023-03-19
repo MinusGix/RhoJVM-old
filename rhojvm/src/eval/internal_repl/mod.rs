@@ -195,6 +195,10 @@ pub(crate) fn find_internal_rho_native_method(name: &[u8]) -> Option<OpaqueClass
             b"Java_java_lang_invoke_MethodType_toMethodDescriptorString" => {
                 into_opaque2ret(method_type::mt_to_method_descriptor_string)
             }
+            // rho/invoke/MethodHandleInst
+            b"Java_rho_invoke_MethodHandleInst_type" => {
+                into_opaque2ret(method_handle::mh_inst_type)
+            }
             // rho/invoke/MethodHandleInfoInst
             b"Java_rho_invoke_MethodHandleInfoInst_getDeclaringClass" => {
                 into_opaque2ret(method_handle_info::mh_info_get_declaring_class)

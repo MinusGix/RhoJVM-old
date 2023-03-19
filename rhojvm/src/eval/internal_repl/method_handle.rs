@@ -12,7 +12,9 @@ use crate::{
     eval::{
         eval_method,
         instances::make_instance_fields,
-        internal_repl::method_type::{method_type_to_desc_string, MethodTypeWrapper},
+        internal_repl::method_type::{
+            make_method_type_ref_vec, method_type_to_desc_string, MethodTypeWrapper,
+        },
         EvalMethodValue, Frame, Locals,
     },
     gc::{Gc, GcRef},
@@ -22,7 +24,7 @@ use crate::{
     rv::{RuntimeType, RuntimeTypeVoid, RuntimeValue},
     util::{
         construct_method_handle, find_field_with_name, get_string_contents_as_rust_string,
-        make_class_form_of, Env,
+        make_class_form_of, make_type_class_form_of, Env,
     },
 };
 
@@ -309,4 +311,75 @@ pub(crate) extern "C" fn mhs_constant(
     };
 
     unsafe { env.get_local_jobject_for(mh.into_generic()) }
+}
+
+pub(crate) extern "C" fn mh_inst_type(env: *mut Env<'_>, this: JObject) -> JObject {
+    assert!(!env.is_null());
+
+    let env = unsafe { &mut *env };
+
+    let this = unsafe { env.get_jobject_as_gcref(this) }.unwrap();
+    let this: GcRef<MethodHandleInstance> = this.unchecked_as();
+
+    let this = env.state.gc.deref(this).unwrap();
+    let this_typ = &this.typ;
+
+    let method_type = match this_typ {
+        MethodHandleType::Constant { return_ty, .. } => {
+            // Convert the RuntimeType instance into a Class<?>
+            let return_ty_class = make_type_class_form_of(env, Some(*return_ty)).unwrap();
+            let Some(return_ty_class) = env.state.extract_value(return_ty_class) else {
+                return JObject::null();
+            };
+            make_method_type_ref_vec(env, return_ty_class, Vec::new())
+        }
+        MethodHandleType::InvokeStatic(method_id)
+        | MethodHandleType::InvokeInterface(method_id) => {
+            let method = env.methods.get(method_id).unwrap();
+            let (class_id, _) = method_id.decompose();
+            // TODO: don't clone
+            let desc = method.descriptor().clone();
+            // Get the `this` reference type if it is an instance method
+            let self_ref: Option<GcRef<ReferenceInstance>> = match this_typ {
+                MethodHandleType::InvokeStatic(_) => None,
+                MethodHandleType::InvokeInterface(_) => {
+                    let re = make_type_class_form_of(env, Some(RuntimeType::Reference(class_id)))
+                        .unwrap();
+                    let Some(re) = env.state.extract_value(re) else {
+                        return JObject::null();
+                    };
+
+                    Some(re.into_generic())
+                }
+                MethodHandleType::Constant { .. } => unreachable!(),
+            };
+
+            let return_ty = desc
+                .return_type()
+                .map(|ty| RuntimeType::from_descriptor_type(&mut env.class_names, *ty).unwrap());
+            let return_ty_class = make_type_class_form_of(env, return_ty).unwrap();
+            let Some(return_ty_class) = env.state.extract_value(return_ty_class) else {
+                return JObject::null();
+            };
+
+            let params_ty = desc.parameters().iter().map(|ty| {
+                let ty = RuntimeType::from_descriptor_type(&mut env.class_names, *ty).unwrap();
+                let ty = make_type_class_form_of(env, Some(ty)).unwrap();
+                let Some(ty) = env.state.extract_value(ty) else {
+                        todo!("handle this appropriately")
+                    };
+                ty.into_generic()
+            });
+            let params_ty = self_ref.into_iter().chain(params_ty).map(Some).collect();
+
+            make_method_type_ref_vec(env, return_ty_class, params_ty)
+        }
+    }
+    .unwrap();
+
+    let Some(method_type) = env.state.extract_value(method_type) else {
+        return JObject::null();
+    };
+
+    unsafe { env.get_local_jobject_for(method_type.into_generic()) }
 }

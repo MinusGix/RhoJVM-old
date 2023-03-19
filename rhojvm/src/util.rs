@@ -688,6 +688,58 @@ pub(crate) fn state_target_primitive_field(
     }
 }
 
+pub(crate) fn make_type_class_form_of(
+    env: &mut Env,
+    typ: Option<RuntimeType<ClassId>>,
+) -> Result<ValueException<GcRef<StaticFormInstance>>, GeneralError> {
+    let rv = typ
+        .map(RuntimeTypeVoid::from)
+        .unwrap_or(RuntimeTypeVoid::Void);
+
+    // Get the primitive entry from the cache, if we can
+    if let Some(val) = rv.into_primitive_opt() {
+        if let Some(re) = *state_target_primitive_field(&mut env.state, val) {
+            return Ok(ValueException::Value(re));
+        }
+    }
+
+    let class_form_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
+
+    let class_form_ref = initialize_class(env, class_form_id)?.into_value();
+    let class_form_ref = exc_value!(ret: class_form_ref);
+
+    let fields = make_instance_fields(env, class_form_id)?;
+    let fields = exc_value!(ret: fields);
+
+    // new does not run a constructor, it only initializes it
+    let inner_class = ClassInstance {
+        instanceof: class_form_id,
+        static_ref: class_form_ref,
+        fields,
+    };
+
+    let static_form = StaticFormInstance::new(inner_class, rv, None);
+    let static_form_ref = env.state.gc.alloc(static_form);
+
+    if let Some(val) = rv.into_primitive_opt() {
+        let storage_field = state_target_primitive_field(&mut env.state, val);
+        if let Some(re) = *storage_field {
+            // We somehow loaded it while we were loading it. That's a potential cause
+            // for circularity bugs if it occurs, but if we got here then we presumably
+            // managed to avoid it
+            // However, since we already got it, we just return the stored reference
+            // since that is the valid one.
+            Ok(ValueException::Value(re))
+        } else {
+            // Otherwise cache it
+            *storage_field = Some(static_form_ref);
+            Ok(ValueException::Value(static_form_ref))
+        }
+    } else {
+        Ok(ValueException::Value(static_form_ref))
+    }
+}
+
 /// Make a Class<T> for a primitive type, the value being cached
 /// `None` represents void
 pub(crate) fn make_primitive_class_form_of(
@@ -703,18 +755,6 @@ pub(crate) fn make_primitive_class_form_of(
     }
 
     let class_form_id = env.class_names.gcid_from_bytes(b"java/lang/Class");
-
-    // Where are we resolving it from?
-    // resolve_derive(
-    //     &mut env.class_names,
-    //     &mut env.class_files,
-    //     &mut env.classes,
-    //     &mut env.packages,
-    //     &mut env.methods,
-    //     &mut env.state,
-    //     class_form_id,
-    //     from_class_id,
-    // )?;
 
     let class_form_ref = initialize_class(env, class_form_id)?.into_value();
     let class_form_ref = match class_form_ref {

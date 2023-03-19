@@ -459,6 +459,24 @@ impl<REF> RuntimeTypeVoid<REF> {
             RuntimeTypeVoid::Reference(re) => Some(re),
         }
     }
+
+    #[must_use]
+    pub fn into_primitive_opt(self) -> Option<Option<RuntimeTypePrimitive>> {
+        match self {
+            RuntimeTypeVoid::Primitive(p) => Some(Some(p)),
+            RuntimeTypeVoid::Void => Some(None),
+            RuntimeTypeVoid::Reference(_) => None,
+        }
+    }
+}
+impl<REF> From<Option<RuntimeType<REF>>> for RuntimeTypeVoid<REF> {
+    fn from(v: Option<RuntimeType<REF>>) -> Self {
+        match v {
+            Some(RuntimeType::Primitive(prim)) => RuntimeTypeVoid::Primitive(prim),
+            Some(RuntimeType::Reference(v)) => RuntimeTypeVoid::Reference(v),
+            None => RuntimeTypeVoid::Void,
+        }
+    }
 }
 impl<REF> From<RuntimeType<REF>> for RuntimeTypeVoid<REF> {
     fn from(v: RuntimeType<REF>) -> Self {
