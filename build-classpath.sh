@@ -21,7 +21,7 @@ JFILES="$JFILES ./java/lang/ref/Reference.java"
 JFILES="$JFILES ./java/security/AccessController.java"
 
 # java/util
-JFILES="$JFILES ./java/util/EnumMap.java"
+JFILES="$JFILES ./java/util/EnumMap.java ./java/util/EnumSet.java"
 
 # java/nio/
 JFILES="$JFILES ./java/nio/channels/spi/AbstractInterruptibleChannel.java"
@@ -39,7 +39,7 @@ JFILES="$JFILES ./rho/SystemClassLoader.java ./rho/StringConversion.java ./rho/I
 JFILES="$JFILES ./rho/invoke/MethodHandleInst.java ./rho/invoke/MethodHandleInfoInst.java ./rho/invoke/MainMethodHandle.java"
 
 # rho/util/
-JFILES="$JFILES ./rho/util/EmptyEnumeration.java ./rho/util/SingleEnumeration.java ./rho/util/Log.java"
+JFILES="$JFILES ./rho/util/EmptyEnumeration.java ./rho/util/SingleEnumeration.java ./rho/util/Log.java ./rho/util/EnumSetInst.java"
 
 echo $JFILES
 # Compile them all
