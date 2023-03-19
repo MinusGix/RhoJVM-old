@@ -915,6 +915,14 @@ pub fn eval_method(
             let fourth = method.descriptor().parameters()[3];
             match (first, second, third, fourth) {
                 (
+                    DescriptorType::Basic(DescriptorTypeBasic::Float),
+                    DescriptorType::Basic(DescriptorTypeBasic::Float),
+                    DescriptorType::Basic(DescriptorTypeBasic::Float),
+                    DescriptorType::Basic(DescriptorTypeBasic::Float),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JFloat, param2: JFloat, param3: JFloat, param4: JFloat));
+                }
+                (
                     DescriptorType::Array { .. }
                     | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
                     DescriptorType::Basic(DescriptorTypeBasic::Int),
@@ -959,6 +967,15 @@ pub fn eval_method(
                     DescriptorType::Basic(DescriptorTypeBasic::Int),
                 ) => {
                     impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JObject, param3: JInt, param4: JInt));
+                }
+                (
+                    DescriptorType::Array { .. }
+                    | DescriptorType::Basic(DescriptorTypeBasic::Class(_)),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                    DescriptorType::Basic(DescriptorTypeBasic::Int),
+                ) => {
+                    impl_call_native_method!(env, frame, class_id, method, native_func; (param1: JObject, param2: JInt, param3: JInt, param4: JInt));
                 }
                 _ => todo!("Fully implement four parameter native methods: {first:?}, {second:?}, {third:?}, {fourth:?}"),
             }
